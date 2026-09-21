@@ -36,10 +36,21 @@ class Evidence(BaseModel):
     stderr_sha256: str
 
 
+class Severity(str, Enum):
+    INFO = "info"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
 class Finding(BaseModel):
     title: str
-    severity: str = "info"
+    severity: Severity = Severity.INFO
     detail: str = ""
+    # "ai": produced by `pownforge analyze` from unverified LLM output — never
+    # a confirmed vulnerability. "manual": entered/reviewed by a human.
+    source: str = "manual"
 
 
 class RunRecord(BaseModel):

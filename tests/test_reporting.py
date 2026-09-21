@@ -25,9 +25,27 @@ def test_render_without_findings_or_analysis_shows_placeholders() -> None:
 
 
 def test_render_with_findings_lists_them() -> None:
-    record = _record(findings=[Finding(title="Open port 3000", severity="medium", detail="ppp?")])
+    record = _record(
+        findings=[
+            Finding(title="Open port 3000", severity="medium", detail="ppp?", source="ai"),
+            Finding(title="Manual note", severity="low", detail="checked by hand"),
+        ]
+    )
     output = render(record)
-    assert "**[medium]** Open port 3000 — ppp?" in output
+    assert "**[medium]** (AI推定・要確認) Open port 3000 — ppp?" in output
+    assert "**[low]** (manual) Manual note — checked by hand" in output
+
+
+def test_render_orders_findings_by_severity_desc() -> None:
+    record = _record(
+        findings=[
+            Finding(title="low one", severity="low"),
+            Finding(title="critical one", severity="critical"),
+            Finding(title="info one", severity="info"),
+        ]
+    )
+    output = render(record)
+    assert output.index("critical one") < output.index("low one") < output.index("info one")
 
 
 def test_render_with_analysis_shows_text_not_placeholder() -> None:

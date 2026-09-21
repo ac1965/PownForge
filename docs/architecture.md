@@ -18,6 +18,11 @@ CLI (Typer)
 
 - **AIに直接スキャンを任せない**: `ai/` はすでに保存された結果を要約・分析するだけで、
   スキャン対象や実行コマンドを決定する権限を持ちません。
+- **AI推定は確定した脆弱性として扱わない**: `pownforge analyze` がLLMの応答から
+  生成する`Finding`は常に`source="ai"`を持ち、レポート上でも「AI推定・要確認」と
+  明記されます。`severity`はLLMの自由記述ではなく固定のenum(`info/low/medium/
+  high/critical`)で検証し、想定外の値は`info`にフォールバックしてタイトル・詳細は
+  保持します（1件の逸脱で応答全体を捨てない）。
 - **スコープはコードで強制する**: `pownforge scan` は `config/targets.yaml` に
   登録された対象名でしか実行できません。任意のホスト名・URLを直接引数に取りません。
   `pownforge lab add` も最終的に同じ `ScopePolicy.add_target()` を通ります。
@@ -39,9 +44,6 @@ CLI (Typer)
 
 ## 今後の拡張
 
-- 重大度判定・脆弱性分類の自動化（`Finding`モデルは定義済みだが、現状は常に空リスト）
-- `pownforge analyze` の出力が `RunRecord` / レポートに永続化されない点の解消
-  （現状は標準出力に表示するのみで、`report generate` の "No findings" 表示は
-  analyze実行後も変わらない）
+- Target modelの`type`/`environment`拡張（web/api/k8s/実案件の区別が必要になった時点で）
 - Kubernetes/クラウド構成診断プラグイン
 - Emacs連携（`pownforge.el`）

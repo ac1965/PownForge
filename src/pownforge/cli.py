@@ -6,7 +6,7 @@ from typing import Optional
 
 import typer
 
-from pownforge.ai.ollama import OllamaAdapter, OllamaError
+from pownforge.ai.ollama import OllamaAdapter, OllamaError, parse_analysis_response
 from pownforge.core.lab import LAB_NETWORK, LabError, LabManager
 from pownforge.core.models import Target, TargetKind
 from pownforge.core.policy import PolicyError, ScopePolicy
@@ -314,7 +314,7 @@ def analyze(
     ),
     workdir: Path = typer.Option(DEFAULT_WORKDIR),
 ) -> None:
-    """Ask the local LLM router to draft an analysis of a run's findings."""
+    """Ask the local LLM router to classify findings and draft a summary for a run."""
     store = _store(workdir)
     try:
         record = store.load(run_id)
@@ -325,20 +325,37 @@ def analyze(
     adapter = OllamaAdapter(model=model)
     prompt = (
         "You are assisting a human penetration tester in reviewing raw tool output. "
-        "Summarize findings, call out anything worth manual follow-up, and flag likely false "
-        "positives. Do not claim confirmed vulnerabilities from output alone.\n\n"
+        "Respond with ONLY a single JSON object (no prose, no markdown code fences) matching "
+        'this schema: {"summary": "<2-4 sentence plain-language summary>", "findings": '
+        '[{"title": "<short title>", "severity": "<one of: info, low, medium, high, critical>", '
+        '"detail": "<1-2 sentence explanation>"}]}. Only include findings you can support '
+        "directly from the raw output below; return an empty findings list if nothing stands "
+        "out. Phrase every finding as something worth a human reviewing, never as a confirmed "
+        "vulnerability.\n\n"
         f"Target: {record.target}\nPlugin: {record.plugin}\n\n"
         f"Raw output:\n{record.output.get('raw_stdout', '')}"
     )
     try:
-        analysis = adapter.analyze(prompt)
+        response = adapter.analyze(prompt)
     except OllamaError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
-    record.analysis = analysis
+    result = parse_analysis_response(response)
+    if not result.parsed:
+        typer.echo(
+            "warning: LLM response was not valid JSON; storing it as the summary text only "
+            "(no structured findings extracted)",
+            err=True,
+        )
+
+    record.analysis = result.summary
+    record.findings = result.findings
     store.save(record)
-    typer.echo(analysis)
+
+    typer.echo(result.summary)
+    for finding in result.findings:
+        typer.echo(f"- [{finding.severity.value}] {finding.title} — {finding.detail}")
 
 
 if __name__ == "__main__":

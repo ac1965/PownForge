@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-from pownforge.core.models import RunRecord
+from pownforge.core.models import RunRecord, Severity
+
+_SEVERITY_ORDER = {
+    Severity.CRITICAL: 0,
+    Severity.HIGH: 1,
+    Severity.MEDIUM: 2,
+    Severity.LOW: 3,
+    Severity.INFO: 4,
+}
 
 
 def render(record: RunRecord) -> str:
@@ -19,8 +27,12 @@ def render(record: RunRecord) -> str:
         "",
     ]
     if record.findings:
-        for finding in record.findings:
-            lines.append(f"- **[{finding.severity}]** {finding.title} — {finding.detail}")
+        ordered = sorted(record.findings, key=lambda f: _SEVERITY_ORDER[f.severity])
+        for finding in ordered:
+            tag = "AI推定・要確認" if finding.source == "ai" else "manual"
+            lines.append(
+                f"- **[{finding.severity.value}]** ({tag}) {finding.title} — {finding.detail}"
+            )
     else:
         lines.append("_No findings recorded yet._")
 
