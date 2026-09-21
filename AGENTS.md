@@ -48,13 +48,26 @@ pytest
 
 - コミットはユーザーから明示的に依頼されたときのみ作成する
 - 1コミット1関心事を基本とする（機能追加・バグ修正・リファクタリングを混在させない）
-- コミットメッセージは以下の慣習に従う：
-  - 先頭行は50文字程度の要約。動詞から始める（例: `Add network plugin`, `Fix scope validation for empty allowed_plugins`）
-  - 本文が必要な場合は空行を挟み、「何を」ではなく「なぜ」を書く
-  - 破壊的変更や既存の証跡フォーマットに影響する変更は、本文にその旨を明記する
 - `git push --force`、`git reset --hard`、コミットの `--amend` はユーザーが明示的に指示した場合のみ行う
 - pre-commit相当のチェック（lint/test）が失敗した場合、`--no-verify` で回避せず原因を修正してから再コミットする
 - 秘密情報（APIキー、認証情報、実在の対象の個人情報等）を含む可能性のあるファイルはコミットに含めない
+
+### コミットメッセージ規約
+
+- 日本語で記述する
+- 1行目は Conventional Commits 風に `type(scope): 要約` の形式にする
+  - 例:
+    - `feat(scripts): rbac_audit.py にトークン昇格チェーン検出を追加`
+    - `fix(kind): calico rollout の CRD 競合状態を修正`
+    - `docs(agents): 攻撃チェーン検出の設計方針を追記`
+    - `chore(gitignore): __pycache__ を除外`
+  - `type` は `feat`（機能追加）/ `fix`（不具合修正）/ `docs`（ドキュメント）/
+    `chore`（雑務・設定変更）/ `refactor`（挙動を変えないコード整理）などから選ぶ
+  - `scope` はディレクトリ名や機能名を使う（例: `scripts`, `docker`, `kind`, `manifests`,
+    `agents`, `core`, `plugins`, `cli`, `evidence` など）
+- 本文（任意）は `- ` の箇条書きで変更点を列挙する。詳細な経緯や検証結果を
+  書く場合もこの形式に合わせる
+- 破壊的変更や既存の証跡フォーマットに影響する変更は、本文の箇条書きにその旨を明記する
 
 ## ディレクトリ構成の概要
 
