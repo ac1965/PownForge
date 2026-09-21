@@ -36,6 +36,20 @@ def test_authorize_rejects_disallowed_plugin() -> None:
         policy.authorize("lab-net", "web")
 
 
+def test_remove_target() -> None:
+    policy = ScopePolicy(targets={})
+    policy.add_target(Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1"))
+    policy.remove_target("lab")
+    with pytest.raises(PolicyError):
+        policy.resolve("lab")
+
+
+def test_remove_unknown_target_raises() -> None:
+    policy = ScopePolicy(targets={})
+    with pytest.raises(PolicyError):
+        policy.remove_target("nope")
+
+
 def test_save_and_load_roundtrip(tmp_path: Path) -> None:
     config = tmp_path / "targets.yaml"
     policy = ScopePolicy(targets={})

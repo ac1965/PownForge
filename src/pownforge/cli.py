@@ -7,6 +7,7 @@ from typing import Optional
 import typer
 
 from pownforge.ai.ollama import OllamaAdapter, OllamaError
+from pownforge.core.lab import LAB_NETWORK, LabError, LabManager
 from pownforge.core.models import Target, TargetKind
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.core.registry import default_registry
@@ -21,12 +22,14 @@ plugin_app = typer.Typer(help="Inspect available plugins.")
 scan_app = typer.Typer(help="Run a plugin against a registered target.")
 result_app = typer.Typer(help="Inspect past scan runs.")
 report_app = typer.Typer(help="Generate Markdown reports from a run.")
+lab_app = typer.Typer(help="Start/stop attack-target containers on an isolated lab network.")
 
 app.add_typer(target_app, name="target")
 app.add_typer(plugin_app, name="plugin")
 app.add_typer(scan_app, name="scan")
 app.add_typer(result_app, name="result")
 app.add_typer(report_app, name="report")
+app.add_typer(lab_app, name="lab")
 
 DEFAULT_CONFIG = Path(os.environ.get("POWNFORGE_CONFIG", "config/targets.yaml"))
 DEFAULT_WORKDIR = Path(os.environ.get("POWNFORGE_HOME", ".pownforge"))
@@ -193,6 +196,113 @@ def report_generate(run_id: str, workdir: Path = typer.Option(DEFAULT_WORKDIR)) 
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(markdown.render(record))
     typer.echo(f"wrote {report_path}")
+
+
+@lab_app.command("add")
+def lab_add(
+    name: str,
+    image: str = typer.Option(..., help="Container image to run as the attack-target host."),
+    env: list[str] = typer.Option([], "--env", help="Container env var, key=value, may repeat."),
+    kind: TargetKind = typer.Option(
+        TargetKind.HOST, "--kind", help="Registered target kind: host (nmap) or url (web/api plugins)."
+    ),
+    port: Optional[int] = typer.Option(
+        None, "--port", help="Container port; builds http(s)://<name>:<port> when --kind url."
+    ),
+    scheme: str = typer.Option("http", "--scheme", help="URL scheme to use when --kind url."),
+    allowed_plugins: str = typer.Option(
+        "", help="Comma-separated plugin names allowed for the auto-registered target; empty = all."
+    ),
+    register: bool = typer.Option(
+        True, help="Also register the container as an authorized scan target."
+    ),
+    network: str = typer.Option(LAB_NETWORK, help="Isolated Docker network to attach to."),
+    config: Path = typer.Option(DEFAULT_CONFIG),
+) -> None:
+    """Start an attack-target container on the isolated lab network."""
+    env_map: dict[str, str] = {}
+    for item in env:
+        if "=" not in item:
+            typer.echo(f"error: --env must be key=value, got '{item}'", err=True)
+            raise typer.Exit(code=1)
+        key, value = item.split("=", 1)
+        env_map[key] = value
+
+    if kind == TargetKind.URL and port is None:
+        typer.echo("error: --port is required when --kind url is used", err=True)
+        raise typer.Exit(code=1)
+
+    manager = LabManager(network=network)
+    try:
+        host = manager.add(name, image, env_map)
+    except LabError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"started lab host '{host.name}' ({host.image}) on network '{network}'")
+
+    if not register:
+        return
+    policy = _policy(config)
+    plugins = [p.strip() for p in allowed_plugins.split(",") if p.strip()]
+    address = f"{scheme}://{name}:{port}" if kind == TargetKind.URL else name
+    target = Target(
+        name=name,
+        kind=kind,
+        address=address,
+        allowed_plugins=plugins,
+        notes=f"lab container on isolated docker network '{network}'",
+    )
+    try:
+        policy.add_target(target)
+    except PolicyError as exc:
+        typer.echo(f"warning: container started but target registration failed: {exc}", err=True)
+        return
+    policy.save(config)
+    typer.echo(f"registered target '{name}' -> {address} (resolves via docker DNS on '{network}')")
+
+
+@lab_app.command("remove")
+def lab_remove(
+    name: str,
+    purge: bool = typer.Option(False, help="Also remove the registered scan target."),
+    network: str = typer.Option(LAB_NETWORK),
+    config: Path = typer.Option(DEFAULT_CONFIG),
+) -> None:
+    """Stop and remove an attack-target container."""
+    manager = LabManager(network=network)
+    try:
+        manager.remove(name)
+    except LabError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"removed lab host '{name}'")
+
+    if not purge:
+        return
+    policy = _policy(config)
+    try:
+        policy.remove_target(name)
+    except PolicyError as exc:
+        typer.echo(f"warning: {exc}", err=True)
+        return
+    policy.save(config)
+    typer.echo(f"removed target '{name}' from scope")
+
+
+@lab_app.command("list")
+def lab_list(network: str = typer.Option(LAB_NETWORK)) -> None:
+    """List attack-target containers on the lab network."""
+    manager = LabManager(network=network)
+    try:
+        hosts = manager.list()
+    except LabError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if not hosts:
+        typer.echo("no lab hosts running; use `pownforge lab add`")
+        raise typer.Exit()
+    for host in hosts:
+        typer.echo(f"{host.name}\t{host.image}\t{host.status}")
 
 
 @app.command()

@@ -44,6 +44,12 @@ class ScopePolicy:
     def list_targets(self) -> list[Target]:
         return list(self._targets.values())
 
+    def remove_target(self, name: str) -> None:
+        try:
+            del self._targets[name]
+        except KeyError as exc:
+            raise PolicyError(f"target '{name}' is not registered") from exc
+
     def resolve(self, name: str) -> Target:
         try:
             return self._targets[name]

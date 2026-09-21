@@ -13,6 +13,9 @@
 | `pownforge result show <run-id>` | 実行結果の詳細（JSON） |
 | `pownforge report generate <run-id>` | Markdownレポートを `.pownforge/reports/` に生成 |
 | `pownforge analyze <run-id>` | ローカルLLMによる分析草案を出力 |
+| `pownforge lab add <name> --image <image> [--env k=v ...] [--allowed-plugins a,b] [--no-register]` | 隔離ネットワーク上に攻撃対象ホストを起動し、既定でスコープにも登録 |
+| `pownforge lab list` | 稼働中/停止中のラボホスト一覧 |
+| `pownforge lab remove <name> [--purge]` | ラボホストを停止・削除（`--purge` でスコープからも削除） |
 
 すべてのコマンドは `--config`（既定: `config/targets.yaml`）と
 `--workdir` / `POWNFORGE_HOME`（既定: `.pownforge/`）で保存先を変更できます。

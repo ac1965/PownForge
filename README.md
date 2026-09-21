@@ -44,6 +44,13 @@ pownforge report generate <run-id>
 pownforge analyze <run-id>
 ```
 
+## ラボ環境（攻撃対象ホストの動的追加）
+
+`pownforge lab add/list/remove` で、隔離されたDockerネットワーク上に
+攻撃対象ホストを動的に起動・停止できます。詳細は [docs/lab.md](docs/lab.md) を
+参照してください。OWASP Juice Shopに対する実スキャンでの検証記録は
+[docs/walkthrough.md](docs/walkthrough.md) を参照してください。
+
 ## アーキテクチャ
 
 設計の詳細は [docs/architecture.md](docs/architecture.md) と [docs/cli-contract.md](docs/cli-contract.md) を参照してください。
@@ -62,6 +69,7 @@ make test
 - CLI基盤（Typer）
 - 対象管理・スコープ検証（`core/policy.py`）
 - プラグインレジストリと `network`（nmap）/ `web`（ffuf）の最小実装
+- 隔離Dockerネットワーク上への攻撃対象ホストの動的追加（`pownforge lab`）
 - 実行証跡（コマンド・タイムスタンプ・SHA-256ハッシュ）の保存
 - Markdownレポート生成
 - ローカルLLM（Ollama）分析アダプタ

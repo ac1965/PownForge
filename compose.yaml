@@ -3,10 +3,21 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.runtime
+    # archlinux:base has no arm64 manifest; force amd64 (QEMU-emulated on
+    # Apple Silicon hosts) so the build resolves everywhere consistently.
+    platform: linux/amd64
     volumes:
       - ./config:/app/config
       - ./.pownforge:/app/.pownforge
     working_dir: /app
-    # 検証用の意図的に脆弱なラボ環境を使う場合は、ここに自分の
-    # イメージを指す独立したサービスを追加してください。
-    # このリポジトリにはラボイメージは含まれていません。
+    networks:
+      - pownforge-lab
+
+networks:
+  pownforge-lab:
+    # `pownforge lab add` が `docker network create --internal` で作成する
+    # 隔離ネットワークです。compose 側では作成せず既存のものを参照します。
+    # 先に `pownforge lab add <name> --image <image>` を一度実行してから
+    # `docker compose up` / `docker compose run` してください。
+    external: true
+    name: pownforge-lab
