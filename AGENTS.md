@@ -31,15 +31,15 @@ pytest
 
 - CLI: Typer
 - データモデル・入力検証: Pydantic
-- 外部ツール呼び出しは `plugins/` 配下のプラグインに閉じ込め、`cli.py` や `core/` から直接 `subprocess` を呼ばない
-- プラグインは「対象の検証 → コマンド実行 → 出力正規化」の順で責務を分離し、独自形式で証跡を保存しない（`evidence/` 経由にする）
+- 外部ツール（nmap/ffuf/docker/llm等）の**コマンド組み立て**は `plugins/` のプラグイン（`build_command`）または `core/lab.py` の `LabManager` に閉じ込める。**実際に `subprocess` を実行するのは** `core/runner.py`（`ScanRunner`）・`core/lab.py`（`LabManager`）・`ai/ollama.py` に限定し、証跡記録（タイムスタンプ・ハッシュ・タイムアウト）をそこに集約する。`cli.py` から直接 `subprocess` を呼ばない
+- プラグインは「（`ScanRunner`がスコープ検証済みのTargetを渡す）→ `build_command` → `normalize`」の順で責務を分離する。中間出力（nmapのXML、ffufのJSON等）を一時ファイルに書いてもよいが、`normalize` 内で読み込み次第削除し、最終的な証跡は `evidence/`（`EvidenceStore`）経由でのみ永続化する
 - 新しい外部ツールを追加する場合は `plugins/base.py` の `Plugin` を実装する
 - コメントは自明でない理由（WHY）がある場合のみ、最小限で記述する
 
 ## セキュリティ・スコープ上の制約（重要）
 
 - `config/targets.yaml` に登録されていない対象へスキャンを実行するコードを書かない・提案しない
-- `pownforge target add` 以外の経路で対象を追加するショートカットを作らない（スコープ検証を迂回する変更を提案しない）
+- 対象を登録できるコマンドは `pownforge target add` と `pownforge lab add`（既定で自動登録、`--no-register` で無効化可）に限定する。両方とも最終的に `ScopePolicy.add_target()` を通るため、これ以外の独自の登録経路（`targets.yaml` への直接書き込みなど、`ScopePolicy` を経由しない変更）を追加しない
 - テスト・ローカル検証は `127.0.0.1` や自分のラボ環境など、明示的に許可された対象のみに対して行う
 - `core/policy.py` のスコープ検証ロジックを弱める変更（対象名チェックの無効化、`allowed_plugins` の無視など）は、ユーザーに明示的に確認を取ってから行う
 - スキャン範囲を自動的に拡大する機能（対象リストの自動探索・自動追加など）を、ユーザーの明示的な依頼なしに実装しない
@@ -73,10 +73,13 @@ pytest
 ## ディレクトリ構成の概要
 
 - `src/pownforge/cli.py`: Typerエントリポイント
-- `src/pownforge/core/`: モデル・スコープポリシー・実行エンジン・プラグインレジストリ
+- `src/pownforge/core/`: モデル・スコープポリシー・実行エンジン・プラグインレジストリ・ラボネットワーク管理（`lab.py`）
 - `src/pownforge/plugins/`: 個別ツール（nmap, ffuf 等）のプラグイン実装
 - `src/pownforge/evidence/`: 実行証跡（コマンド・タイムスタンプ・ハッシュ）の保存
 - `src/pownforge/reporting/`: Markdownレポート生成
 - `src/pownforge/ai/`: ローカルLLM（Ollama経由）による分析アダプタ
 - `config/targets.yaml`: 登録済みの許可対象（バージョン管理する）
+- `config/wordlists/`: ffuf等で使う動作確認用ワードリスト
+- `docs/lab.md`: ラボネットワーク機能（`pownforge lab`）の使い方
+- `docs/walkthrough.md`: 実機（OWASP Juice Shop等）での検証記録
 - `.pownforge/`: 実行時の状態（runs, reports）。gitignore対象
