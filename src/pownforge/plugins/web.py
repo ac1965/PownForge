@@ -46,6 +46,10 @@ class WebPlugin(Plugin):
             "-of",
             "json",
             "-s",
+            # Auto-calibrate size/word/line filters against randomized paths so
+            # an SPA that answers every unknown path with the same catch-all
+            # page (e.g. Juice Shop) doesn't drown real hits in false positives.
+            "-ac",
         ]
 
     def normalize(self, target: Target, raw_stdout: str, raw_stderr: str) -> dict[str, Any]:
