@@ -335,6 +335,9 @@ def analyze(
     except OllamaError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
+
+    record.analysis = analysis
+    store.save(record)
     typer.echo(analysis)
 
 

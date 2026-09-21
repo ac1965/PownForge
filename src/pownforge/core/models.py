@@ -50,3 +50,4 @@ class RunRecord(BaseModel):
     evidence: Evidence
     output: dict[str, Any] = Field(default_factory=dict)
     findings: list[Finding] = Field(default_factory=list)
+    analysis: str | None = None

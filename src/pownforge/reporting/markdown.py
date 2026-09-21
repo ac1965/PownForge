@@ -22,8 +22,13 @@ def render(record: RunRecord) -> str:
         for finding in record.findings:
             lines.append(f"- **[{finding.severity}]** {finding.title} — {finding.detail}")
     else:
-        lines.append(
-            "_No findings recorded yet. Run `pownforge analyze` for an AI-assisted draft._"
-        )
+        lines.append("_No findings recorded yet._")
+
+    lines += ["", "## AI分析", ""]
+    if record.analysis:
+        lines.append(record.analysis)
+    else:
+        lines.append("_`pownforge analyze` を実行すると、ここに分析草案が表示されます。_")
+
     lines += ["", "## Raw output", "", "```", str(record.output.get("raw_stdout", "")), "```"]
     return "\n".join(lines)
