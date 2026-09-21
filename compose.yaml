@@ -1,0 +1,12 @@
+services:
+  pownforge:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.runtime
+    volumes:
+      - ./config:/app/config
+      - ./.pownforge:/app/.pownforge
+    working_dir: /app
+    # 検証用の意図的に脆弱なラボ環境を使う場合は、ここに自分の
+    # イメージを指す独立したサービスを追加してください。
+    # このリポジトリにはラボイメージは含まれていません。

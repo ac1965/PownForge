@@ -1,0 +1,17 @@
+FROM archlinux:base
+
+RUN pacman -Syu --noconfirm \
+    python \
+    python-pip \
+    nmap \
+    ffuf \
+    && pacman -Scc --noconfirm
+
+WORKDIR /app
+COPY pyproject.toml README.md /app/
+COPY src /app/src
+
+RUN pip install --break-system-packages .
+
+ENTRYPOINT ["pownforge"]
+CMD ["--help"]

@@ -1,0 +1,17 @@
+FROM archlinux:base-devel
+
+RUN pacman -Syu --noconfirm \
+    python \
+    python-pip \
+    git \
+    nmap \
+    && pacman -Scc --noconfirm
+
+WORKDIR /app
+COPY pyproject.toml README.md /app/
+COPY src /app/src
+COPY tests /app/tests
+
+RUN pip install --break-system-packages -e ".[dev]"
+
+CMD ["bash"]
