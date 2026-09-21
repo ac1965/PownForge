@@ -11,6 +11,15 @@ Pown.js の「独立したモジュールをCLIから呼び出す」という考
 
 ## セットアップ
 
+Python 3.11以上が必要です(`pyproject.toml` の `requires-python`)。
+`make install` は `python3.11` で `.venv` を自動作成してインストールします。
+
+```bash
+make install
+```
+
+`make` 経由を使わない場合は、Python 3.11以上の仮想環境を用意してから:
+
 ```bash
 pip install -e ".[dev]"
 ```

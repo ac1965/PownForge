@@ -1,16 +1,20 @@
+PYTHON ?= python3.11
+VENV := .venv
+
 .PHONY: install test lint run docker-build docker-run
 
 install:
-	pip install -e ".[dev]"
+	test -d $(VENV) || $(PYTHON) -m venv $(VENV)
+	$(VENV)/bin/pip install -e ".[dev]"
 
 test:
-	pytest
+	$(VENV)/bin/pytest
 
 lint:
-	python -m compileall src
+	$(VENV)/bin/python -m compileall src
 
 run:
-	pownforge --help
+	$(VENV)/bin/pownforge --help
 
 docker-build:
 	docker build -f docker/Dockerfile.runtime -t pownforge:runtime .

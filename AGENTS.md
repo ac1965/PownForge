@@ -14,14 +14,18 @@ Pown.js の「モジュールを独立させ、CLIから呼び出す」という
 
 ## セットアップ
 
+Python 3.11以上が必要です(`pyproject.toml` の `requires-python`)。
+グローバルのPythonが古い環境でも動くよう、`make install` は `python3.11` で
+`.venv` を作成してからインストールします。
+
 ```bash
-pip install -e ".[dev]"
+make install
 ```
 
 ## テスト
 
 ```bash
-pytest
+make test
 ```
 
 コードを変更したら、関連するテストを実行してから提案・コミットしてください。
