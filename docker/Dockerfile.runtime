@@ -1,11 +1,20 @@
 FROM archlinux:base
 
+# pacman's download sandbox needs seccomp/user-namespace syscalls that QEMU
+# emulation (e.g. linux/amd64 on an Apple Silicon host) doesn't support.
+RUN echo "DisableSandbox" >> /etc/pacman.conf
+
 RUN pacman -Syu --noconfirm \
     python \
     python-pip \
     nmap \
-    ffuf \
+    go \
     && pacman -Scc --noconfirm
+
+# ffuf isn't packaged in Arch's official repos; build it from source via Go.
+ENV GOPATH=/root/go
+RUN go install github.com/ffuf/ffuf/v2@latest \
+    && install -m755 /root/go/bin/ffuf /usr/local/bin/ffuf
 
 WORKDIR /app
 COPY pyproject.toml README.md /app/

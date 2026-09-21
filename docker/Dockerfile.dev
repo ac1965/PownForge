@@ -1,5 +1,9 @@
 FROM archlinux:base-devel
 
+# pacman's download sandbox needs seccomp/user-namespace syscalls that QEMU
+# emulation (e.g. linux/amd64 on an Apple Silicon host) doesn't support.
+RUN echo "DisableSandbox" >> /etc/pacman.conf
+
 RUN pacman -Syu --noconfirm \
     python \
     python-pip \
