@@ -26,11 +26,24 @@ pip install -e ".[dev]"
 
 ## クイックスタート
 
+`pownforge` は `.venv` の中にインストールされているため、シェルのPATHには
+自動では入りません。先に仮想環境を有効化してください(以降 `pownforge ...`
+は `.venv/bin/pownforge ...` と同じ意味になります)。
+
+```bash
+source .venv/bin/activate
+```
+
+毎回有効化したくない場合は、コマンドの前に `.venv/bin/` を付けて
+(`.venv/bin/pownforge init` のように)直接呼び出すこともできます。
+
 ```bash
 # 作業ディレクトリと空のスコープファイルを初期化
 pownforge init
 
-# 利用可能なプラグインを確認
+# 利用可能なプラグインを確認（"missing tool" と出た場合、そのプラグインの
+# 外部ツールがホストに無い。network なら `brew install nmap` 等でホストに
+# 直接入れるか、代わりに Dockerランタイム(docs/lab.md参照)を使う）
 pownforge plugin list
 
 # 検証対象を登録（自分のラボ環境などに限定すること）
@@ -77,7 +90,7 @@ make test
 
 - CLI基盤（Typer）
 - 対象管理・スコープ検証（`core/policy.py`）
-- プラグインレジストリと `network`（nmap）/ `web`（ffuf）の最小実装
+- プラグインレジストリと `network`（nmap）/ `web`（ffuf）。nmap XML / ffuf JSON出力を構造化データに正規化済み
 - 隔離Dockerネットワーク上への攻撃対象ホストの動的追加（`pownforge lab`）
 - 実行証跡（コマンド・タイムスタンプ・SHA-256ハッシュ）の保存
 - Markdownレポート生成
