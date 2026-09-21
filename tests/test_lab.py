@@ -79,6 +79,15 @@ def test_remove_raises_on_failure() -> None:
         manager.remove("target1")
 
 
+def test_add_raises_clear_error_when_docker_missing() -> None:
+    def missing_docker(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        raise FileNotFoundError(command[0])
+
+    manager = LabManager(network="test-lab", runner=missing_docker)
+    with pytest.raises(LabError, match="docker"):
+        manager.add("target1", "vulnerable/image")
+
+
 def test_list_parses_docker_ps_json_lines() -> None:
     docker = FakeDocker()
     docker.ps_output = "\n".join(

@@ -15,16 +15,17 @@ class WebPlugin(Plugin):
     name = "web"
     version = "0.1.0"
     description = "Content and endpoint discovery via ffuf."
+    required_tool = "ffuf"
 
     def __init__(self) -> None:
         self._json_path: Path | None = None
 
     def check(self) -> bool:
-        return shutil.which("ffuf") is not None
+        return shutil.which(self.required_tool) is not None
 
     def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
         if not self.check():
-            raise PluginError("ffuf is not installed or not on PATH")
+            raise PluginError(f"'{self.required_tool}' is not installed or not on PATH")
         wordlist = options.get("wordlist")
         if not wordlist:
             raise PluginError("web plugin requires --option wordlist=<path>")

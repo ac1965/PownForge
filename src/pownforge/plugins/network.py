@@ -15,16 +15,17 @@ class NetworkPlugin(Plugin):
     name = "network"
     version = "0.1.0"
     description = "TCP/service discovery via nmap."
+    required_tool = "nmap"
 
     def __init__(self) -> None:
         self._xml_path: Path | None = None
 
     def check(self) -> bool:
-        return shutil.which("nmap") is not None
+        return shutil.which(self.required_tool) is not None
 
     def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
         if not self.check():
-            raise PluginError("nmap is not installed or not on PATH")
+            raise PluginError(f"'{self.required_tool}' is not installed or not on PATH")
 
         fd, raw_path = tempfile.mkstemp(prefix="pownforge-nmap-", suffix=".xml")
         os.close(fd)

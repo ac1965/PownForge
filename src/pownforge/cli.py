@@ -99,7 +99,7 @@ def plugin_list() -> None:
     """List available plugins and whether their tool is installed."""
     registry = default_registry()
     for plugin in registry.list():
-        status = "ok" if plugin.check() else "missing tool"
+        status = "ok" if plugin.check() else f"missing tool ({plugin.required_tool})"
         typer.echo(f"{plugin.name}\tv{plugin.version}\t{status}\t{plugin.description}")
 
 
@@ -111,6 +111,7 @@ def plugin_info(name: str) -> None:
     typer.echo(f"name: {plugin.name}")
     typer.echo(f"version: {plugin.version}")
     typer.echo(f"description: {plugin.description}")
+    typer.echo(f"required tool: {plugin.required_tool}")
     typer.echo(f"tool available: {plugin.check()}")
 
 

@@ -36,7 +36,13 @@ class LabManager:
         self._runner = runner
 
     def _run(self, command: list[str]) -> subprocess.CompletedProcess[str]:
-        return self._runner(command, capture_output=True, text=True, check=False)
+        try:
+            return self._runner(command, capture_output=True, text=True, check=False)
+        except FileNotFoundError as exc:
+            raise LabError(
+                f"'{command[0]}' is required for `pownforge lab` but was not found on PATH. "
+                "Install Docker (Desktop or Engine) and make sure it's on PATH."
+            ) from exc
 
     def ensure_network(self) -> None:
         inspect = self._run(["docker", "network", "inspect", self._network])

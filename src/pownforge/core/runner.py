@@ -32,7 +32,11 @@ class ScanRunner:
         target: Target = self._policy.authorize(target_name, plugin_name)
         plugin = self._registry.get(plugin_name)
         if not plugin.check():
-            raise RunnerError(f"required tool for plugin '{plugin_name}' is not available")
+            raise RunnerError(
+                f"'{plugin.required_tool}' is required for the '{plugin_name}' plugin but "
+                f"was not found on PATH. Install it, or run via the docker runtime image "
+                f"(see docs/lab.md) which already includes it."
+            )
 
         command = plugin.build_command(target, options)
         started_at = datetime.now(timezone.utc)

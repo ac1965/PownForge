@@ -14,6 +14,10 @@ class Plugin(ABC):
     name: str
     version: str
     description: str
+    required_tool: str
+    """Name of the external binary this plugin needs (e.g. "nmap"), used in
+    error messages so a missing dependency names itself instead of just
+    failing generically."""
 
     @abstractmethod
     def check(self) -> bool:
