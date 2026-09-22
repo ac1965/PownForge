@@ -1,0 +1,41 @@
+import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
+import Dashboard from "./pages/Dashboard";
+import Targets from "./pages/Targets";
+import Lab from "./pages/Lab";
+import Runs from "./pages/Runs";
+import RunDetail from "./pages/RunDetail";
+
+const navClass = ({ isActive }: { isActive: boolean }) => (isActive ? "active" : "");
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <div className="layout">
+        <nav className="sidebar">
+          <h1>PownForge</h1>
+          <NavLink to="/" end className={navClass}>
+            Dashboard
+          </NavLink>
+          <NavLink to="/targets" className={navClass}>
+            Targets
+          </NavLink>
+          <NavLink to="/lab" className={navClass}>
+            Lab
+          </NavLink>
+          <NavLink to="/runs" className={navClass}>
+            Runs
+          </NavLink>
+        </nav>
+        <main className="content">
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/targets" element={<Targets />} />
+            <Route path="/lab" element={<Lab />} />
+            <Route path="/runs" element={<Runs />} />
+            <Route path="/runs/:runId" element={<RunDetail />} />
+          </Routes>
+        </main>
+      </div>
+    </BrowserRouter>
+  );
+}

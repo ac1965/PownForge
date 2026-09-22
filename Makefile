@@ -1,11 +1,23 @@
 PYTHON ?= python3.11
 VENV := .venv
 
-.PHONY: install test lint run docker-build docker-run
+.PHONY: install test lint run docker-build docker-run web-install web-build
 
 install:
 	test -d $(VENV) || $(PYTHON) -m venv $(VENV)
 	$(VENV)/bin/pip install -e ".[dev]"
+
+# Web UI (optional). See docs/web.md for the two-terminal dev workflow:
+# `.venv/bin/pownforge web serve` in one, `cd webui && npm run dev` in the
+# other. No single `make web-dev` target on purpose, so both processes stay
+# visible in their own terminal.
+web-install:
+	test -d $(VENV) || $(PYTHON) -m venv $(VENV)
+	$(VENV)/bin/pip install -e ".[dev,web]"
+	cd webui && npm install
+
+web-build:
+	cd webui && npm run build
 
 test:
 	$(VENV)/bin/pytest

@@ -8,3 +8,7 @@ build/
 .pytest_cache/
 
 .claude/
+
+node_modules/
+webui/.vite/
+*.tsbuildinfo
