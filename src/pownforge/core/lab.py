@@ -74,7 +74,13 @@ class LabManager:
 
     def add(self, name: str, image: str, env: dict[str, str] | None = None) -> LabHost:
         self.ensure_network()
-        command = ["docker", "run", "-d", "--name", name, "--network", self._network]
+        # -i (keep stdin open) matters for images whose default CMD ends in
+        # an interactive shell after starting background services (a common
+        # pattern in vulnerable-VM-to-container conversions, e.g. Metasploitable2
+        # rebuilds using `services.sh && bash`) -- without it, that shell
+        # reads EOF on stdin immediately and the whole container exits right
+        # after `docker run -d`. Harmless for images that don't rely on this.
+        command = ["docker", "run", "-d", "-i", "--name", name, "--network", self._network]
         command += ["--label", LAB_LABEL]
         for key, value in (env or {}).items():
             command += ["-e", f"{key}={value}"]

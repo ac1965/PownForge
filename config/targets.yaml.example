@@ -13,4 +13,13 @@
 #     allowed_plugins:
 #     - network
 #     notes: null
+#
+# 練習用の意図的に脆弱なイメージは `pownforge lab add` で登録するのが
+# 推奨です(下記はその結果としてこのファイルに書き込まれる内容の例。
+# 手動で書く必要はありません。docs/handbook.md §7参照)。
+#
+#   pownforge lab add metasploitable2 --image tleemcjr/metasploitable2 \
+#     --kind host --allowed-plugins network,vulncheck
+#   pownforge lab add lab-web --image bkimminich/juice-shop \
+#     --kind url --port 3000 --allowed-plugins web,network
 targets: {}

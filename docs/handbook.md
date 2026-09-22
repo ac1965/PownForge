@@ -563,6 +563,46 @@ pownforge lab remove lab-web --purge
 ラボイメージ自体はこのリポジトリに含まれません。自分が使用権限を持つ、
 意図的に脆弱なイメージを指定してください。
 
+### 推奨する練習用の脆弱イメージ
+
+`The Hacker Playbook 2`のPregame章で紹介されているMetasploitable2/
+OWASPBWAは、公式にはVirtualBox/VMware用のVMイメージ(`.ova`/`.zip`)として
+配布されており、Dockerイメージではありません
+(Metasploitable2: `http://sourceforge.net/projects/metasploitable/files/Metasploitable2`、
+OWASPBWA: `http://sourceforge.net/projects/owaspbwa/files/`)。
+`pownforge lab`はDockerイメージのみを扱うため、これらの公式配布物を
+直接使うことはできません。代わりに以下を推奨します。
+
+| 用途 | イメージ | 登録例 |
+| --- | --- | --- |
+| サービス層の脆弱性練習(Metasploitable2相当) | `tleemcjr/metasploitable2`(コミュニティ製、Metasploitable2のファイルシステムをコンテナ化したもの) | `pownforge lab add metasploitable2 --image tleemcjr/metasploitable2 --kind host --allowed-plugins network,vulncheck` |
+| Webアプリの脆弱性練習(OWASPBWA相当) | `bkimminich/juice-shop`(OWASP公式プロジェクト、現役でメンテナンスされている) | `pownforge lab add lab-web --image bkimminich/juice-shop --kind url --port 3000 --allowed-plugins web,network` |
+
+OWASPBWA自体は2015年以降更新が止まっている複数の脆弱Webアプリの詰め合わせ
+VMです。同等の練習効果を得るには、個々にDockerイメージが提供され現役で
+メンテナンスされているOWASP公式プロジェクト(Juice Shop、WebGoat等)を
+個別に起動する方が実用的です。
+
+**`LabManager`の既知の落とし穴(コミュニティ製イメージ)**: 一部の
+イメージ(`tleemcjr/metasploitable2`等)は、デフォルトの`CMD`が
+`services.sh && bash`のように「バックグラウンドでサービスを起動した後、
+対話シェルを起動して居座る」形になっています。`docker run -d`単体だと
+標準入力が繋がらず、末尾の`bash`が即座にEOFを受けて終了し、コンテナ全体が
+`Exited (0)`になってしまいます。`LabManager.add()`は`-i`
+(標準入力を開いたままにする)を常に付与することでこれを回避しています。
+
+### 実機検証記録(Metasploitable2)
+
+`pownforge lab add metasploitable2 --image tleemcjr/metasploitable2 --kind
+host --allowed-plugins network,vulncheck`で起動・登録し、`docker compose
+run pownforge scan network --target metasploitable2`と同等の経路(隔離
+ネットワークに接続したコンテナからの実行)で実際にnmapスキャンを実施。
+Docker DNS経由で`metasploitable2.pownforge-lab`(172.19.0.2)へ到達し、
+OpenSSH 4.7p1/Apache httpd 2.2.8/Samba 3.X-4.X/MySQL 5.0.51a/PostgreSQL
+8.3.0という、実際のMetasploitable2の既知の脆弱なサービス構成を正しく
+検出できることを確認した。検証に使ったコンテナ・ネットワークは検証後に
+削除している。
+
 ### 実機検証記録(OWASP Juice Shop)
 
 `pownforge lab add lab-web --image bkimminich/juice-shop --kind url --port

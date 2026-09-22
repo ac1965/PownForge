@@ -62,6 +62,15 @@ def test_add_skips_network_create_when_present() -> None:
     assert not any(c[:3] == ["docker", "network", "create"] for c in docker.calls)
 
 
+def test_add_keeps_stdin_open_so_services_and_bash_style_images_stay_running() -> None:
+    docker = FakeDocker()
+    docker.network_exists = True
+    manager = LabManager(network="test-lab", runner=docker)
+    manager.add("target1", "vulnerable/image")
+    run_call = next(c for c in docker.calls if c[:2] == ["docker", "run"])
+    assert "-i" in run_call
+
+
 def test_add_raises_on_docker_failure() -> None:
     docker = FakeDocker()
     docker.network_exists = True
