@@ -192,7 +192,8 @@ K8s設定不備を含む)を検出し、CLI/Web UI双方での表示を確認済
 `Plugin` ABC(`check`/`build_command`/`normalize`)は実装済みだが、当初案の
 `PluginMetadata{name, version, description, capabilities}`のような正式なSDKパッケージ・
 入力出力スキーマの明文化・プラグイン用テストインターフェースは無い。候補プラグインの
-うち`kubernetes`(`trivy k8s`)は実装済み(Phase 8参照)、`container`/`identity`は未実装。
+うち`kubernetes`(`trivy k8s`)・`container`(`trivy image`)は実装済み(Phase 8/
+本ページの優先順位リスト参照)、`identity`は未実装。
 
 ---
 
@@ -212,7 +213,8 @@ K8s設定不備を含む)を検出し、CLI/Web UI双方での表示を確認済
 | ~~3~~ | ~~Target modelのtype/environment拡張~~ | ✅ **完了**。`type`(network/web/api/kubernetes、分類用のみ)と`environment`(local-lab/staging/production)を`Target`に追加。`environment=production`は`notes`(認可/契約の参照)必須を`ScopePolicy.add_target()`でコード強制。CLI(`--type`/`--environment`)・Web API(Targetモデルにそのまま含まれる)・Web UI(Targetsページのフォーム/一覧)いずれからも設定・確認可能 |
 | ~~4~~ | ~~Emacs連携~~(Phase 9) | ✅ **完了**。`emacs/pownforge.el`を追加。`pownforge`実行バイナリをサブプロセスとして呼ぶだけの薄いラッパーで、対象/プラグイン一覧・`--live`によるライブスキャン・finding review・Org-mode連携(findings→Orgアウトライン、見出しからのreview)をカバー。副産物としてCLIに`--live`オプションを追加し、Web UIのWebSocketライブ進捗と同じ`ScanRunner.run(on_line=...)`をCLIからも使えるようにした |
 | ~~5~~ | ~~sqlmapプラグイン~~(Phase 5) | ✅ **完了**。`SqlmapPlugin`を追加(`pownforge scan sqlmap`)。安全設計は「`--risk`/`--level`/`--dump`は自由に使える(既定は最も保守的なrisk 1/level 1)、OS/レジストリ/ファイル操作・シェル・設定ファイル読み込みに相当するオプションは常に拒否」という方針で確定(ユーザーと協議のうえ決定)。既存の`_findings`規約を再利用し、意図的に脆弱なローカルアプリ+実機`sqlmap`で検証済み |
+| ~~6~~ | ~~containerプラグイン~~(Phase 10) | ✅ **完了**。`trivy image`を使う`ContainerPlugin`を追加(`pownforge scan container`)。`KubernetesPlugin`と同じtrivy JSON形状を扱うため、finding抽出ロジックを`plugins/_trivy.py`に共通化(`KubernetesPlugin`側もこの共通関数を使うようリファクタ、既存テスト・出力形式は無変更)。`Target.address`にイメージ参照を格納する方式とし、`TargetType`に`container`を追加。実機(`alpine:3.10`)で実在のCVE検出を確認済み |
 
 これでPhase 2〜10は全て完了/部分完了。M6(Kubernetes Lab)は`KubernetesPlugin`
 により部分完了(専用ラボ構成は未着手)、Phase 5のAPI専用プラグイン(curl/httpx)・
-Phase 10のcontainer/identityプラグインなど、各Phaseの未実装細目は上記の詳細を参照。
+Phase 10のidentityプラグインなど、各Phaseの残る未実装細目は上記の詳細を参照。

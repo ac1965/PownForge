@@ -70,7 +70,10 @@ CLI (Typer)
 `normalize()`が返す辞書に`"_findings"`キー（`{"title", "severity", "detail"}`の
 リスト）を含めると、`ScanRunner`がそれを取り出して`Finding`（`source="tool"`）に
 変換し`RunRecord.findings`へ格納します（`NucleiPlugin`/`KubernetesPlugin`/
-`SqlmapPlugin`が使用）。
+`SqlmapPlugin`/`ContainerPlugin`が使用）。`KubernetesPlugin`(`trivy k8s`)と
+`ContainerPlugin`(`trivy image`)は同じtrivy JSON形状
+(`Results[].{Misconfigurations,Vulnerabilities,Secrets}`)を扱うため、抽出ロジックは
+`src/pownforge/plugins/_trivy.py::findings_from_trivy_results()`として共通化しています。
 このキーを使わないプラグイン（`NetworkPlugin`/`WebPlugin`）には影響しません。ツール側の
 severity表記が`Severity` enumに合わない場合は`info`にフォールバックし、
 finding自体は破棄しません（`core/finding_utils.py::coerce_finding`、
@@ -85,7 +88,7 @@ class Target(BaseModel):
     address: str
     allowed_plugins: list[str]
     notes: str | None
-    type: TargetType | None       # network | web | api | kubernetes（分類用、任意）
+    type: TargetType | None       # network | web | api | kubernetes | container（分類用、任意）
     environment: TargetEnvironment  # local-lab(既定) | staging | production
 ```
 
@@ -95,7 +98,8 @@ class Target(BaseModel):
 「どれだけ本番/権威的な対象か」を表し、`production`だけは上記の通り
 `notes`必須というコード上の強制が入ります。`kubernetes`タイプの対象は
 `address`にkubeconfigのcontext名を格納します(詳細は
-[docs/kubernetes.md](kubernetes.md))。
+[docs/kubernetes.md](kubernetes.md))。`container`タイプの対象は`address`に
+コンテナイメージの参照を格納します(詳細は[docs/container.md](container.md))。
 
 ## Emacs連携
 
