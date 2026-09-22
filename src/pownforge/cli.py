@@ -14,7 +14,22 @@ from pownforge.core.findings import FindingNotFoundError, add_finding, review_fi
 from pownforge.core.lab import LAB_NETWORK, LabError, LabManager, resolve_lab_target_address
 from pownforge.core.manual_evidence import import_manual_run
 from pownforge.core.orchestrator import PlaybookError, list_playbooks, resolve_playbook, run_playbook
-from pownforge.core.operation import (\n    Action, ActionKind, ActionStatus, AttackPhase, AttackOperationStore, Capability, OperationError, OperationRunner, add_action, add_edge, add_node, approve_action, create_operation,\n)\nfrom pownforge.core.models import (
+from pownforge.core.operation import (
+    Action,
+    ActionKind,
+    ActionStatus,
+    AttackOperationStore,
+    AttackPhase,
+    Capability,
+    OperationError,
+    OperationRunner,
+    add_action,
+    add_edge,
+    add_node,
+    approve_action,
+    create_operation,
+)
+from pownforge.core.models import (
     Engagement,
     FindingStatus,
     KillChainPhase,
@@ -52,7 +67,8 @@ lab_app = typer.Typer(help="Start/stop attack-target containers on an isolated l
 web_app = typer.Typer(help=r"Serve the web UI (needs the \[web] extra: pip install -e '.\[web]').")
 audit_app = typer.Typer(help="Inspect scan attempts that ScopePolicy rejected.")
 evidence_app = typer.Typer(help="Verify stored evidence integrity.")
-config_app = typer.Typer(help="View/update local AI assistant preferences (model, language).")\noperation_app = typer.Typer(help="Plan and execute approved attack operations.")
+config_app = typer.Typer(help="View/update local AI assistant preferences (model, language).")
+operation_app = typer.Typer(help="Plan and execute approved attack operations.")
 
 app.add_typer(target_app, name="target")
 app.add_typer(engagement_app, name="engagement")
@@ -75,7 +91,8 @@ app.add_typer(lab_app, name="lab")
 app.add_typer(web_app, name="web")
 app.add_typer(audit_app, name="audit")
 app.add_typer(evidence_app, name="evidence")
-app.add_typer(config_app, name="config")\napp.add_typer(operation_app, name="operation")
+app.add_typer(config_app, name="config")
+app.add_typer(operation_app, name="operation")
 
 DEFAULT_CONFIG = Path(os.environ.get("POWNFORGE_CONFIG", "config/targets.yaml"))
 DEFAULT_WORKDIR = Path(os.environ.get("POWNFORGE_HOME", ".pownforge"))
@@ -325,7 +342,104 @@ def playbook_run(
         raise typer.Exit(code=1)
 
 
-def _operations(workdir: Path) -> AttackOperationStore:\n    return AttackOperationStore(workdir / "operations")\n\n\n@operation_app.command("create")\ndef operation_create(name: str, objective: str = typer.Option("", "--objective"), engagement: Optional[str] = typer.Option(None, "--engagement"), workdir: Path = typer.Option(DEFAULT_WORKDIR)) -> None:\n    try:\n        create_operation(_operations(workdir), name, objective, engagement)\n    except OperationError as exc:\n        typer.echo(f"error: {exc}", err=True); raise typer.Exit(code=1) from exc\n    typer.echo(f"created attack operation '{name}'")\n\n\n@operation_app.command("show")\ndef operation_show(name: str, workdir: Path = typer.Option(DEFAULT_WORKDIR)) -> None:\n    try: operation = _operations(workdir).load(name)\n    except OperationError as exc: typer.echo(f"error: {exc}", err=True); raise typer.Exit(code=1) from exc\n    typer.echo(f"{operation.name}: {operation.objective}")\n    typer.echo(f"nodes={len(operation.nodes)} edges={len(operation.edges)} actions={len(operation.actions)} approvals={len(operation.approvals)}")\n    for action in operation.actions: typer.echo(f"  {action.id}\\t{action.phase.value}\\t{action.kind.value}\\t{action.target}\\t{action.status.value}")\n\n\n@operation_app.command("add-action")\ndef operation_add_action(name: str, action_id: str, action_name: str, target: str = typer.Option(..., "--target"), phase: AttackPhase = typer.Option(..., "--phase"), kind: ActionKind = typer.Option(ActionKind.SCAN, "--kind"), plugin: Optional[str] = typer.Option(None, "--plugin"), workdir: Path = typer.Option(DEFAULT_WORKDIR), config: Path = typer.Option(DEFAULT_CONFIG)) -> None:\n    action = Action(id=action_id, name=action_name, phase=phase, kind=kind, target=target, plugin=plugin)\n    try: add_action(_operations(workdir), _policy(config), name, action)\n    except OperationError as exc: typer.echo(f"error: {exc}", err=True); raise typer.Exit(code=1) from exc\n    typer.echo(f"added action '{action_id}'")\n\n\n@operation_app.command("approve")\ndef operation_approve(name: str, action_id: str, approved_by: str = typer.Option(..., "--approved-by"), note: str = typer.Option("", "--note"), workdir: Path = typer.Option(DEFAULT_WORKDIR)) -> None:\n    try: approve_action(_operations(workdir), name, action_id, approved_by, note)\n    except OperationError as exc: typer.echo(f"error: {exc}", err=True); raise typer.Exit(code=1) from exc\n    typer.echo(f"approved action '{action_id}'")\n\n\n@operation_app.command("execute")\ndef operation_execute(name: str, action_id: str, workdir: Path = typer.Option(DEFAULT_WORKDIR), config: Path = typer.Option(DEFAULT_CONFIG)) -> None:\n    try:\n        operation = _operations(workdir).load(name)\n        updated = OperationRunner(_policy(config), default_registry(), _store(workdir), _audit(workdir)).execute(operation, action_id)\n        _operations(workdir).save(updated)\n    except OperationError as exc: typer.echo(f"error: {exc}", err=True); raise typer.Exit(code=1) from exc\n    typer.echo(f"completed action '{action_id}' (run={next(a.run_id for a in updated.actions if a.id == action_id)})")\n\n\n@attack_session_app.command("create")
+def _operations(workdir: Path) -> AttackOperationStore:
+    return AttackOperationStore(workdir / "operations")
+
+
+@operation_app.command("create")
+def operation_create(
+    name: str,
+    objective: str = typer.Option("", "--objective"),
+    engagement: Optional[str] = typer.Option(None, "--engagement"),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+) -> None:
+    """Create a new attack operation. Never executes anything -- this only
+    registers a name to attach actions to via `operation add-action`."""
+    try:
+        create_operation(_operations(workdir), name, objective, engagement)
+    except OperationError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"created attack operation '{name}'")
+
+
+@operation_app.command("show")
+def operation_show(name: str, workdir: Path = typer.Option(DEFAULT_WORKDIR)) -> None:
+    """Show an attack operation's nodes, edges, actions, and approvals."""
+    try:
+        operation = _operations(workdir).load(name)
+    except OperationError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"{operation.name}: {operation.objective}")
+    typer.echo(
+        f"nodes={len(operation.nodes)} edges={len(operation.edges)} "
+        f"actions={len(operation.actions)} approvals={len(operation.approvals)}"
+    )
+    for action in operation.actions:
+        typer.echo(f"  {action.id}\t{action.phase.value}\t{action.kind.value}\t{action.target}\t{action.status.value}")
+
+
+@operation_app.command("add-action")
+def operation_add_action(
+    name: str,
+    action_id: str,
+    action_name: str,
+    target: str = typer.Option(..., "--target"),
+    phase: AttackPhase = typer.Option(..., "--phase"),
+    kind: ActionKind = typer.Option(ActionKind.SCAN, "--kind"),
+    plugin: Optional[str] = typer.Option(None, "--plugin"),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+    config: Path = typer.Option(DEFAULT_CONFIG),
+) -> None:
+    """Add a candidate action (scan/manual/pivot) to an attack operation."""
+    action = Action(id=action_id, name=action_name, phase=phase, kind=kind, target=target, plugin=plugin)
+    try:
+        add_action(_operations(workdir), _policy(config), name, action)
+    except OperationError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"added action '{action_id}'")
+
+
+@operation_app.command("approve")
+def operation_approve(
+    name: str,
+    action_id: str,
+    approved_by: str = typer.Option(..., "--approved-by"),
+    note: str = typer.Option("", "--note"),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+) -> None:
+    """Record human approval for an action before it can be executed."""
+    try:
+        approve_action(_operations(workdir), name, action_id, approved_by, note)
+    except OperationError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"approved action '{action_id}'")
+
+
+@operation_app.command("execute")
+def operation_execute(
+    name: str,
+    action_id: str,
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+    config: Path = typer.Option(DEFAULT_CONFIG),
+) -> None:
+    """Execute an approved action through the existing scan runner."""
+    try:
+        operation = _operations(workdir).load(name)
+        updated = OperationRunner(_policy(config), default_registry(), _store(workdir), _audit(workdir)).execute(
+            operation, action_id
+        )
+        _operations(workdir).save(updated)
+    except OperationError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"completed action '{action_id}' (run={next(a.run_id for a in updated.actions if a.id == action_id)})")
+
+
+@attack_session_app.command("create")
 def attack_session_create(
     name: str,
     description: str = typer.Option("", "--description"),
