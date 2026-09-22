@@ -317,6 +317,24 @@ def scan_container(
     _run_scan("container", target, option, config, workdir, live)
 
 
+@scan_app.command("vulncheck")
+def scan_vulncheck(
+    target: str = typer.Option(..., "--target"),
+    option: list[str] = typer.Option(
+        [],
+        "--option",
+        help="key=value, may repeat; requires script=<name> (see `pownforge plugin info vulncheck`), optional port=",
+    ),
+    live: bool = typer.Option(
+        False, "--live", help="Stream the underlying tool's stdout line-by-line as it runs."
+    ),
+    config: Path = typer.Option(DEFAULT_CONFIG),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+) -> None:
+    """Run the vulncheck plugin (a single, allowlisted nmap NSE 'vuln safe' script that verifies one known CVE) against a registered target."""
+    _run_scan("vulncheck", target, option, config, workdir, live)
+
+
 @result_app.command("list")
 def result_list(workdir: Path = typer.Option(DEFAULT_WORKDIR)) -> None:
     """List past scan runs, most recent first."""

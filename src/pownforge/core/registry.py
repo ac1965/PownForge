@@ -7,6 +7,7 @@ from pownforge.plugins.network import NetworkPlugin
 from pownforge.plugins.nuclei import NucleiPlugin
 from pownforge.plugins.recon import ReconPlugin
 from pownforge.plugins.sqlmap import SqlmapPlugin
+from pownforge.plugins.vulncheck import VulncheckPlugin
 from pownforge.plugins.web import WebPlugin
 
 
@@ -40,4 +41,5 @@ def default_registry() -> PluginRegistry:
     registry.register(KubernetesPlugin())
     registry.register(SqlmapPlugin())
     registry.register(ContainerPlugin())
+    registry.register(VulncheckPlugin())
     return registry

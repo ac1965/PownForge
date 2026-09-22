@@ -78,7 +78,7 @@ graph TD
     Runner --> ScopePolicy
     Runner --> Registry
     Runner --> Evidence
-    Registry --> Plugins["plugins/<br/>recon・network・web・nuclei・kubernetes・container・sqlmap"]
+    Registry --> Plugins["plugins/<br/>recon・network・web・nuclei・kubernetes・container・sqlmap・vulncheck"]
     Plugins -- "build_command" --> ExtTools["外部ツール<br/>subfinder/nmap/ffuf/nuclei/trivy/sqlmap"]
     Runner -- "subprocess実行" --> ExtTools
     Evidence --> Reporting
@@ -278,6 +278,7 @@ pownforge analyze <run-id>
 | `pownforge scan kubernetes --target <name> [--option namespaces=... --option severity=...] [--live]` | kubernetesプラグイン(`trivy k8s`)を実行。対象の`address`はkubeconfigのcontext名 |
 | `pownforge scan sqlmap --target <name> [--option risk=... --option level=... --option dump=true ...] [--live]` | sqlmapプラグイン(SQLインジェクション検出/抽出)を実行。安全設計は[§6](#6-プラグイン)参照 |
 | `pownforge scan container --target <name> [--option severity=... --option ignore-unfixed=true --option scanners=...] [--live]` | containerプラグイン(`trivy image`)を実行。対象の`address`はコンテナイメージの参照 |
+| `pownforge scan vulncheck --target <name> --option script=<許可されたNSEスクリプト名> [--option port=...] [--live]` | vulncheckプラグイン(nmapの許可リスト済み`vuln safe`スクリプト1本による既知CVE検証)を実行 |
 | `pownforge result list` | 実行結果の一覧 |
 | `pownforge result show <run-id>` | 実行結果の詳細(JSON) |
 | `pownforge result import --target <name> --command <text> --output <text> [--tool ... --tool-version ... --returncode ...]` | 人間が別ツールで実施した工程の証跡を記録(PownForgeは`--command`を実行しない)。詳細は[§12](#12-証跡とレポート) |
@@ -309,8 +310,9 @@ pownforge analyze <run-id>
   `config/targets.yaml`同様、マシンごとに使えるモデルが異なるため
   `.gitignore`済み(`config/settings.yaml.example`参照)
 - `scan`は登録済みの対象名しか受け付けない。各プラグインは前提とする
-  `Target.kind`を宣言しており(`network`は`any`、`web`/`nuclei`/`sqlmap`は
-  `url`、`kubernetes`/`container`/`recon`は`host`)、一致しない対象で`scan`すると
+  `Target.kind`を宣言しており(`network`/`vulncheck`は`any`、`web`/`nuclei`/
+  `sqlmap`は`url`、`kubernetes`/`container`/`recon`は`host`)、
+  一致しない対象で`scan`すると
   ツールを起動する前に明確な`PluginError`で拒否される
 - 拒否された試みは`.pownforge/violations/`に記録され、コマンド自体は
   一切実行されない
@@ -480,6 +482,42 @@ SQLクエリ組み立て)を用意し、実際のsqlmap(1.10.9)で検証した�
 boolean-based blind/error-based/time-based blind/UNION queryの4手法が
 検出され、`severity: critical`のfindingとして記録されることを確認。
 `--option os-shell=true`指定時にsqlmapを実行せずエラーになることも確認済み。
+
+### vulncheck(`nmap` NSEスクリプト)
+
+単一の登録済み対象に対して、既知CVEの実際の該当有無を検証します。
+中身は`nmap --script <許可された1本> --script-args vulns.showall`で、
+新規の外部ツール依存はありません(`network`プラグインと同じく`nmap`のみ)。
+
+**安全設計**: 実行できるNSEスクリプトは、nmap自身が`vuln`かつ`safe`と
+分類している(`exploit`/`intrusive`/`dos`/`brute`のいずれでもない)スクリプト
+だけに**許可リスト方式で**限定しています(`plugins/vulncheck.py::
+_ALLOWED_SCRIPTS`)。たとえば`http-shellshock`や`ftp-vsftpd-backdoor`は
+nmap自身が`exploit`/`intrusive`に分類しており(既定でコマンド実行や
+バックドアの起動を伴う)、これらは常に拒否されます。`--option script=`に
+許可リスト外の名前を渡すと、ツールを起動する前に`PluginError`で拒否
+されます。sqlmapの「拒否リスト方式(OS/ファイル操作系オプションを個別に
+拒否)」とは逆に、こちらは「許可リスト方式(ホワイトリストに無いものは
+すべて拒否)」を採っています。対応CVEの一覧・重大度対応表は
+`_ALLOWED_SCRIPTS`/`_SEVERITY_BY_SCRIPT`を参照してください(Heartbleed/
+POODLE/EternalBlue/ROCA等、主要な既知CVE検証スクリプトを収録)。
+
+```bash
+pownforge target add app-tls --address app.example.internal --kind host \
+  --allowed-plugins vulncheck
+pownforge scan vulncheck --target app-tls \
+  --option script=ssl-heartbleed --option port=443
+```
+
+スクリプトが対象を"VULNERABLE"と報告した場合のみfinding(`source:
+"tool"`)として記録されます。"NOT VULNERABLE"の場合はfindingを作らず、
+`output.results`に結果(state/detail)だけが残ります。
+
+**実機検証**: ローカルに自己署名TLSサーバー(`openssl s_server`)を
+立て、実際のnmap(7.991)で`ssl-heartbleed`を実行。「NOT VULNERABLE」の
+判定が正しく記録され、findingが作られないことを確認。また、許可リスト
+外の`http-shellshock`を指定した場合にツールを起動せず拒否されることも
+確認済み。
 
 ## 7. ラボネットワーク
 
@@ -1090,7 +1128,9 @@ Webアプリ系プラグインの`pownforge analyze`へのOWASP Top 10チェッ�
 import`/`add-finding`による人間が別ツールで実施した工程(既知CVEの実悪用等)
 の証跡取り込み(同書"The Drive"章の「検出だけでなく実際に悪用する」という
 考え方を、PownForge自身が実行するのではなく記録・ウォークスルーに接続する
-形で取り込んだもの)。
+形で取り込んだもの)、vulncheckプラグインによる単一対象への既知CVE検証
+(同章の考え方を、nmapの`vuln`+`safe`スクリプトに限定した許可リスト方式で
+PownForge自身が安全に実行できる範囲に絞って取り込んだもの)。
 
 **既知の未実装項目**:
 

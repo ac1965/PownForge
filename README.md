@@ -107,6 +107,9 @@ make test
   一切トラフィックを送らない）/ `network`（nmap）/ `web`（ffuf）/ `nuclei`（テンプレートベース脆弱性検出）/
   `kubernetes`（`trivy k8s`によるクラスタ誤設定・RBAC・イメージ脆弱性検出）/
   `container`（`trivy image`によるコンテナイメージの脆弱性・誤設定・シークレット検出）/
+  `vulncheck`（nmapの`vuln`+`safe`分類スクリプトに限定した許可リスト方式で、
+  Heartbleed/EternalBlue等の既知CVEを単一対象に対して検証。`exploit`/`intrusive`系
+  スクリプトは常に拒否）/
   `sqlmap`（SQLインジェクション検出・抽出。OS/ファイル操作系オプションは常に拒否、
   詳細は[docs/handbook.md §6](docs/handbook.md#6-プラグイン)）。各ツールの出力は構造化データに正規化し、
   nuclei/kubernetes/container/sqlmapは検出結果をfinding（`source: "tool"`）としても記録

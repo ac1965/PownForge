@@ -14,6 +14,7 @@ from pownforge.plugins.network import NetworkPlugin
 from pownforge.plugins.nuclei import NucleiPlugin
 from pownforge.plugins.recon import ReconPlugin
 from pownforge.plugins.sqlmap import SqlmapPlugin
+from pownforge.plugins.vulncheck import VulncheckPlugin
 from pownforge.plugins.web import WebPlugin
 from plugin_contract import assert_plugin_contract
 
@@ -572,6 +573,126 @@ def test_container_plugin_version_command() -> None:
     assert ContainerPlugin().version_command() == ["trivy", "--version"]
 
 
+# Captured verbatim from a real `nmap --script ssl-heartbleed --script-args
+# vulns.showall -p 8443 127.0.0.1` run against a local self-signed TLS test
+# server (not vulnerable, since it's a modern OpenSSL build).
+VULNCHECK_NOT_VULNERABLE_XML = """<?xml version="1.0"?>
+<nmaprun>
+  <host>
+    <address addr="127.0.0.1" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="8443">
+        <state state="open"/>
+        <service name="https-alt"/>
+        <script id="ssl-heartbleed" output="&#xa;  NOT VULNERABLE:&#xa;">
+          <table key="NMAP-1">
+            <elem key="title">The Heartbleed Bug is a serious vulnerability.</elem>
+            <elem key="state">NOT VULNERABLE</elem>
+          </table>
+        </script>
+      </port>
+    </ports>
+  </host>
+</nmaprun>
+"""
+
+# Same `vulns` library table shape, hand-constructed for the VULNERABLE case
+# per nmap's documented NSE vulnerability-reporting format (nselib/vulns.lua).
+VULNCHECK_VULNERABLE_XML = """<?xml version="1.0"?>
+<nmaprun>
+  <host>
+    <address addr="127.0.0.1" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="443">
+        <state state="open"/>
+        <service name="https"/>
+        <script id="ssl-heartbleed" output="&#xa;  VULNERABLE:&#xa;">
+          <table key="NMAP-1">
+            <elem key="title">The Heartbleed Bug is a serious vulnerability.</elem>
+            <elem key="state">VULNERABLE</elem>
+          </table>
+        </script>
+      </port>
+    </ports>
+  </host>
+</nmaprun>
+"""
+
+
+def test_vulncheck_plugin_requires_script_option(monkeypatch: pytest.MonkeyPatch) -> None:
+    plugin = VulncheckPlugin()
+    monkeypatch.setattr(VulncheckPlugin, "check", lambda self: True)
+    target = Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1")
+    with pytest.raises(PluginError, match="requires --option script="):
+        plugin.build_command(target, {})
+
+
+def test_vulncheck_plugin_rejects_script_not_on_allowlist(monkeypatch: pytest.MonkeyPatch) -> None:
+    plugin = VulncheckPlugin()
+    monkeypatch.setattr(VulncheckPlugin, "check", lambda self: True)
+    target = Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1")
+    with pytest.raises(PluginError, match="not on the vulncheck allowlist"):
+        plugin.build_command(target, {"script": "http-shellshock"})
+
+
+def test_vulncheck_plugin_builds_nmap_command_with_allowed_script(monkeypatch: pytest.MonkeyPatch) -> None:
+    plugin = VulncheckPlugin()
+    monkeypatch.setattr(VulncheckPlugin, "check", lambda self: True)
+    target = Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1")
+    command = plugin.build_command(target, {"script": "ssl-heartbleed", "port": "8443"})
+    assert command[0] == "nmap"
+    assert "--script" in command
+    assert command[command.index("--script") + 1] == "ssl-heartbleed"
+    assert command[command.index("-p") + 1] == "8443"
+    assert command[-1] == "127.0.0.1"
+
+
+def test_vulncheck_plugin_normalizes_not_vulnerable_result_without_finding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plugin = VulncheckPlugin()
+    monkeypatch.setattr(VulncheckPlugin, "check", lambda self: True)
+    target = Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1")
+    command = plugin.build_command(target, {"script": "ssl-heartbleed"})
+    xml_path = Path(command[command.index("-oX") + 1])
+    xml_path.write_text(VULNCHECK_NOT_VULNERABLE_XML)
+
+    output = plugin.normalize(target, "", "")
+
+    assert output["results"][0]["script"] == "ssl-heartbleed"
+    assert output["results"][0]["state"] == "NOT VULNERABLE"
+    assert output["_findings"] == []
+    assert not xml_path.exists()
+
+
+def test_vulncheck_plugin_normalizes_vulnerable_result_into_finding(monkeypatch: pytest.MonkeyPatch) -> None:
+    plugin = VulncheckPlugin()
+    monkeypatch.setattr(VulncheckPlugin, "check", lambda self: True)
+    target = Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1")
+    command = plugin.build_command(target, {"script": "ssl-heartbleed"})
+    xml_path = Path(command[command.index("-oX") + 1])
+    xml_path.write_text(VULNCHECK_VULNERABLE_XML)
+
+    output = plugin.normalize(target, "", "")
+
+    assert output["results"][0]["state"] == "VULNERABLE"
+    assert len(output["_findings"]) == 1
+    assert output["_findings"][0]["severity"] == "high"
+    assert "Heartbleed" in output["_findings"][0]["title"]
+
+
+def test_vulncheck_plugin_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    plugin = VulncheckPlugin()
+    monkeypatch.setattr(VulncheckPlugin, "check", lambda self: False)
+    target = Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1")
+    with pytest.raises(PluginError):
+        plugin.build_command(target, {"script": "ssl-heartbleed"})
+
+
+def test_vulncheck_plugin_version_command() -> None:
+    assert VulncheckPlugin().version_command() == ["nmap", "--version"]
+
+
 def test_all_registered_plugins_satisfy_the_base_contract() -> None:
     for plugin in default_registry().list():
         assert_plugin_contract(plugin)
@@ -587,6 +708,7 @@ def test_all_registered_plugins_satisfy_the_base_contract() -> None:
         (ContainerPlugin, TargetKind.HOST),
         (SqlmapPlugin, TargetKind.URL),
         (ReconPlugin, TargetKind.HOST),
+        (VulncheckPlugin, None),
     ],
 )
 def test_plugin_declares_expected_kind(plugin_cls: type, expected: TargetKind | None) -> None:
