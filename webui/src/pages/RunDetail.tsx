@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { api, Finding, FindingStatus, RunRecord, Severity } from "../api/client";
+import { api, EvidenceVerification, Finding, FindingStatus, RunRecord, Severity } from "../api/client";
 
 // Mirrors reporting/markdown.py's _SEVERITY_ORDER so the web view and the
 // generated Markdown report always agree on ordering.
@@ -34,6 +34,8 @@ export default function RunDetail() {
   const [error, setError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [verification, setVerification] = useState<EvidenceVerification | null>(null);
+  const [verifying, setVerifying] = useState(false);
 
   useEffect(() => {
     if (!runId) return;
@@ -51,6 +53,16 @@ export default function RunDetail() {
       .then(setRecord)
       .catch((e) => setError(String(e)))
       .finally(() => setAnalyzing(false));
+  };
+
+  const runVerify = () => {
+    if (!runId) return;
+    setVerifying(true);
+    api
+      .verifyRun(runId)
+      .then(setVerification)
+      .catch((e) => setError(String(e)))
+      .finally(() => setVerifying(false));
   };
 
   const reviewFinding = (findingId: string, status: FindingStatus) => {
@@ -79,7 +91,28 @@ export default function RunDetail() {
         <dd>
           <code>{record.evidence.command.join(" ")}</code>
         </dd>
+        <dt>stdout sha256</dt>
+        <dd>
+          <code>{record.evidence.stdout_sha256}</code>
+        </dd>
+        <dt>stderr sha256</dt>
+        <dd>
+          <code>{record.evidence.stderr_sha256}</code>
+        </dd>
       </dl>
+
+      <p>
+        <button onClick={runVerify} disabled={verifying}>
+          {verifying ? "検証中..." : "Verify evidence"}
+        </button>{" "}
+        {verification && (
+          <span className={verification.ok ? "verify-ok" : "verify-mismatch"}>
+            {verification.ok
+              ? "OK: 保存されたoutputはハッシュと一致します"
+              : "MISMATCH: outputがハッシュと一致しません（同じファイルを編集できる人ならハッシュも書き換えられるため、これは改ざん耐性の証明ではありません）"}
+          </span>
+        )}
+      </p>
 
       <h3>Findings</h3>
       {record.findings.length === 0 ? (

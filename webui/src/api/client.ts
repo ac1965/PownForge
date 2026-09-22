@@ -62,6 +62,19 @@ export interface PolicyViolation {
   reason: string;
 }
 
+export interface HashCheck {
+  ok: boolean;
+  expected: string;
+  actual: string;
+}
+
+export interface EvidenceVerification {
+  run_id: string;
+  stdout: HashCheck;
+  stderr: HashCheck;
+  ok: boolean;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -97,4 +110,6 @@ export const api = {
     }),
 
   listAudit: () => request<PolicyViolation[]>("/audit"),
+
+  verifyRun: (runId: string) => request<EvidenceVerification>(`/runs/${runId}/verify`),
 };

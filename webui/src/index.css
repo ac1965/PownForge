@@ -85,6 +85,14 @@ td {
   opacity: 0.7;
 }
 
+.verify-ok {
+  color: #27ae60;
+}
+
+.verify-mismatch {
+  color: #c0392b;
+}
+
 .findings {
   list-style: none;
   padding: 0;
