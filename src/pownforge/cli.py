@@ -188,6 +188,21 @@ def scan_nuclei(
     _run_scan("nuclei", target, option, config, workdir)
 
 
+@scan_app.command("kubernetes")
+def scan_kubernetes(
+    target: str = typer.Option(
+        ..., "--target", help="Registered target whose address is a kubeconfig context name."
+    ),
+    option: list[str] = typer.Option(
+        [], "--option", help="key=value, may repeat; supports namespaces=, severity="
+    ),
+    config: Path = typer.Option(DEFAULT_CONFIG),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+) -> None:
+    """Run the kubernetes plugin (trivy k8s: misconfig/RBAC/image vulnerabilities) against a registered target."""
+    _run_scan("kubernetes", target, option, config, workdir)
+
+
 @result_app.command("list")
 def result_list(workdir: Path = typer.Option(DEFAULT_WORKDIR)) -> None:
     """List past scan runs, most recent first."""

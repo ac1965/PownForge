@@ -7,6 +7,7 @@ import pytest
 
 from pownforge.core.models import Target, TargetKind
 from pownforge.plugins.base import PluginError
+from pownforge.plugins.kubernetes import KubernetesPlugin
 from pownforge.plugins.network import NetworkPlugin
 from pownforge.plugins.nuclei import NucleiPlugin
 from pownforge.plugins.web import WebPlugin
@@ -177,3 +178,98 @@ def test_nuclei_plugin_parses_version_from_noisy_stderr() -> None:
 def test_nuclei_plugin_falls_back_to_default_parsing_when_no_version_line() -> None:
     version = NucleiPlugin().parse_version_output("", "some unrelated output\nmore\n")
     assert version == "some unrelated output"
+
+
+# Shape captured from a real `trivy k8s <context> -f json` run against a
+# local kind cluster (see docs/walkthrough.md).
+TRIVY_K8S_JSON = json.dumps(
+    {
+        "ClusterName": "kind-pownforge-lab",
+        "Resources": [
+            {
+                "Namespace": "kube-system",
+                "Kind": "DaemonSet",
+                "Name": "kindnet",
+                "Results": [
+                    {
+                        "Target": "DaemonSet/kindnet",
+                        "Class": "config",
+                        "Misconfigurations": [
+                            {
+                                "ID": "KSV-0001",
+                                "Title": "Can elevate its own privileges",
+                                "Message": "Container 'kindnet-cni' should set allowPrivilegeEscalation to false",
+                                "Severity": "MEDIUM",
+                            }
+                        ],
+                    }
+                ],
+            },
+            {
+                "Namespace": "kube-system",
+                "Kind": "Deployment",
+                "Name": "coredns",
+                "Results": [
+                    {
+                        "Target": "coredns (golang)",
+                        "Class": "lang-pkgs",
+                        "Vulnerabilities": [
+                            {
+                                "VulnerabilityID": "CVE-2023-28452",
+                                "Title": "CoreDNS vulnerable to TuDoor Attacks",
+                                "Description": "An issue was discovered in CoreDNS...",
+                                "Severity": "HIGH",
+                            },
+                            {
+                                "VulnerabilityID": "CVE-9999-0000",
+                                "Title": "made up unknown-severity CVE",
+                                "Severity": "UNKNOWN",
+                            },
+                        ],
+                    }
+                ],
+            },
+        ],
+    }
+)
+
+
+def test_kubernetes_plugin_normalizes_trivy_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    plugin = KubernetesPlugin()
+    target = Target(name="kind-lab", kind=TargetKind.HOST, address="kind-pownforge-lab")
+    monkeypatch.setattr(KubernetesPlugin, "check", lambda self: True)
+
+    command = plugin.build_command(target, {"severity": "MEDIUM,HIGH,CRITICAL"})
+    assert command[2] == "kind-pownforge-lab"  # context is positional, not a flag
+    assert "--severity" in command and "MEDIUM,HIGH,CRITICAL" in command
+    json_path = Path(command[command.index("-o") + 1])
+    json_path.write_text(TRIVY_K8S_JSON)
+
+    output = plugin.normalize(target, "", "")
+
+    assert len(output["resources"]) == 2
+    assert not json_path.exists()
+
+    findings = output["_findings"]
+    assert len(findings) == 3
+    misconfig = next(f for f in findings if "KSV-0001" in f["title"])
+    assert misconfig["severity"] == "medium"
+    assert "kube-system/DaemonSet/kindnet" in misconfig["detail"]
+
+    vuln = next(f for f in findings if "CVE-2023-28452" in f["title"])
+    assert vuln["severity"] == "high"
+
+    unknown_sev = next(f for f in findings if "CVE-9999-0000" in f["title"])
+    assert unknown_sev["severity"] == "unknown"  # coerce_finding() handles the fallback to info
+
+
+def test_kubernetes_plugin_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    plugin = KubernetesPlugin()
+    monkeypatch.setattr(KubernetesPlugin, "check", lambda self: False)
+    target = Target(name="kind-lab", kind=TargetKind.HOST, address="kind-pownforge-lab")
+    with pytest.raises(PluginError):
+        plugin.build_command(target, {})
+
+
+def test_kubernetes_plugin_version_command() -> None:
+    assert KubernetesPlugin().version_command() == ["trivy", "--version"]

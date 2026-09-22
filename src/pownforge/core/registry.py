@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pownforge.plugins.base import Plugin
+from pownforge.plugins.kubernetes import KubernetesPlugin
 from pownforge.plugins.network import NetworkPlugin
 from pownforge.plugins.nuclei import NucleiPlugin
 from pownforge.plugins.web import WebPlugin
@@ -32,4 +33,5 @@ def default_registry() -> PluginRegistry:
     registry.register(NetworkPlugin())
     registry.register(WebPlugin())
     registry.register(NucleiPlugin())
+    registry.register(KubernetesPlugin())
     return registry
