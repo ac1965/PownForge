@@ -5,6 +5,8 @@ import subprocess
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from pownforge.core.models import TargetKind
+
 LAB_NETWORK = "pownforge-lab"
 LAB_LABEL = "pownforge.lab=true"
 
@@ -13,6 +15,19 @@ Runner = Callable[..., "subprocess.CompletedProcess[str]"]
 
 class LabError(RuntimeError):
     """Raised when a lab network/container operation fails."""
+
+
+def resolve_lab_target_address(name: str, kind: TargetKind, scheme: str, port: int | None) -> str:
+    """Build the scope address for a lab-registered target.
+
+    Shared by the CLI `lab add` command and the web API's equivalent endpoint
+    so the host/url-building rule lives in exactly one place.
+    """
+    if kind == TargetKind.URL:
+        if port is None:
+            raise LabError("a port is required when registering a 'url' kind target")
+        return f"{scheme}://{name}:{port}"
+    return name
 
 
 @dataclass
