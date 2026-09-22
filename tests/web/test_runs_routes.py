@@ -9,6 +9,7 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
 from pownforge.core.models import Evidence, Finding, RunRecord
+from pownforge.evidence.hashing import sha256_text
 from pownforge.evidence.store import EvidenceStore
 from pownforge.web.app import create_app
 
@@ -103,3 +104,43 @@ def test_get_run_report_renders_markdown(tmp_path: Path) -> None:
     resp = client.get(f"/api/runs/{record.run_id}/report")
     assert resp.status_code == 200
     assert f"Run {record.run_id}" in resp.json()["markdown"]
+
+
+def test_verify_run_reports_mismatch_for_bogus_seeded_hashes(tmp_path: Path) -> None:
+    # _seed_record uses placeholder hashes ("abc"/"def") that don't match the
+    # seeded output, so this exercises the MISMATCH path end to end.
+    record = _seed_record(tmp_path)
+    client = _client(tmp_path)
+    resp = client.get(f"/api/runs/{record.run_id}/verify")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is False
+    assert body["stdout"]["ok"] is False
+
+
+def test_verify_run_ok_when_hashes_match(tmp_path: Path) -> None:
+    store = EvidenceStore(tmp_path / "state" / "runs")
+    evidence = Evidence(
+        command=["nmap", "127.0.0.1"],
+        started_at="2026-01-01T00:00:00Z",
+        finished_at="2026-01-01T00:00:01Z",
+        returncode=0,
+        stdout_sha256=sha256_text("hi"),
+        stderr_sha256=sha256_text(""),
+    )
+    record = RunRecord(target="lab", plugin="network", evidence=evidence, output={"raw_stdout": "hi"})
+    store.save(record)
+
+    client = _client(tmp_path)
+    resp = client.get(f"/api/runs/{record.run_id}/verify")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["stdout"]["ok"] is True
+    assert body["stderr"]["ok"] is True
+
+
+def test_verify_unknown_run_returns_404(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    resp = client.get("/api/runs/does-not-exist/verify")
+    assert resp.status_code == 404

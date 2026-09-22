@@ -28,6 +28,7 @@ report_app = typer.Typer(help="Generate Markdown reports from a run.")
 lab_app = typer.Typer(help="Start/stop attack-target containers on an isolated lab network.")
 web_app = typer.Typer(help=r"Serve the web UI (needs the \[web] extra: pip install -e '.\[web]').")
 audit_app = typer.Typer(help="Inspect scan attempts that ScopePolicy rejected.")
+evidence_app = typer.Typer(help="Verify stored evidence integrity.")
 
 app.add_typer(target_app, name="target")
 app.add_typer(plugin_app, name="plugin")
@@ -37,6 +38,7 @@ app.add_typer(report_app, name="report")
 app.add_typer(lab_app, name="lab")
 app.add_typer(web_app, name="web")
 app.add_typer(audit_app, name="audit")
+app.add_typer(evidence_app, name="evidence")
 
 DEFAULT_CONFIG = Path(os.environ.get("POWNFORGE_CONFIG", "config/targets.yaml"))
 DEFAULT_WORKDIR = Path(os.environ.get("POWNFORGE_HOME", ".pownforge"))
@@ -235,6 +237,30 @@ def audit_show(violation_id: str, workdir: Path = typer.Option(DEFAULT_WORKDIR))
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(violation.model_dump_json(indent=2))
+
+
+@evidence_app.command("verify")
+def evidence_verify(run_id: str, workdir: Path = typer.Option(DEFAULT_WORKDIR)) -> None:
+    """Recompute stdout/stderr hashes and compare against stored evidence."""
+    store = _store(workdir)
+    try:
+        result = store.verify(run_id)
+    except FileNotFoundError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"stdout: {'OK' if result.stdout.ok else 'MISMATCH'}")
+    typer.echo(f"stderr: {'OK' if result.stderr.ok else 'MISMATCH'}")
+    if not result.ok:
+        typer.echo(
+            "warning: recorded evidence no longer matches the stored output for this run. "
+            "This only detects accidental/partial changes to the run's JSON file — anyone "
+            "who can edit that file can edit the hash to match, so this is not proof against "
+            "deliberate tampering (see AGENTS.md).",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    typer.echo("evidence verified: hashes match stored output")
 
 
 @report_app.command("generate")

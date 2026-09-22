@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from pownforge.ai.ollama import OllamaAdapter
 from pownforge.core.analysis import AnalysisError, run_analysis
 from pownforge.core.findings import FindingNotFoundError, review_finding
-from pownforge.core.models import FindingStatus, RunRecord
+from pownforge.core.models import EvidenceVerification, FindingStatus, RunRecord
 from pownforge.evidence.store import EvidenceStore
 from pownforge.reporting.markdown import render
 from pownforge.web.deps import get_store
@@ -34,6 +34,14 @@ def get_run_report(run_id: str, store: EvidenceStore = Depends(get_store)) -> di
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"markdown": render(record)}
+
+
+@router.get("/runs/{run_id}/verify", response_model=EvidenceVerification)
+def verify_run(run_id: str, store: EvidenceStore = Depends(get_store)) -> EvidenceVerification:
+    try:
+        return store.verify(run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/runs/{run_id}/analyze", response_model=RunRecord)

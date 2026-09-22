@@ -86,3 +86,26 @@ class PolicyViolation(BaseModel):
     target: str
     plugin: str
     reason: str
+
+
+class HashCheck(BaseModel):
+    ok: bool
+    expected: str
+    actual: str
+
+
+class EvidenceVerification(BaseModel):
+    """Result of recomputing a run's stdout/stderr hashes from its stored
+    output and comparing them against evidence.stdout_sha256/stderr_sha256.
+
+    This only catches accidental or partial changes to the run's JSON file
+    (a bad manual edit, disk corruption, a bug that mutates output without
+    touching evidence). Anyone with write access to the file can edit both
+    the output and the hash together, so this is not tamper-proof against a
+    deliberate adversary with the same access — see AGENTS.md.
+    """
+
+    run_id: str
+    stdout: HashCheck
+    stderr: HashCheck
+    ok: bool
