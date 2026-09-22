@@ -6,7 +6,7 @@
 | `pownforge target list` | 登録済み対象の一覧 |
 | `pownforge target add <name> --address <addr> [--kind host\|url] [--type network\|web\|api\|kubernetes] [--environment local-lab\|staging\|production] [--allowed-plugins a,b] [--notes <text>]` | 対象を登録。`type`は分類用の任意項目（スキャン許可判定には使わない）。`--environment production`は`--notes`（認可/契約の参照）が必須、無いと登録は拒否される |
 | `pownforge plugin list` | 利用可能なプラグインと外部ツールの有無 |
-| `pownforge plugin info <name>` | プラグインの詳細 |
+| `pownforge plugin info <name>` | プラグインの詳細（`expected kind`は`--kind host\|url\|any`のうちそのプラグインが前提とするaddress形式。一致しない対象で`scan`すると即座に拒否される） |
 | `pownforge scan network --target <name> [--option k=v ...] [--live]` | networkプラグイン（nmap）を実行 |
 | `pownforge scan web --target <name> --option wordlist=<path> [--live]` | webプラグイン（ffuf）を実行 |
 | `pownforge scan nuclei --target <name> [--option tags=... --option severity=... --option templates=...] [--live]` | nucleiプラグイン（テンプレートベースの脆弱性検出）を実行。検出結果はそのままfinding（`source: "tool"`、既定`needs-review`）として記録 |
@@ -16,7 +16,7 @@
 | `pownforge result list` | 実行結果の一覧 |
 | `pownforge result show <run-id>` | 実行結果の詳細（JSON） |
 | `pownforge result review <run-id> <finding-id> <needs-review\|confirmed\|false-positive>` | findingの検証状態を更新 |
-| `pownforge report generate <run-id>` | Markdownレポートを `.pownforge/reports/` に生成（findingsは検証状態別に見出しを分けて出力） |
+| `pownforge report generate <run-id> [--format markdown\|html]` | レポート(既定Markdown、`--format html`でスタンドアロンHTML)を `.pownforge/reports/<run-id>.{md,html}` に生成（findingsは検証状態別に見出しを分けて出力）。HTMLはWeb UIと同じseverity配色 |
 | `pownforge analyze <run-id>` | ローカルLLMによる分析草案を出力 |
 | `pownforge lab add <name> --image <image> [--kind host\|url] [--port <n>] [--scheme http\|https] [--env k=v ...] [--allowed-plugins a,b] [--no-register] [--network <name>]` | 隔離ネットワーク上に攻撃対象ホストを起動し、既定でスコープにも登録（`--kind url` は `--port` 必須） |
 | `pownforge lab list [--network <name>]` | 稼働中/停止中のラボホスト一覧 |
@@ -33,6 +33,9 @@
 受け付けます。
 `plugin list/info` と `lab list` はどちらも取りません。
 `scan` は登録済みの対象名しか受け付けず、任意のホスト名・URLを直接指定することはできません。
+各プラグインは前提とする`Target.kind`(`plugin info`の`expected kind`)を宣言しており、
+一致しない対象で`scan`を実行すると（ツールを起動する前に）明確な`PluginError`で拒否されます
+（`network`は`any`で制約なし、`web`/`nuclei`/`sqlmap`は`url`、`kubernetes`/`container`は`host`）。
 拒否された試み（`config/targets.yaml`未登録の対象や許可されていないプラグインへの
 `scan`実行）は`.pownforge/violations/`に記録され、コマンド自体は一切実行されません。
 
@@ -40,6 +43,12 @@
 ディスク破損など）を検出するためのものです。そのファイルを編集できる権限を
 持つ人は証跡のハッシュ自体も書き換えられるため、悪意ある改ざんに対する証明には
 なりません（詳細はAGENTS.mdを参照）。
+
+`stdout_sha256`/`stderr_sha256`は`output`（実際のツール出力）に対するハッシュで、
+`evidence.command`（`--token`/`--password`等それらしい値を`***`にマスクした後の
+コピー）は`evidence verify`の対象ではありません。マスクは表示・保存専用で、
+実際に実行されたコマンドはマスク前の引数のままです（詳細は
+[docs/architecture.md](architecture.md)）。
 
 `--live`はツールのstdoutを1行ずつ`| `付きでその場に表示するだけで、保存される
 証跡・findingの内容は`--live`の有無に関わらず同一です（Web UIのWebSocket

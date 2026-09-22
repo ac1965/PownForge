@@ -29,7 +29,17 @@ CLI (Typer)
   `Target.environment`が`production`の対象は`notes`(認可/契約の参照)が
   必須で、無い場合`ScopePolicy.add_target()`自体が`PolicyError`を送出します
   (CLI/Web API/Web UIいずれの登録経路でも同じチェックを通る)。
-  `SqlmapPlugin`はさらに一段階、プラグイン固有の強制を持ちます:
+- **証跡に含まれるコマンドは秘匿情報らしき値をマスクする**: `ScanRunner`は
+  実際の実行(`subprocess.Popen`)には`plugin.build_command()`が返した引数を
+  そのまま使いますが、`Evidence.command`(証跡として保存・CLI/Web API/Web UI/
+  Markdownレポートに表示される側)には`core/secrets.py::mask_command()`を
+  通した後のコピーを格納します。`--token`/`--password`/`--cookie`/`--header`
+  等それらしい名前のフラグの値を`***`に置換するキーワードヒューリスティックで、
+  固定のツール別フラグ一覧ではありません(将来認証情報を扱うプラグインを
+  追加した時のため。現状どのプラグインも認証情報を引数に含めないため実害は
+  無いが、追加後に気付いても手遅れな種類の設計のため先に用意してあります)。
+  単一文字のフラグ(例: `-H`)はキーワード照合の対象にならないため対象外です。
+- `SqlmapPlugin`はさらに一段階、プラグイン固有の強制を持ちます:
   `--risk`/`--level`(検出ペイロードの積極度)には上限を設けない一方、
   OS/レジストリ/ファイル操作やインタラクティブシェルに相当するオプション
   (`os-shell`, `file-write`, `tamper`, `c` 等)は`build_command()`が
@@ -66,6 +76,14 @@ CLI (Typer)
   stderrの最初の行」）。ツールが警告等を同じストリームに先に出す場合は
   オーバーライドする（`NucleiPlugin`はGoランタイムの警告行を読み飛ばして
   `Nuclei Engine Version: ...`の行を探す）
+- `expected_kind: TargetKind | None`（クラス属性、既定`None`）: このプラグインの
+  addressが前提とする`Target.kind`を宣言する（`None`=制約なし）。`build_command()`
+  冒頭で`self.require_kind(target)`を呼ぶと、`target.kind`が一致しない場合に
+  `PluginError`を送出する。どのプラグインを実行できるかの判定
+  （`allowed_plugins`）には関与しない、純粋にaddress形式の前提を早期に検証する
+  ためのもの。`kind_hint: str | None`で、エラーメッセージに追加のヒント
+  （`SqlmapPlugin`なら「addressにインジェクション対象パラメータを含める」等）を
+  付加できる。6プラグイン全てがこれを宣言している（`NetworkPlugin`のみ`None`）
 
 `normalize()`が返す辞書に`"_findings"`キー（`{"title", "severity", "detail"}`の
 リスト）を含めると、`ScanRunner`がそれを取り出して`Finding`（`source="tool"`）に

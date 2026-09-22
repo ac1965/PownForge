@@ -68,7 +68,7 @@ pownforge web serve  # 同一オリジンでAPIとSPAの両方を配信
 | `WS /api/ws/scans/{job_id}` | スキャンのライブ出力を行単位でストリーミング |
 | `GET /api/runs` | 実行結果の一覧 |
 | `GET /api/runs/{run_id}` | 実行結果の詳細（JSON） |
-| `GET /api/runs/{run_id}/report` | Markdownレポート文字列を返す |
+| `GET /api/runs/{run_id}/report[?format=markdown\|html]` | レポート文字列を返す（既定`{"markdown": ...}`、`?format=html`で`{"html": ...}`。HTMLはWeb UIと同じseverity配色のスタンドアロンページ） |
 | `POST /api/runs/{run_id}/analyze` | ローカルLLMで分析・分類し、結果を永続化 |
 | `PATCH /api/runs/{run_id}/findings/{finding_id}` | findingの検証状態(`needs-review`/`confirmed`/`false-positive`)を更新 |
 | `GET /api/runs/{run_id}/verify` | 保存済みoutputからstdout/stderrのSHA-256を再計算し、証跡のハッシュと一致するか確認 |

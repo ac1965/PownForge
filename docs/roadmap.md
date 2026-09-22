@@ -131,10 +131,13 @@ Confirmed/False Positive/Needs Review」という検証ワークフローは
 | --- | --- |
 | Markdown | ✅ 実装済み(`reporting/markdown.py`) |
 | JSON | ✅ (`result show`/`GET /api/runs/{id}`がJSONを返す) |
-| HTML | ❌ 未実装 |
+| HTML | ✅ 実装済み(`reporting/html.py`)。Markdown→HTML変換ライブラリは使わず、
+  同じ構造を直接HTML化する自己完結ページ(インラインCSS)。severity配色は
+  Web UIの`.severity-*.badge`と共通 |
 | PDF | ❌ 未実装 |
 
-`--format`フラグ自体が無く、`report generate`は常にMarkdown固定。レポート構成も
+`report generate --format markdown|html`(既定markdown)、Web APIは
+`GET /runs/{id}/report?format=html`で選択可能。レポート構成も
 当初案の9セクション(概要・対象範囲・実施日時・使用ツールバージョン・診断結果・
 検証済み事項・未検証事項・推奨対応・証跡一覧)に対し、実装は
 Target/Plugin/Created/Return code/Command/ハッシュ/Findings/AI分析/Raw outputという
@@ -189,11 +192,19 @@ K8s設定不備を含む)を検出し、CLI/Web UI双方での表示を確認済
 
 ### Phase 10: Plugin SDK・運用高度化 — 🟡 部分完了
 
-`Plugin` ABC(`check`/`build_command`/`normalize`)は実装済みだが、当初案の
-`PluginMetadata{name, version, description, capabilities}`のような正式なSDKパッケージ・
-入力出力スキーマの明文化・プラグイン用テストインターフェースは無い。候補プラグインの
-うち`kubernetes`(`trivy k8s`)・`container`(`trivy image`)は実装済み(Phase 8/
-本ページの優先順位リスト参照)、`identity`は未実装。
+`Plugin` ABC(`check`/`build_command`/`normalize`)に加え、宣言的な
+`expected_kind`/`kind_hint`(このプラグインが前提とする`Target.kind`と、
+それを検証する`require_kind()`)を追加した。以前は`SqlmapPlugin`だけが
+手書きでkind検証していたが、6プラグイン全てが同じ仕組みで宣言・検証するよう
+統一(`pownforge plugin info`/`GET /api/plugins`で`expected_kind`を確認可能)。
+`tests/plugin_contract.py::assert_plugin_contract()`で全プラグイン共通の
+ABC契約(name/version/description/required_tool/check/version_command の型)を
+一括検証するテストヘルパーも追加した。当初案の
+`PluginMetadata{name, version, description, capabilities}`のような正式な
+SDKパッケージ化・入力出力の型スキーマ(`options`/`normalize()`の戻り値)までは
+未実装のまま。候補プラグインのうち`kubernetes`(`trivy k8s`)・`container`
+(`trivy image`)は実装済み(Phase 8/本ページの優先順位リスト参照)、`identity`は
+未実装。
 
 ---
 
@@ -214,7 +225,11 @@ K8s設定不備を含む)を検出し、CLI/Web UI双方での表示を確認済
 | ~~4~~ | ~~Emacs連携~~(Phase 9) | ✅ **完了**。`emacs/pownforge.el`を追加。`pownforge`実行バイナリをサブプロセスとして呼ぶだけの薄いラッパーで、対象/プラグイン一覧・`--live`によるライブスキャン・finding review・Org-mode連携(findings→Orgアウトライン、見出しからのreview)をカバー。副産物としてCLIに`--live`オプションを追加し、Web UIのWebSocketライブ進捗と同じ`ScanRunner.run(on_line=...)`をCLIからも使えるようにした |
 | ~~5~~ | ~~sqlmapプラグイン~~(Phase 5) | ✅ **完了**。`SqlmapPlugin`を追加(`pownforge scan sqlmap`)。安全設計は「`--risk`/`--level`/`--dump`は自由に使える(既定は最も保守的なrisk 1/level 1)、OS/レジストリ/ファイル操作・シェル・設定ファイル読み込みに相当するオプションは常に拒否」という方針で確定(ユーザーと協議のうえ決定)。既存の`_findings`規約を再利用し、意図的に脆弱なローカルアプリ+実機`sqlmap`で検証済み |
 | ~~6~~ | ~~containerプラグイン~~(Phase 10) | ✅ **完了**。`trivy image`を使う`ContainerPlugin`を追加(`pownforge scan container`)。`KubernetesPlugin`と同じtrivy JSON形状を扱うため、finding抽出ロジックを`plugins/_trivy.py`に共通化(`KubernetesPlugin`側もこの共通関数を使うようリファクタ、既存テスト・出力形式は無変更)。`Target.address`にイメージ参照を格納する方式とし、`TargetType`に`container`を追加。実機(`alpine:3.10`)で実在のCVE検出を確認済み |
+| ~~1~~ | ~~コマンド秘匿処理~~(Evidence.commandのマスキング) | ✅ **完了**。`core/secrets.py::mask_command()`が`--token`/`--password`/`--cookie`等それらしい名前のフラグの値を`***`に置換したコピーを`Evidence.command`に格納する(実行自体はマスク前の引数のまま、`ScanRunner`内の1箇所のみ変更)。今はどのプラグインも該当しないため実害は無いが、将来認証情報を扱うプラグインを追加した際の漏洩を防ぐための予防的実装 |
+| ~~2~~ | ~~HTMLレポート出力~~(Phase 6) | ✅ **完了**。新規`reporting/html.py`(Markdown→HTML変換ライブラリは使わず直接HTML化、severity配色はWeb UIの`.severity-*.badge`と共通)。`pownforge report generate --format html`・`GET /runs/{id}/report?format=html`から生成可能 |
+| ~~3~~ | ~~Plugin SDKの正式化~~(Phase 10) | ✅ **完了**(部分)。`Plugin`ABCに`expected_kind`/`kind_hint`/`require_kind()`を追加し、6プラグイン全てが前提とする`Target.kind`を宣言・検証するよう統一(以前は`SqlmapPlugin`のみ手書きで検証)。`tests/plugin_contract.py`で全プラグイン共通のABC契約を一括テスト。`PluginMetadata`のフル形式・`options`/`normalize()`の型スキーマ化までは引き続き未実装 |
 
 これでPhase 2〜10は全て完了/部分完了。M6(Kubernetes Lab)は`KubernetesPlugin`
 により部分完了(専用ラボ構成は未着手)、Phase 5のAPI専用プラグイン(curl/httpx)・
-Phase 10のidentityプラグインなど、各Phaseの残る未実装細目は上記の詳細を参照。
+Phase 10のidentityプラグイン・SDKの完全な型スキーマ化など、各Phaseの残る
+未実装細目は上記の詳細を参照。
