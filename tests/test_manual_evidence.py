@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from pownforge.core.manual_evidence import MANUAL_PLUGIN_NAME, import_manual_run
-from pownforge.core.models import Engagement, Target, TargetKind
+from pownforge.core.models import Engagement, KillChainPhase, Target, TargetKind
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.evidence.audit import AuditStore
 from pownforge.evidence.store import EvidenceStore
@@ -170,3 +170,29 @@ def test_import_manual_run_without_engagement_leaves_via_target_none(tmp_path: P
     record = import_manual_run(policy, store, "lab", command="whoami", output="www-data")
     assert record.via_target is None
     assert record.engagement is None
+
+
+def test_import_manual_run_records_kill_chain_phase(tmp_path: Path) -> None:
+    policy = _policy_with_target()
+    store = EvidenceStore(tmp_path / "runs")
+
+    record = import_manual_run(
+        policy,
+        store,
+        "lab",
+        command="msfconsole -x 'use exploit/...; run'",
+        output="Meterpreter session 1 opened",
+        kill_chain_phase=KillChainPhase.INITIAL_ACCESS,
+    )
+
+    assert record.kill_chain_phase == KillChainPhase.INITIAL_ACCESS
+    reloaded = store.load(record.run_id)
+    assert reloaded.kill_chain_phase == KillChainPhase.INITIAL_ACCESS
+
+
+def test_import_manual_run_defaults_kill_chain_phase_to_none(tmp_path: Path) -> None:
+    policy = _policy_with_target()
+    store = EvidenceStore(tmp_path / "runs")
+
+    record = import_manual_run(policy, store, "lab", command="whoami", output="www-data")
+    assert record.kill_chain_phase is None

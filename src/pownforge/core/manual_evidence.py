@@ -3,7 +3,7 @@ from __future__ import annotations
 import shlex
 from datetime import datetime, timezone
 
-from pownforge.core.models import Evidence, RunRecord, Target
+from pownforge.core.models import Evidence, KillChainPhase, RunRecord, Target
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.core.secrets import mask_command
 from pownforge.evidence.audit import AuditStore
@@ -27,6 +27,7 @@ def import_manual_run(
     audit: AuditStore | None = None,
     engagement: str | None = None,
     via_target: str | None = None,
+    kill_chain_phase: KillChainPhase | None = None,
 ) -> RunRecord:
     """Record evidence for a step a human performed with an external tool
     (e.g. Metasploit, a manual exploit against a single already-authorized
@@ -46,7 +47,11 @@ def import_manual_run(
     together, and ScopePolicy.authorize_pivot() checks that both targets
     are members of that Engagement -- this only authorizes recording the
     relationship, it never grants any execution right on its own (still
-    requires TARGET_NAME's own allowed_plugins to include "manual")."""
+    requires TARGET_NAME's own allowed_plugins to include "manual").
+
+    KILL_CHAIN_PHASE is purely descriptive metadata for reports/walkthroughs
+    (see KillChainPhase) -- it never changes what this function does, which
+    is always just "persist what the operator reports"."""
     if (engagement is None) != (via_target is None):
         raise PolicyError("engagement and via_target must be given together, or not at all")
 
@@ -83,6 +88,7 @@ def import_manual_run(
         output={"raw_stdout": output, "raw_stderr": "", "tool": tool or "manual"},
         via_target=via_target,
         engagement=engagement,
+        kill_chain_phase=kill_chain_phase,
     )
     store.save(record)
     return record

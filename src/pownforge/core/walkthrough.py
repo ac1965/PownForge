@@ -91,6 +91,8 @@ def _describe_run(index: int, record: RunRecord) -> str:
     header = f"{index}. target={record.target} plugin={record.plugin} at={record.created_at.isoformat()}"
     if record.via_target:
         header += f" (reached via target={record.via_target}, engagement={record.engagement})"
+    if record.kill_chain_phase:
+        header += f" [phase={record.kill_chain_phase.value}]"
     lines = [header]
     if not record.findings:
         lines.append("   (no findings)")

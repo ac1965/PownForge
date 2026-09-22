@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pownforge.core.models import Evidence, Finding, RunRecord, Suggestion
+from pownforge.core.models import Evidence, Finding, KillChainPhase, RunRecord, Suggestion
 from pownforge.core.walkthrough import Walkthrough
 from pownforge.reporting.walkthrough import render_html, render_markdown
 
@@ -64,6 +64,29 @@ def test_render_html_shows_via_target_for_pivot_runs() -> None:
     ]
     output = render_html(_walkthrough(records=records))
     assert "<dt>Reached via</dt><dd>host-a (engagement: eng1)</dd>" in output
+
+
+def test_render_markdown_shows_kill_chain_phase_when_set() -> None:
+    records = [
+        _record("host-a", "network", "2026-01-01T00:00:00Z"),
+        _record(
+            "host-b",
+            "manual",
+            "2026-01-02T00:00:00Z",
+            kill_chain_phase=KillChainPhase.INITIAL_ACCESS,
+        ),
+    ]
+    output = render_markdown(_walkthrough(records=records))
+    assert "- **Kill chain phase:** initial-access" in output
+    assert output.count("Kill chain phase") == 1
+
+
+def test_render_html_shows_kill_chain_phase_when_set() -> None:
+    records = [
+        _record("host-a", "manual", "2026-01-01T00:00:00Z", kill_chain_phase=KillChainPhase.PERSISTENCE),
+    ]
+    output = render_html(_walkthrough(records=records))
+    assert "<dt>Kill chain phase</dt><dd>persistence</dd>" in output
 
 
 def test_render_markdown_lists_multiple_targets() -> None:

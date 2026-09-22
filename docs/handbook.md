@@ -1468,6 +1468,39 @@ generate --target ... --model qwen3:14b`(ローカルOllama)で実際に
 テストに移行し、Shellshockの可能性が判明したが未確認」という、実際の
 経緯どおりの物語が生成されることを確認済み。
 
+#### キルチェーン上の位置づけ(`--phase`)
+
+`pownforge result import`には`--phase`オプションがあり、その工程が
+攻撃チェーン上どこに位置するか(`discovery`/`vuln-confirm`/`exploit`/
+`initial-access`/`privilege-escalation`/`lateral-movement`/
+`persistence`/`impact`、`core/models.py::KillChainPhase`)を記録できます。
+
+```bash
+pownforge result import --target lab-web \
+  --command "msfconsole -x 'use exploit/...; run'" \
+  --output "Meterpreter session 1 opened" \
+  --tool msfconsole --phase initial-access
+```
+
+**これは純粋にレポート・ウォークスルー向けの分類タグです**。`--phase`を
+指定してもPownForgeの実行内容は一切変わりません(そもそも`result
+import`自体が何も実行しない、という制約はこれまでどおり)。PownForge
+自身が実行するプラグイン(`network`/`web`/`nuclei`/`kubernetes`/
+`container`/`sqlmap`/`vulncheck`/`recon`)は、discovery/vuln-confirm
+相当の非破壊的な検証にとどまり続けます。`exploit`以降のフェーズ
+(実悪用・初期アクセス・権限昇格・横展開・永続化・実害)は、これまで
+どおり人間が別ツールで実施し、`result import`で**記録するだけ**です。
+`--phase`を付けることで、`pownforge walkthrough generate`のナラティブや
+レポートが「今どのフェーズの記録か」を明示的に示せるようになり、単発の
+検証記録の集まりから、一連の攻撃チェーンとして読めるようになります。
+
+**実機検証**: `--phase initial-access`/`--phase privilege-escalation`を
+付けた`result import`を2件作成し、`pownforge walkthrough generate`
+(ローカルOllama, qwen3:14b)を実行。生成されたナラティブが実際に
+「初期アクセスおよび特権昇格フェーズの手動テスト」と各フェーズに言及し、
+レポート側にも`Kill chain phase: initial-access`/
+`Kill chain phase: privilege-escalation`が正しく表示されることを確認済み。
+
 各レポート(単一run向けの`report generate`、複数runを横断する
 `walkthrough generate`のいずれも)冒頭には**エグゼクティブサマリー**節が
 あり、`reporting/summary.py::summarize()`が既存のFindingを集計して
@@ -1533,7 +1566,10 @@ PownForgeが実際にホスト間を移動するのではなく、既に個別�
 複数対象間の関係を正しく認可した上で記録・ウォークスルー化する形で
 取り込んだもの)、`Playbook`による複数プラグインの線形連続実行(実行時の
 分岐・AI判断は含めず、人間が事前に書いた静的なステップ列を
-`ScanRunner`経由で順に流すだけ)。
+`ScanRunner`経由で順に流すだけ)、`result import`への`KillChainPhase`
+タグ付け(discovery〜impactの全フェーズをレポート・ウォークスルー上で
+分類できるようにしたもの。PownForge自身が実行するのは引き続き
+discovery/vuln-confirm相当のみで、exploit以降は今までどおり記録専用)。
 
 **既知の未実装項目**:
 

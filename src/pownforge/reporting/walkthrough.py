@@ -104,6 +104,8 @@ def render_markdown(walkthrough: Walkthrough) -> str:
         ]
         if record.via_target:
             lines.append(f"- **Reached via:** `{record.via_target}` (engagement: `{record.engagement}`)")
+        if record.kill_chain_phase:
+            lines.append(f"- **Kill chain phase:** {record.kill_chain_phase.value}")
         lines += ["", "### Findings"]
         if record.findings:
             for status, heading in _STATUS_SECTIONS:
@@ -220,6 +222,8 @@ def render_html(walkthrough: Walkthrough) -> str:
             parts.append(
                 f"<dt>Reached via</dt><dd>{_esc(record.via_target)} (engagement: {_esc(record.engagement)})</dd>"
             )
+        if record.kill_chain_phase:
+            parts.append(f"<dt>Kill chain phase</dt><dd>{_esc(record.kill_chain_phase.value)}</dd>")
         parts.append("</dl>")
         if record.findings:
             for status, heading in _STATUS_SECTIONS:

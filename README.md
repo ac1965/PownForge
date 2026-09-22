@@ -126,7 +126,9 @@ make test-all     # pytest + webuiビルド + Emacs ERT(npm/Emacsが入ってい
 - 実行証跡（コマンド・タイムスタンプ・SHA-256ハッシュ）の保存
 - Markdown/HTMLレポート生成（エグゼクティブサマリー節つき）
 - 人間が別ツールで実施した工程の証跡取り込み（`pownforge result import`/`add-finding`。
-  PownForge自身はコマンドを実行しない）
+  PownForge自身はコマンドを実行しない）。`--phase`で攻撃チェーン上の位置
+  （discovery〜impact）を記録でき、PownForge自身が実行するのは引き続き
+  discovery/vuln-confirm相当のみ
 - `Engagement`(既存Targetのグループ化)による横展開の記録（`pownforge engagement add`、
   `result import --engagement/--via`。PownForgeが実際にホスト間を移動することはない）
 - `Playbook`による複数プラグインの連続実行（`pownforge playbook run`。

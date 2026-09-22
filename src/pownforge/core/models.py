@@ -163,6 +163,26 @@ class Suggestion(BaseModel):
     rationale: str = ""
 
 
+class KillChainPhase(str, Enum):
+    """Where a recorded run sits in a full attacker kill chain, for
+    reporting/tracking purposes only -- this labels evidence, it never
+    grants execution authority. PownForge's own plugins (ScanRunner) only
+    ever produce DISCOVERY/VULN_CONFIRM-phase evidence; everything from
+    EXPLOIT onward can only be attached via `pownforge result import`
+    (a human describing what they did with another tool), never executed
+    by PownForge itself. See core/manual_evidence.py and
+    docs/handbook.md §11."""
+
+    DISCOVERY = "discovery"
+    VULN_CONFIRM = "vuln-confirm"
+    EXPLOIT = "exploit"
+    INITIAL_ACCESS = "initial-access"
+    PRIVILEGE_ESCALATION = "privilege-escalation"
+    LATERAL_MOVEMENT = "lateral-movement"
+    PERSISTENCE = "persistence"
+    IMPACT = "impact"
+
+
 class RunRecord(BaseModel):
     run_id: str = Field(default_factory=lambda: uuid.uuid4().hex[:12])
     target: str
@@ -179,6 +199,10 @@ class RunRecord(BaseModel):
     # lateral-movement chain.
     via_target: str | None = None
     engagement: str | None = None
+    # Set by the operator on `pownforge result import` (never inferred, and
+    # never set for a plugin-run scan). Purely descriptive metadata for
+    # reports/walkthroughs -- see KillChainPhase.
+    kill_chain_phase: KillChainPhase | None = None
 
 
 class PolicyViolation(BaseModel):

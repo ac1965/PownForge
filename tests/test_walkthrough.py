@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from pownforge.ai.ollama import OllamaAdapter, OllamaError
-from pownforge.core.models import Evidence, Finding, RunRecord
+from pownforge.core.models import Evidence, Finding, KillChainPhase, RunRecord
 from pownforge.core.settings import Language
 from pownforge.core.walkthrough import WalkthroughError, generate_walkthrough, select_runs
 from pownforge.evidence.store import EvidenceStore
@@ -244,6 +244,25 @@ def test_generate_walkthrough_describes_pivot_steps_in_the_prompt(
     monkeypatch.setattr(OllamaAdapter, "analyze", fake_analyze)
     generate_walkthrough(store, OllamaAdapter(), None, None, targets=["host-a", "host-b"])
     assert "reached via target=host-a, engagement=eng1" in seen_prompt["prompt"]
+
+
+def test_generate_walkthrough_describes_kill_chain_phase_in_the_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = EvidenceStore(tmp_path / "runs")
+    _make_record(
+        store, "host-a", "manual", "2026-01-01T00:00:00Z", kill_chain_phase=KillChainPhase.EXPLOIT
+    )
+
+    seen_prompt = {}
+
+    def fake_analyze(self, prompt: str) -> str:
+        seen_prompt["prompt"] = prompt
+        return "narrative"
+
+    monkeypatch.setattr(OllamaAdapter, "analyze", fake_analyze)
+    generate_walkthrough(store, OllamaAdapter(), None, "host-a")
+    assert "[phase=exploit]" in seen_prompt["prompt"]
 
 
 def test_generate_walkthrough_wraps_ollama_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

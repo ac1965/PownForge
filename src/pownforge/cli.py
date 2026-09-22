@@ -16,6 +16,7 @@ from pownforge.core.orchestrator import PlaybookError, list_playbooks, resolve_p
 from pownforge.core.models import (
     Engagement,
     FindingStatus,
+    KillChainPhase,
     Severity,
     Target,
     TargetEnvironment,
@@ -565,6 +566,13 @@ def result_import(
     via: Optional[str] = typer.Option(
         None, "--via", help="The target TARGET was reached from/via. Requires --engagement."
     ),
+    phase: Optional[KillChainPhase] = typer.Option(
+        None,
+        "--phase",
+        help="Where this step sits in the attack chain (discovery/vuln-confirm/exploit/"
+        "initial-access/privilege-escalation/lateral-movement/persistence/impact). Purely "
+        "descriptive for reports/walkthroughs -- PownForge never executes anything based on it.",
+    ),
     config: Path = typer.Option(DEFAULT_CONFIG),
     workdir: Path = typer.Option(DEFAULT_WORKDIR),
 ) -> None:
@@ -587,6 +595,7 @@ def result_import(
             audit=_audit(workdir),
             engagement=engagement,
             via_target=via,
+            kill_chain_phase=phase,
         )
     except PolicyError as exc:
         typer.echo(f"error: {exc}", err=True)
