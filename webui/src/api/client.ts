@@ -66,6 +66,9 @@ export interface RunRecord {
   output: Record<string, unknown>;
   findings: Finding[];
   analysis: string | null;
+  via_target: string | null;
+  engagement: string | null;
+  kill_chain_phase: KillChainPhase | null;
 }
 
 export interface PluginInfo {
@@ -130,6 +133,28 @@ export interface Playbook {
 export interface PlaybookRunCreated {
   job_id: string;
   status: string;
+}
+
+export type KillChainPhase =
+  | "discovery"
+  | "vuln-confirm"
+  | "exploit"
+  | "initial-access"
+  | "privilege-escalation"
+  | "lateral-movement"
+  | "persistence"
+  | "impact";
+
+export interface AttackSessionStage {
+  run_id: string;
+  label: string;
+}
+
+export interface AttackSession {
+  name: string;
+  description: string;
+  engagement: string | null;
+  stages: AttackSessionStage[];
 }
 
 export type Language = "ja" | "en";
@@ -219,6 +244,21 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ target }),
     }),
+
+  listAttackSessions: () => request<AttackSession[]>("/attack-sessions"),
+  getAttackSession: (name: string) =>
+    request<AttackSession>(`/attack-sessions/${encodeURIComponent(name)}`),
+  createAttackSession: (body: { name: string; description?: string; engagement?: string | null }) =>
+    request<AttackSession>("/attack-sessions", { method: "POST", body: JSON.stringify(body) }),
+  addAttackSessionStage: (name: string, run_id: string, label?: string) =>
+    request<AttackSession>(`/attack-sessions/${encodeURIComponent(name)}/stages`, {
+      method: "POST",
+      body: JSON.stringify({ run_id, label: label ?? "" }),
+    }),
+  getAttackSessionReport: (name: string, format: "markdown" | "html" = "markdown") =>
+    request<{ markdown?: string; html?: string }>(
+      `/attack-sessions/${encodeURIComponent(name)}/report?format=${format}`,
+    ),
 
   getSettings: () => request<AppSettings>("/settings"),
   updateSettings: (body: AppSettings) =>

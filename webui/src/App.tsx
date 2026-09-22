@@ -9,6 +9,7 @@ import NewScan from "./pages/NewScan";
 import ScanLive from "./pages/ScanLive";
 import Playbooks from "./pages/Playbooks";
 import PlaybookLive from "./pages/PlaybookLive";
+import AttackSessions from "./pages/AttackSessions";
 import Walkthrough from "./pages/Walkthrough";
 import Settings from "./pages/Settings";
 
@@ -41,6 +42,9 @@ export default function App() {
           <NavLink to="/playbooks" className={navClass}>
             Playbooks
           </NavLink>
+          <NavLink to="/attack-sessions" className={navClass}>
+            Attack Session
+          </NavLink>
           <NavLink to="/walkthrough/new" className={navClass}>
             Walkthrough
           </NavLink>
@@ -60,6 +64,7 @@ export default function App() {
             <Route path="/scans/:jobId/live" element={<ScanLive />} />
             <Route path="/playbooks" element={<Playbooks />} />
             <Route path="/playbooks/runs/:jobId/live" element={<PlaybookLive />} />
+            <Route path="/attack-sessions" element={<AttackSessions />} />
             <Route path="/walkthrough/new" element={<Walkthrough />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>

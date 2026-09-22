@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi import Depends, Request
 
+from pownforge.core.attack_session import AttackSessionStore
 from pownforge.core.lab import LabManager
 from pownforge.core.policy import ScopePolicy
 from pownforge.core.registry import PluginRegistry, default_registry
@@ -53,6 +54,10 @@ def get_store(workdir: Path = Depends(get_workdir)) -> EvidenceStore:
 
 def get_audit_store(workdir: Path = Depends(get_workdir)) -> AuditStore:
     return AuditStore(workdir / "violations")
+
+
+def get_attack_sessions(workdir: Path = Depends(get_workdir)) -> AttackSessionStore:
+    return AttackSessionStore(workdir / "attack_sessions")
 
 
 def get_runner(

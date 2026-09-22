@@ -304,7 +304,7 @@ pownforge analyze <run-id>
 | `pownforge attack-session add-stage <name> <run-id> [--label <text>]` | 既存のrun-idをAttackSessionの次のステージとして追加 |
 | `pownforge attack-session list` | AttackSessionの一覧 |
 | `pownforge attack-session show <name>` | AttackSessionのステージを順に表示 |
-| `pownforge attack-session report <name> [--format markdown\|html]` | AttackSessionを経路レポートとして`<workdir>/reports/`に出力(詳細は[§12](#12-証跡とレポート)) |
+| `pownforge attack-session report <name> [--format markdown\|html]` | AttackSessionを経路レポートとして`<workdir>/reports/`に出力(詳細は[§13](#13-証跡とレポート)) |
 | `pownforge audit list` | `ScopePolicy`が拒否したスキャン実行の試みを一覧表示 |
 | `pownforge audit show <violation-id>` | 拒否された試みの詳細(JSON) |
 | `pownforge evidence verify <run-id>` | 保存済みoutputからハッシュを再計算し、証跡と一致するか確認 |
@@ -935,11 +935,13 @@ pownforge web serve  # 同一オリジンでAPIとSPAの両方を配信
 ![Targets画面](images/web-targets.png)
 
 Dashboard/Targets/Lab/Runs/Run detail/Audit/New Scan/Scan live/
-Playbooks/Playbook live/Walkthroughの各画面から、target追加・削除、
-labホスト起動・削除、新規スキャン実行(ライブ進捗)、Playbook実行
-(ステップ単位のライブ進捗、[§8](#8-playbook-複数プラグインの連続実行)参照)、
-Analyze実行、finding検証、evidence検証、複数runをまたぐウォークスルー
-生成までひととおり操作できます。
+Playbooks/Playbook live/Attack Session/Walkthroughの各画面から、
+target追加・削除、labホスト起動・削除、新規スキャン実行(ライブ進捗)、
+Playbook実行(ステップ単位のライブ進捗、
+[§8](#8-playbook-複数プラグインの連続実行)参照)、Attack Sessionの作成・
+stage追加・レポート表示([§13](#13-証跡とレポート)の
+`AttackSession`節参照)、Analyze実行、finding検証、evidence検証、
+複数runをまたぐウォークスルー生成までひととおり操作できます。
 
 ![Run detail画面(findings表示)](images/web-rundetail.png)
 
@@ -969,6 +971,11 @@ medium/青=low/灰=info)付きで、検証状態(確認済み/要確認/誤検�
 | `GET /api/playbooks/{name}` | Playbookのステップ内容 |
 | `POST /api/playbooks/{name}/run` | Playbookをジョブとして投入。`{"job_id": ..., "status": "pending"}`を返す |
 | `WS /api/ws/playbooks/{job_id}` | Playbookの各ステップの開始/完了/スキップ/失敗をストリーミング(詳細は[§8](#8-playbook-複数プラグインの連続実行)) |
+| `GET /api/attack-sessions` | AttackSessionの一覧 |
+| `GET /api/attack-sessions/{name}` | AttackSessionのステージ一覧(JSON) |
+| `POST /api/attack-sessions` | 空のAttackSessionを作成(何も実行しない) |
+| `POST /api/attack-sessions/{name}/stages` | 既存run-idを次のステージとして追加(run-id未検出時は404) |
+| `GET /api/attack-sessions/{name}/report[?format=markdown\|html]` | 経路レポート文字列を返す(詳細は[§13](#13-証跡とレポート)の`AttackSession`節) |
 | `GET /api/runs` | 実行結果の一覧 |
 | `GET /api/runs/{run_id}` | 実行結果の詳細(JSON) |
 | `GET /api/runs/{run_id}/report[?format=markdown\|html]` | レポート文字列を返す |
@@ -1088,6 +1095,11 @@ Emacs Lispラッパーです。スコープ検証・プラグイン実行・証�
 | `pownforge-playbook-list` | 利用可能なPlaybookを`tabulated-list-mode`で表示。`RET`でステップ表示、`r`で`pownforge-playbook-run`へ |
 | `pownforge-playbook-show` | Playbookのステップ内容を表示 |
 | `pownforge-playbook-run` | Playbook・対象を`completing-read`で選択、`pownforge playbook run ...`を非同期実行してステップ進捗をバッファへライブ表示。完了後`C-c C-c`でいずれかのステップの結果を開く |
+| `pownforge-attack-session-list` | AttackSessionを`tabulated-list-mode`で表示。`RET`でstage表示、`c`で`pownforge-attack-session-create`、`a`で`pownforge-attack-session-add-stage`へ |
+| `pownforge-attack-session-show` | AttackSessionのstageを順に表示(フェーズ・ラベル付き) |
+| `pownforge-attack-session-create` | 空のAttackSessionを作成(何も実行しない) |
+| `pownforge-attack-session-add-stage` | 既存run-idを次のstageとして追加(run-idは`completing-read`で`result list`から選択) |
+| `pownforge-attack-session-report` | 経路レポートを生成しファイルを開く |
 | `pownforge-result-list` | 過去の実行一覧。`RET`で詳細、`o`でその実行のfindingsをOrgとして挿入 |
 | `pownforge-result-show` | 実行の詳細を表示。findingsはseverity降順。行上で`r`を押すと`pownforge result review`でステータス変更 |
 | `pownforge-report-generate` | レポートを生成しファイルを開く |
@@ -1549,6 +1561,37 @@ initial-access`→`result import --phase privilege-escalation`という
 双方でstageごとの詳細(コマンド・フェーズ・findings)が正しく出力
 されることを確認した。存在しないrun-idを指定した場合に拒否されること、
 同名セッションの重複作成が拒否されることも確認済み。
+
+#### Web UI / Emacsからの利用
+
+`pownforge attack-session create/add-stage/list/show/report`と同じ操作は、
+Web UI(Attack Sessionページ)・Emacs(`pownforge-attack-session-list`/
+`-show`/`-create`/`-add-stage`/`-report`)からも行えます。Playbookと同様、
+どちらも内部的には[§9](#9-web-ui--api)のWeb API・CLIサブプロセス経由で
+同じ`core/attack_session.py`を呼ぶだけで、「既存run-idの存在確認のみ・
+実行は一切しない」という制約はどの経路から使っても変わりません。
+
+- **Web UI**: Attack Sessionページで新規作成フォームからセッションを
+  作成すると一覧に反映され、一覧から「表示」を選ぶと詳細(stage一覧・
+  stage追加フォーム・Markdown/HTMLレポート表示)が開きます。
+  stage追加フォームのrun選択肢は`GET /api/runs`から取得した実在のrunのみで、
+  Webからも存在しないrun-idを指定することはできません
+  (`POST /api/attack-sessions/{name}/stages`は`run_id`未検出時に404)
+- **Emacs**: `M-x pownforge-attack-session-list`でタブ区切り一覧を表示
+  (`RET`でstage表示、`c`で新規作成、`a`でstage追加)。
+  `M-x pownforge-attack-session-report`はレポートを生成しファイルを開きます
+  (`pownforge-report-generate`/`pownforge-walkthrough-generate`と同じ
+  「`wrote <path>`行をパースして`find-file`」パターン)
+
+**実機検証**: Web UI(`pownforge web serve`を起動しビルド済みSPA経由)で
+実際の`network`スキャンのrun(`lab-web`対象)を使い、セッション作成→
+stage追加→Markdown/HTMLレポート表示までブラウザから一気通貫で実行し、
+レポートに実際のfindings・コマンドが反映されることを確認した。Emacs側も
+実CLI(スタブではなく`.venv/bin/pownforge`)に対して同じ手順を
+`pownforge-attack-session-add-stage`/`-report`から実行し、
+`attack-session-<name>.md`が正しい内容で書き出されることを確認した。
+検証用に作成したセッション・レポートファイルはいずれも確認後に削除済み
+(`config/targets.yaml`の実対象登録には触れていない)。
 
 各レポート(単一run向けの`report generate`、複数runを横断する
 `walkthrough generate`のいずれも)冒頭には**エグゼクティブサマリー**節が
