@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Stub CLI used only by emacs/tests/pownforge-test.el: mimics the exact
+# textual/JSON shapes the real `pownforge` binary produces for the
+# subcommands pownforge.el shells out to, so the Elisp tests can run
+# without a Python environment or real scan targets.
+set -euo pipefail
+
+if [ "$1" = "fail" ]; then
+  echo "boom" >&2
+  exit 1
+fi
+
+case "$1 $2" in
+  "target list")
+    printf 'lab-web\turl\thttp://lab-web:3000\tplugins=web, nuclei\ttype=web\tenv=local-lab\n'
+    printf 'kind-lab\thost\tkind-pownforge-lab\tplugins=kubernetes\ttype=kubernetes\tenv=local-lab\n'
+    ;;
+  "plugin list")
+    printf 'network\tv1\tok\tnmap-based network recon\n'
+    printf 'nuclei\tv1\tmissing tool (nuclei)\ttemplate-based vulnerability detection\n'
+    ;;
+  "result list")
+    printf 'run001\t2026-09-22T10:00:00+00:00\tlab-web\tnuclei\n'
+    ;;
+  "result show")
+    cat <<'JSON'
+{
+  "run_id": "run001",
+  "target": "lab-web",
+  "plugin": "nuclei",
+  "created_at": "2026-09-22T10:00:00+00:00",
+  "evidence": {"returncode": 0, "tool_version": "Nuclei Engine Version: v3.11.1"},
+  "output": {},
+  "findings": [
+    {"finding_id": "f1", "title": "Exposed admin panel", "severity": "medium", "detail": "found at /admin", "source": "tool", "status": "needs-review"},
+    {"finding_id": "f2", "title": "Critical RCE template match", "severity": "critical", "detail": "matched CVE-0000", "source": "tool", "status": "needs-review"}
+  ],
+  "analysis": null
+}
+JSON
+    ;;
+  "result review")
+    echo "finding '$4' on run '$3' -> $5"
+    ;;
+  "report generate")
+    echo "wrote /tmp/fake-pownforge-report-$3.md"
+    ;;
+  "audit list")
+    printf 'v1\t2026-09-22T09:00:00+00:00\tunregistered-host\tnetwork\ttarget '"'"'unregistered-host'"'"' is not registered\n'
+    ;;
+  "scan live-ok")
+    echo "line one"
+    sleep 0.05
+    echo "line two"
+    sleep 0.05
+    echo "run abc123 completed (exit=0)"
+    ;;
+  *)
+    echo "fake-pownforge: unhandled args: $*" >&2
+    exit 2
+    ;;
+esac

@@ -1,7 +1,7 @@
 PYTHON ?= python3.11
 VENV := .venv
 
-.PHONY: install test lint run docker-build docker-run web-install web-build
+.PHONY: install test lint run docker-build docker-run web-install web-build emacs-test
 
 install:
 	test -d $(VENV) || $(PYTHON) -m venv $(VENV)
@@ -27,6 +27,12 @@ lint:
 
 run:
 	$(VENV)/bin/pownforge --help
+
+# Emacs front-end (optional). See docs/emacs.md. Requires Emacs 27.1+; tests
+# run against emacs/tests/fixtures/fake-pownforge, not the real CLI/Python env.
+emacs-test:
+	emacs --batch -L emacs -L emacs/tests -l ert -l emacs/pownforge.el \
+		-l emacs/tests/pownforge-test.el -f ert-run-tests-batch-and-exit
 
 # archlinux:base has no arm64 manifest; force amd64 (QEMU-emulated on Apple
 # Silicon hosts) to match compose.yaml's `platform: linux/amd64`.
