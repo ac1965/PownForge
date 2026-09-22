@@ -11,13 +11,15 @@ RUN pacman -Syu --noconfirm \
     go \
     && pacman -Scc --noconfirm
 
-# ffuf/nuclei aren't packaged in Arch's official repos; build them from
-# source via Go.
+# ffuf/nuclei/subfinder aren't packaged in Arch's official repos; build them
+# from source via Go.
 ENV GOPATH=/root/go
 RUN go install github.com/ffuf/ffuf/v2@latest \
     && install -m755 /root/go/bin/ffuf /usr/local/bin/ffuf
 RUN go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest \
     && install -m755 /root/go/bin/nuclei /usr/local/bin/nuclei
+RUN go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest \
+    && install -m755 /root/go/bin/subfinder /usr/local/bin/subfinder
 # nuclei has no templates on its own and refuses to scan without any.
 # The pownforge-lab network is --internal (no internet at scan time by
 # design), so fetch the official templates now, at build time, while this

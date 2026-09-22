@@ -103,7 +103,8 @@ make test
 
 - CLI基盤（Typer）
 - 対象管理・スコープ検証（`core/policy.py`）
-- プラグインレジストリと `network`（nmap）/ `web`（ffuf）/ `nuclei`（テンプレートベース脆弱性検出）/
+- プラグインレジストリと `recon`（subfinder、受動的サブドメイン列挙。対象へは
+  一切トラフィックを送らない）/ `network`（nmap）/ `web`（ffuf）/ `nuclei`（テンプレートベース脆弱性検出）/
   `kubernetes`（`trivy k8s`によるクラスタ誤設定・RBAC・イメージ脆弱性検出）/
   `container`（`trivy image`によるコンテナイメージの脆弱性・誤設定・シークレット検出）/
   `sqlmap`（SQLインジェクション検出・抽出。OS/ファイル操作系オプションは常に拒否、

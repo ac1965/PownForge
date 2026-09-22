@@ -12,6 +12,7 @@ from pownforge.plugins.container import ContainerPlugin
 from pownforge.plugins.kubernetes import KubernetesPlugin
 from pownforge.plugins.network import NetworkPlugin
 from pownforge.plugins.nuclei import NucleiPlugin
+from pownforge.plugins.recon import ReconPlugin
 from pownforge.plugins.sqlmap import SqlmapPlugin
 from pownforge.plugins.web import WebPlugin
 from plugin_contract import assert_plugin_contract
@@ -101,6 +102,62 @@ def test_network_plugin_version_command() -> None:
 
 def test_web_plugin_version_command() -> None:
     assert WebPlugin().version_command() == ["ffuf", "-V"]
+
+
+SUBFINDER_JSONL = "\n".join(
+    [
+        json.dumps({"host": "www.example.com", "input": "example.com", "source": "crtsh"}),
+        json.dumps({"host": "api.example.com", "input": "example.com", "source": "crtsh"}),
+        # Same host from a second source -- normalize() must dedupe it.
+        json.dumps({"host": "www.example.com", "input": "example.com", "source": "hackertarget"}),
+    ]
+)
+
+
+def test_recon_plugin_normalizes_subfinder_jsonl_and_dedupes(monkeypatch: pytest.MonkeyPatch) -> None:
+    plugin = ReconPlugin()
+    target = Target(name="lab", kind=TargetKind.HOST, address="example.com")
+    monkeypatch.setattr(ReconPlugin, "check", lambda self: True)
+
+    command = plugin.build_command(target, {})
+    jsonl_path = Path(command[command.index("-o") + 1])
+    jsonl_path.write_text(SUBFINDER_JSONL)
+
+    output = plugin.normalize(target, "", "")
+
+    assert output["tool"] == "subfinder"
+    assert output["subdomains"] == [
+        {"host": "www.example.com", "source": "crtsh"},
+        {"host": "api.example.com", "source": "crtsh"},
+    ]
+    assert not jsonl_path.exists()
+
+
+def test_recon_plugin_passes_sources_option(monkeypatch: pytest.MonkeyPatch) -> None:
+    plugin = ReconPlugin()
+    monkeypatch.setattr(ReconPlugin, "check", lambda self: True)
+    target = Target(name="lab", kind=TargetKind.HOST, address="example.com")
+    command = plugin.build_command(target, {"sources": "crtsh,hackertarget"})
+    assert "-s" in command
+    assert command[command.index("-s") + 1] == "crtsh,hackertarget"
+
+
+def test_recon_plugin_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    plugin = ReconPlugin()
+    monkeypatch.setattr(ReconPlugin, "check", lambda self: False)
+    target = Target(name="lab", kind=TargetKind.HOST, address="example.com")
+    with pytest.raises(PluginError):
+        plugin.build_command(target, {})
+
+
+def test_recon_plugin_version_command() -> None:
+    assert ReconPlugin().version_command() == ["subfinder", "-version"]
+
+
+def test_recon_plugin_parses_version_from_ansi_colored_output() -> None:
+    plugin = ReconPlugin()
+    raw = "[\x1b[34mINF\x1b[0m] Current Version: v2.16.0\n[\x1b[34mINF\x1b[0m] Subfinder Config Directory: ..."
+    assert plugin.parse_version_output("", raw) == "Current Version: v2.16.0"
 
 
 NUCLEI_JSONL = "\n".join(
@@ -529,6 +586,7 @@ def test_all_registered_plugins_satisfy_the_base_contract() -> None:
         (KubernetesPlugin, TargetKind.HOST),
         (ContainerPlugin, TargetKind.HOST),
         (SqlmapPlugin, TargetKind.URL),
+        (ReconPlugin, TargetKind.HOST),
     ],
 )
 def test_plugin_declares_expected_kind(plugin_cls: type, expected: TargetKind | None) -> None:
@@ -543,6 +601,7 @@ def test_plugin_declares_expected_kind(plugin_cls: type, expected: TargetKind | 
         (KubernetesPlugin, TargetKind.URL),
         (ContainerPlugin, TargetKind.URL),
         (SqlmapPlugin, TargetKind.HOST),
+        (ReconPlugin, TargetKind.URL),
     ],
 )
 def test_plugin_rejects_mismatched_target_kind(

@@ -188,6 +188,24 @@ def _run_scan(
     typer.echo(f"run {record.run_id} completed (exit={record.evidence.returncode})")
 
 
+@scan_app.command("recon")
+def scan_recon(
+    target: str = typer.Option(
+        ..., "--target", help="Registered target whose address is a bare domain name, e.g. example.com."
+    ),
+    option: list[str] = typer.Option(
+        [], "--option", help="key=value, may repeat; supports sources=, exclude_sources="
+    ),
+    live: bool = typer.Option(
+        False, "--live", help="Stream the underlying tool's stdout line-by-line as it runs."
+    ),
+    config: Path = typer.Option(DEFAULT_CONFIG),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+) -> None:
+    """Run the recon plugin (subfinder: passive subdomain discovery from public sources) against a registered target."""
+    _run_scan("recon", target, option, config, workdir, live)
+
+
 @scan_app.command("network")
 def scan_network(
     target: str = typer.Option(..., "--target"),

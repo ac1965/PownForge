@@ -78,8 +78,8 @@ graph TD
     Runner --> ScopePolicy
     Runner --> Registry
     Runner --> Evidence
-    Registry --> Plugins["plugins/<br/>network・web・nuclei・kubernetes・container・sqlmap"]
-    Plugins -- "build_command" --> ExtTools["外部ツール<br/>nmap/ffuf/nuclei/trivy/sqlmap"]
+    Registry --> Plugins["plugins/<br/>recon・network・web・nuclei・kubernetes・container・sqlmap"]
+    Plugins -- "build_command" --> ExtTools["外部ツール<br/>subfinder/nmap/ffuf/nuclei/trivy/sqlmap"]
     Runner -- "subprocess実行" --> ExtTools
     Evidence --> Reporting
     Evidence --> AI
@@ -219,14 +219,14 @@ Docker上で外部ツールを揃えて動かす場合、`docker/Dockerfile.runt
 | --- | --- | --- | --- |
 | プラットフォーム不一致 | `no match for platform in manifest: not found` | `archlinux:base`にarm64向けマニフェストが無い | `docker build --platform linux/amd64`、`compose.yaml`の該当serviceに`platform: linux/amd64`を明記 |
 | pacmanサンドボックス失敗 | `error restricting syscalls via seccomp: 22!` | pacmanの新しいダウンロードサンドボックスが必要とするseccomp/user-namespace系syscallをQEMUエミュレーションが未対応 | `/etc/pacman.conf`に`DisableSandbox`を追加 |
-| ffuf/nucleiが見つからない | `error: target not found: ffuf` | Arch公式リポジトリ(core/extra)に未収録 | `go`パッケージを追加し`go install github.com/ffuf/ffuf/v2@latest`等でソースからビルド |
+| ffuf/nuclei/subfinderが見つからない | `error: target not found: ffuf` | Arch公式リポジトリ(core/extra)に未収録 | `go`パッケージを追加し`go install github.com/ffuf/ffuf/v2@latest`等でソースからビルド |
 | nucleiが"no templates provided" | テンプレート0件でスキャン失敗 | 隔離`--internal`ネットワークには実行時のインターネット接続が無く、nucleiはテンプレート同梱なし | `RUN nuclei -update-templates`を**ビルド時**(インターネット接続がある間)に実行してテンプレートを焼き込む |
 
 ビルド後、ツールの実在を確認:
 
 ```bash
 docker run --rm --platform linux/amd64 --entrypoint sh pownforge:runtime \
-  -c "command -v nmap; command -v ffuf; command -v pownforge; ffuf -V; nmap --version | head -1"
+  -c "command -v nmap; command -v ffuf; command -v subfinder; command -v pownforge; ffuf -V; nmap --version | head -1"
 ```
 
 trivy/kubectl/sqlmapはDockerランタイムイメージには含めていません
@@ -271,6 +271,7 @@ pownforge analyze <run-id>
 | `pownforge target add <name> --address <addr> [--kind host\|url] [--type network\|web\|api\|kubernetes\|container] [--environment local-lab\|staging\|production] [--allowed-plugins a,b] [--notes <text>]` | 対象を登録。`type`は分類用の任意項目(スキャン許可判定には使わない)。`--environment production`は`--notes`(認可/契約の参照)が必須、無いと登録は拒否される |
 | `pownforge plugin list` | 利用可能なプラグインと外部ツールの有無 |
 | `pownforge plugin info <name>` | プラグインの詳細(`expected kind`は`host\|url\|any`のうちそのプラグインが前提とするaddress形式) |
+| `pownforge scan recon --target <name> [--option sources=... --option exclude_sources=...] [--live]` | reconプラグイン(subfinder、受動的サブドメイン列挙)を実行。対象へトラフィックは送らない |
 | `pownforge scan network --target <name> [--option k=v ...] [--live]` | networkプラグイン(nmap)を実行 |
 | `pownforge scan web --target <name> --option wordlist=<path> [--live]` | webプラグイン(ffuf)を実行 |
 | `pownforge scan nuclei --target <name> [--option tags=... --option severity=... --option templates=...] [--live]` | nucleiプラグイン(テンプレートベースの脆弱性検出)を実行。検出結果はfinding(`source: "tool"`)として記録 |
@@ -307,7 +308,7 @@ pownforge analyze <run-id>
   `.gitignore`済み(`config/settings.yaml.example`参照)
 - `scan`は登録済みの対象名しか受け付けない。各プラグインは前提とする
   `Target.kind`を宣言しており(`network`は`any`、`web`/`nuclei`/`sqlmap`は
-  `url`、`kubernetes`/`container`は`host`)、一致しない対象で`scan`すると
+  `url`、`kubernetes`/`container`/`recon`は`host`)、一致しない対象で`scan`すると
   ツールを起動する前に明確な`PluginError`で拒否される
 - 拒否された試みは`.pownforge/violations/`に記録され、コマンド自体は
   一切実行されない
@@ -331,6 +332,29 @@ Emacs連携はこの`--live`出力を非同期プロセスのバッファへラ�
 形で利用しています。
 
 ## 6. プラグイン
+
+### recon(`subfinder`)
+
+公開ソース(証明書透明性ログ、DNSデータベース等)のみを問い合わせる
+**受動的**なサブドメイン列挙です。対象ホストへは一切トラフィックを
+送らないため、他プラグインと異なりスキャン対象自体への負荷や検知の
+懸念がありません。`Target.address`はベアなドメイン名(例: `example.com`)
+として扱います。`expected_kind`は`host`。
+
+```bash
+pownforge target add example-recon --address example.com --kind host \
+  --allowed-plugins recon
+pownforge scan recon --target example-recon --option sources=crtsh,hackertarget
+```
+
+`--option`のキー: `sources`(`subfinder -s`、使用する情報源を限定)、
+`exclude_sources`(`subfinder -es`)。結果は発見したサブドメインと
+その出典ソースの一覧として記録され、確認済み脆弱性ではないためfindingは
+生成しません(`network`/`web`と同様)。
+
+**実機検証**: 実際にHomebrewで`subfinder`(v2.16.0)を導入し、
+`projectdiscovery.io`を対象に`crtsh`ソースで実行、`{"host", "input",
+"source"}`形式のJSONLが出力されることを確認した上でパーサーを実装。
 
 ### network(`nmap`)
 
@@ -980,7 +1004,9 @@ findingsが正しく記録・表示されることを確認してから完了と
 
 **当初計画に無かった追加実装**: Web UI(FastAPIバックエンド + React SPA、
 ライブ進捗WebSocket)、`pownforge lab`による攻撃対象コンテナの動的管理、
-Emacs連携、複数runをまたぐ物語調ウォークスルー機能とAIの提案(Suggestion)。
+Emacs連携、複数runをまたぐ物語調ウォークスルー機能とAIの提案(Suggestion)、
+recon(`subfinder`)による受動的サブドメイン列挙(`The Hacker Playbook 2`の
+"Before the Snap"章に着想を得た偵察フェーズの補強)。
 
 **既知の未実装項目**:
 
