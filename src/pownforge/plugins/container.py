@@ -12,10 +12,10 @@ from pownforge.plugins._trivy import findings_from_trivy_results
 from pownforge.plugins.base import Plugin, PluginError
 
 
-class KubernetesPlugin(Plugin):
-    name = "kubernetes"
+class ContainerPlugin(Plugin):
+    name = "container"
     version = "0.1.0"
-    description = "Cluster misconfiguration, RBAC, and workload vulnerability scanning via trivy k8s."
+    description = "Container image vulnerability, misconfiguration, and secret scanning via trivy image."
     required_tool = "trivy"
 
     def __init__(self) -> None:
@@ -31,47 +31,49 @@ class KubernetesPlugin(Plugin):
         if not self.check():
             raise PluginError(f"'{self.required_tool}' is not installed or not on PATH")
 
-        fd, raw_path = tempfile.mkstemp(prefix="pownforge-trivy-", suffix=".json")
+        fd, raw_path = tempfile.mkstemp(prefix="pownforge-trivy-image-", suffix=".json")
         os.close(fd)
         self._json_path = Path(raw_path)
 
-        # target.address holds a kubeconfig context name (e.g.
-        # "kind-pownforge-lab"), not a host/URL — trivy reads the matching
-        # cluster connection details from the ambient kubeconfig itself.
+        # target.address holds an image reference (e.g. "nginx:1.25" or
+        # "registry.example.com/app:latest"), not a host/URL — trivy
+        # resolves and inspects it directly (pulling it if not already
+        # present locally).
         args = [
             "trivy",
-            "k8s",
+            "image",
             target.address,
             "-f",
             "json",
             "-o",
             str(self._json_path),
-            "--report",
-            "all",
             "--no-progress",
         ]
-        if namespaces := options.get("namespaces"):
-            args += ["--include-namespaces", str(namespaces)]
         if severity := options.get("severity"):
             args += ["--severity", str(severity)]
+        if str(options.get("ignore-unfixed", "")).lower() in ("true", "1"):
+            args.append("--ignore-unfixed")
+        if scanners := options.get("scanners"):
+            args += ["--scanners", str(scanners)]
         return args
 
     def normalize(self, target: Target, raw_stdout: str, raw_stderr: str) -> dict[str, Any]:
-        resources: list[dict[str, Any]] = []
+        results: list[dict[str, Any]] = []
         json_path, self._json_path = self._json_path, None
         if json_path is not None and json_path.exists():
             try:
-                resources = self._parse_json(json_path)
+                results = self._parse_json(json_path)
             finally:
                 json_path.unlink(missing_ok=True)
 
+        located_results = ((result.get("Target") or target.address, result) for result in results)
         return {
             "target": target.address,
             "tool": "trivy",
-            "resources": resources,
+            "results": results,
             "raw_stdout": raw_stdout,
             "raw_stderr": raw_stderr,
-            "_findings": self._extract_findings(resources),
+            "_findings": findings_from_trivy_results(located_results),
         }
 
     @staticmethod
@@ -80,20 +82,4 @@ class KubernetesPlugin(Plugin):
             data = json.loads(json_path.read_text())
         except json.JSONDecodeError:
             return []
-        return data.get("Resources") or []
-
-    @staticmethod
-    def _extract_findings(resources: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        located_results = (
-            (
-                "/".join(
-                    part
-                    for part in (resource.get("Namespace"), resource.get("Kind"), resource.get("Name"))
-                    if part
-                ),
-                result,
-            )
-            for resource in resources
-            for result in resource.get("Results") or []
-        )
-        return findings_from_trivy_results(located_results)
+        return data.get("Results") or []

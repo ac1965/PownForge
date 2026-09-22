@@ -19,12 +19,15 @@ class TargetType(str, Enum):
     targets for reporting and the target list, and does not itself gate
     which plugins may run (that remains `allowed_plugins`). For a
     `kubernetes` target, `address` holds a kubeconfig context name rather
-    than a host/URL — see docs/kubernetes.md."""
+    than a host/URL — see docs/kubernetes.md. For a `container` target,
+    `address` holds an image reference (e.g. "nginx:1.25") — see
+    docs/container.md."""
 
     NETWORK = "network"
     WEB = "web"
     API = "api"
     KUBERNETES = "kubernetes"
+    CONTAINER = "container"
 
 
 class TargetEnvironment(str, Enum):

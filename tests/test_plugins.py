@@ -7,6 +7,7 @@ import pytest
 
 from pownforge.core.models import Target, TargetKind
 from pownforge.plugins.base import PluginError
+from pownforge.plugins.container import ContainerPlugin
 from pownforge.plugins.kubernetes import KubernetesPlugin
 from pownforge.plugins.network import NetworkPlugin
 from pownforge.plugins.nuclei import NucleiPlugin
@@ -421,3 +422,92 @@ def test_sqlmap_plugin_build_command_defaults_and_options(monkeypatch: pytest.Mo
 
 def test_sqlmap_plugin_version_command() -> None:
     assert SqlmapPlugin().version_command() == ["sqlmap", "--version"]
+
+
+# Shape captured from a real `trivy image -f json alpine:3.10` run (trivy
+# 0.74.0). See docs/container.md.
+TRIVY_IMAGE_JSON = json.dumps(
+    {
+        "ArtifactName": "alpine:3.10",
+        "Results": [
+            {
+                "Target": "alpine:3.10 (alpine 3.10.9)",
+                "Class": "os-pkgs",
+                "Type": "alpine",
+                "Vulnerabilities": [
+                    {
+                        "VulnerabilityID": "CVE-2021-36159",
+                        "PkgName": "apk-tools",
+                        "InstalledVersion": "2.10.6-r0",
+                        "FixedVersion": "2.10.7-r0",
+                        "Title": "libfetch: an out of boundary read...",
+                        "Description": "libfetch before 2021-07-26...",
+                        "Severity": "CRITICAL",
+                    },
+                    {
+                        "VulnerabilityID": "CVE-9999-1111",
+                        "PkgName": "made-up-pkg",
+                        "Title": "made up unknown-severity CVE",
+                        "Severity": "UNKNOWN",
+                    },
+                ],
+            },
+            {
+                "Target": "app/requirements.txt",
+                "Class": "lang-pkgs",
+                "Type": "pip",
+                "Vulnerabilities": [
+                    {
+                        "VulnerabilityID": "CVE-2022-0001",
+                        "PkgName": "flask",
+                        "Title": "some flask CVE",
+                        "Severity": "HIGH",
+                    }
+                ],
+            },
+        ],
+    }
+)
+
+
+def test_container_plugin_normalizes_trivy_image_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    plugin = ContainerPlugin()
+    target = Target(name="alpine-image", kind=TargetKind.HOST, address="alpine:3.10")
+    monkeypatch.setattr(ContainerPlugin, "check", lambda self: True)
+
+    command = plugin.build_command(target, {"severity": "HIGH,CRITICAL", "ignore-unfixed": "true"})
+    assert command[2] == "alpine:3.10"  # image ref is positional, like trivy k8s's context
+    assert "--severity" in command and "HIGH,CRITICAL" in command
+    assert "--ignore-unfixed" in command
+    json_path = Path(command[command.index("-o") + 1])
+    json_path.write_text(TRIVY_IMAGE_JSON)
+
+    output = plugin.normalize(target, "", "")
+
+    assert len(output["results"]) == 2
+    assert not json_path.exists()
+
+    findings = output["_findings"]
+    assert len(findings) == 3
+    critical = next(f for f in findings if "CVE-2021-36159" in f["title"])
+    assert critical["severity"] == "critical"
+    assert "alpine:3.10 (alpine 3.10.9)" in critical["detail"]
+
+    high = next(f for f in findings if "CVE-2022-0001" in f["title"])
+    assert high["severity"] == "high"
+    assert "app/requirements.txt" in high["detail"]
+
+    unknown_sev = next(f for f in findings if "CVE-9999-1111" in f["title"])
+    assert unknown_sev["severity"] == "unknown"  # coerce_finding() handles the fallback to info
+
+
+def test_container_plugin_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    plugin = ContainerPlugin()
+    monkeypatch.setattr(ContainerPlugin, "check", lambda self: False)
+    target = Target(name="alpine-image", kind=TargetKind.HOST, address="alpine:3.10")
+    with pytest.raises(PluginError):
+        plugin.build_command(target, {})
+
+
+def test_container_plugin_version_command() -> None:
+    assert ContainerPlugin().version_command() == ["trivy", "--version"]

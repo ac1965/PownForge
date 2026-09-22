@@ -267,6 +267,26 @@ def scan_sqlmap(
     _run_scan("sqlmap", target, option, config, workdir, live)
 
 
+@scan_app.command("container")
+def scan_container(
+    target: str = typer.Option(
+        ..., "--target", help="Registered target whose address is a container image reference."
+    ),
+    option: list[str] = typer.Option(
+        [],
+        "--option",
+        help="key=value, may repeat; supports severity=, ignore-unfixed=true, scanners=",
+    ),
+    live: bool = typer.Option(
+        False, "--live", help="Stream the underlying tool's stdout line-by-line as it runs."
+    ),
+    config: Path = typer.Option(DEFAULT_CONFIG),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+) -> None:
+    """Run the container plugin (trivy image: vulnerabilities/misconfig/secrets) against a registered target."""
+    _run_scan("container", target, option, config, workdir, live)
+
+
 @result_app.command("list")
 def result_list(workdir: Path = typer.Option(DEFAULT_WORKDIR)) -> None:
     """List past scan runs, most recent first."""
