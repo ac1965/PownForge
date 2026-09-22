@@ -74,12 +74,12 @@ app.add_typer(target_app, name="target")
 app.add_typer(engagement_app, name="engagement")
 playbook_app = typer.Typer(
     help="Run a pre-authored, linear sequence of plugin scans against one target "
-    "(see config/playbooks/, docs/handbook.md §7.5)."
+    "(see config/playbooks/, docs/handbook.md §8)."
 )
 app.add_typer(playbook_app, name="playbook")
 attack_session_app = typer.Typer(
     help="Group already-recorded runs into a named, curated engagement narrative "
-    "(record/tracking only -- never executes anything, see docs/handbook.md §11)."
+    "(record/tracking only -- never executes anything, see docs/handbook.md §13)."
 )
 app.add_typer(attack_session_app, name="attack-session")
 app.add_typer(plugin_app, name="plugin")
@@ -776,7 +776,7 @@ def result_import(
     """Record evidence for a step performed manually with an external tool
     (e.g. Metasploit) against a registered target -- PownForge does not run
     COMMAND itself. The target must allow the 'manual' plugin name (or have
-    an empty allowed_plugins list). See docs/handbook.md §10/§11."""
+    an empty allowed_plugins list). See docs/handbook.md §13."""
     policy = _policy(config)
     store = _store(workdir)
     try:

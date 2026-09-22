@@ -308,6 +308,11 @@ pownforge analyze <run-id>
 | `pownforge attack-session list` | AttackSessionの一覧 |
 | `pownforge attack-session show <name>` | AttackSessionのステージを順に表示 |
 | `pownforge attack-session report <name> [--format markdown\|html]` | AttackSessionを経路レポートとして`<workdir>/reports/`に出力(詳細は[§13](#13-証跡とレポート)) |
+| `pownforge operation create <name> [--objective <text>] [--engagement <name>]` | 空のAttackOperationを作成(何も実行しない) |
+| `pownforge operation add-action <name> <action-id> <action-name> --target <target> --phase <phase> [--kind scan\|manual\|pivot] [--plugin <name>]` | Actionを追加。`--kind scan`(既定)は`--plugin`必須、`manual`/`pivot`は`--plugin`を指定できない |
+| `pownforge operation approve <name> <action-id> --approved-by <operator> [--note <text>]` | Actionに人間の承認を記録 |
+| `pownforge operation execute <name> <action-id>` | 承認済み`scan`種別のActionのみ、既存の`ScanRunner`経由で実行(`manual`/`pivot`は常に拒否、詳細は[§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)) |
+| `pownforge operation show <name>` | AttackOperationのnodes/edges/actions/approvalsを表示 |
 | `pownforge audit list` | `ScopePolicy`が拒否したスキャン実行の試みを一覧表示 |
 | `pownforge audit show <violation-id>` | 拒否された試みの詳細(JSON) |
 | `pownforge evidence verify <run-id>` | 保存済みoutputからハッシュを再計算し、証跡と一致するか確認 |
@@ -315,12 +320,14 @@ pownforge analyze <run-id>
 ### `--config`/`--workdir`の使い分け
 
 - `--config`(既定: `config/targets.yaml`): `target list/add`、`scan *`、
-  `lab add/remove`だけが受け付ける
+  `lab add/remove`、`operation add-action/execute`(`ScopePolicy`で
+  target/pluginを検証するため)だけが受け付ける
 - `--workdir` / `POWNFORGE_HOME`(既定: `.pownforge/`): `init`、`scan *`、
   `result *`、`report generate`、`analyze`、`walkthrough generate`、
-  `audit *`、`evidence verify`だけが受け付ける。`walkthrough generate`は
-  `--config`を受け付けない(`EvidenceStore`上のrunを`target`文字列で
-  絞り込むだけで、スコープの再照会が不要なため)
+  `audit *`、`evidence verify`、`attack-session *`、`operation *`だけが
+  受け付ける。`walkthrough generate`は`--config`を受け付けない
+  (`EvidenceStore`上のrunを`target`文字列で絞り込むだけで、スコープの
+  再照会が不要なため)
 - `plugin list/info`と`lab list`はどちらも取らない
 - `--settings`(既定: `config/settings.yaml`、`POWNFORGE_SETTINGS`で上書き可):
   `analyze`、`walkthrough generate`、`web serve`、`config show/set`が受け付ける。
@@ -938,13 +945,15 @@ pownforge web serve  # 同一オリジンでAPIとSPAの両方を配信
 ![Targets画面](images/web-targets.png)
 
 Dashboard/Targets/Lab/Runs/Run detail/Audit/New Scan/Scan live/
-Playbooks/Playbook live/Attack Session/Walkthroughの各画面から、
+Playbooks/Playbook live/Attack Session/Walkthrough/Settingsの各画面から、
 target追加・削除、labホスト起動・削除、新規スキャン実行(ライブ進捗)、
 Playbook実行(ステップ単位のライブ進捗、
 [§8](#8-playbook-複数プラグインの連続実行)参照)、Attack Sessionの作成・
 stage追加・レポート表示([§13](#13-証跡とレポート)の
 `AttackSession`節参照)、Analyze実行、finding検証、evidence検証、
-複数runをまたぐウォークスルー生成までひととおり操作できます。
+複数runをまたぐウォークスルー生成、AI既定モデル・出力言語の設定
+(Settings)までひととおり操作できます。`AttackOperation`はWeb UIからは
+未対応です([§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)参照)。
 
 ![Run detail画面(findings表示)](images/web-rundetail.png)
 
