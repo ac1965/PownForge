@@ -380,6 +380,13 @@ TCP/service discovery。`--option ports=80,443`のようなkey=valueオプショ
 (`source: "tool"`、既定`needs-review`)として記録される、当初案の検証
 ワークフローに最も近いプラグインです。`expected_kind`は`url`。
 
+**実機検証**: [§7](#7-ラボネットワーク)のOWASP Juice Shopラボ対象に対し、
+実際のnuclei(Dockerランタイムイメージに同梱、テンプレートはビルド時に
+`nuclei -update-templates`で取得済み)で`--option
+tags=exposure,misconfig`を実行。`prometheus-metrics`テンプレートが
+`/metrics`エンドポイントの露出を実際に検出し、`severity: medium`の
+finding(`source: "tool"`)として正しく記録されることを確認済み。
+
 ### kubernetes(`trivy k8s`)
 
 クラスタの誤設定(Misconfigurations)・RBAC・コンテナイメージの脆弱性
@@ -404,7 +411,10 @@ pownforge scan kubernetes --target kind-lab \
 スキャンを実行した。`kube-system`namespaceだけでも258件のfinding
 (critical 2 / high 134 / medium 122)が検出され、実在のCVEやKubernetesの
 設定不備がそのままfindingとして記録され、CLI・Web UIの両方で確認できる
-ことを確認済み。
+ことを確認済み。**再検証**(別セッション、`kindest/node:v1.37.0`)でも
+`kube-system`namespaceに対する`--option severity=CRITICAL,HIGH`実行で
+136件のfindingが正しく記録されることを確認、コード上の問題は
+見つからなかった。
 
 ### container(`trivy image`)
 
@@ -428,7 +438,8 @@ pownforge scan container --target web-app-image \
 
 **実機検証**: サポート終了済みの`alpine:3.10`イメージを対象に実際のtrivyで
 検証し、実在のCVE(`CVE-2021-36159`)がfinding(`severity: critical`)として
-記録されることを確認済み。
+記録されることを確認済み。**再検証**(別セッション)でも同じ`alpine:3.10`
+に対して同じCVEが検出されることを確認、コード上の問題は見つからなかった。
 
 ### sqlmap
 
@@ -484,6 +495,11 @@ SQLクエリ組み立て)を用意し、実際のsqlmap(1.10.9)で検証した�
 boolean-based blind/error-based/time-based blind/UNION queryの4手法が
 検出され、`severity: critical`のfindingとして記録されることを確認。
 `--option os-shell=true`指定時にsqlmapを実行せずエラーになることも確認済み。
+**再検証**(別セッション、最小限のSQLite製Flaskアプリ)でも
+boolean-based blind/error-based/UNION queryが検出され(この検証環境では
+DBMSがSQLiteのためtime-based blindは対象外)、DBMS判定(`SQLite`)を含め
+`output.dbms`/`output.injection_points`が正しく記録されることを確認、
+コード上の問題は見つからなかった。
 
 ### vulncheck(`nmap` NSEスクリプト)
 
