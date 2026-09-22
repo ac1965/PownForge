@@ -126,3 +126,23 @@ make test
   ライブ表示、findingのレビュー、Org-modeへのfindings出力（[docs/handbook.md §9](docs/handbook.md#9-emacs連携)）
 
 高度な結果正規化（重大度判定・脆弱性分類の自動化など）は今後のフェーズで拡張します。
+
+## 実機検証状況
+
+このプロジェクトの一貫した方針は、**実際の対象ツール・実際の対象に対して動作確認してから完了とする**ことです（モックデータでのユニットテストだけで済ませない）。以下は全プラグイン・主要機能について、実機検証で確認済みの内容の一覧です。詳細な検証手順・結果は各リンク先を参照してください。
+
+| プラグイン/機能 | 検証対象 | 確認内容 |
+| --- | --- | --- |
+| `recon`（subfinder） | 実ドメイン（projectdiscovery.io） | 実サブドメイン列挙とJSONL出力のパースを確認 |
+| `network`（nmap） | Metasploitable2、OWASP Juice Shop（url種別対象） | 実サービス/バージョン検出を確認。**url種別対象のhostname抽出バグを発見・修正**（[network.py](src/pownforge/plugins/network.py)） |
+| `web`（ffuf） | OWASP Juice Shop | `/encryptionkeys`等の実エンドポイント検出を確認 |
+| `nuclei` | OWASP Juice Shop | `prometheus-metrics`テンプレートでの実検出→finding化を確認 |
+| `kubernetes`（trivy k8s） | `kind`ローカルクラスタ | 実クラスタの誤設定・RBAC不備136件超の検出を確認 |
+| `container`（trivy image） | `alpine:3.10` | 実在のCVE（CVE-2021-36159）の検出を確認 |
+| `sqlmap` | 自作の意図的に脆弱なFlaskアプリ | boolean-based blind/error-based/UNION queryの検出とDBMS判定を確認 |
+| `vulncheck`（nmap NSE） | ローカルTLSサーバー、Metasploitable2 | 許可リスト15本全てを実際のnmapで実行。**hostrule系スクリプト（smb-vuln-ms17-010等）の結果取りこぼしバグを発見・修正**（[vulncheck.py](src/pownforge/plugins/vulncheck.py)） |
+| `pownforge result import`/`add-finding`（手動証跡取り込み） | Metasploitable2 | 実スキャン→手動exploit記録→findingの追加→`evidence verify`→ウォークスルー生成までの一気通貫を確認 |
+| `Engagement`（横展開の記録） | 実nmapスキャン+手動pivot記録 | Engagement外の対象への記録が拒否されること、正規メンバー間のpivot記録とウォークスルーへの反映を確認 |
+| `pownforge lab`（攻撃対象ホストの動的追加） | `tleemcjr/metasploitable2` | **常駐しないラボイメージ向けの`docker run -i`修正**（[lab.py](src/pownforge/core/lab.py)）を実機検証で発見・修正 |
+
+見つかったバグはいずれも実機検証でのみ露見するもので（モックXML/JSONを使うユニットテストだけでは検出できなかった）、発見のたびに再現テストを追加した上で修正しています。詳細な検証記録は [docs/handbook.md §6 プラグイン](docs/handbook.md#6-プラグイン)・[§7 ラボネットワーク](docs/handbook.md#7-ラボネットワーク)・[§11 Target modelとスコープ制御](docs/handbook.md#11-target-modelとスコープ制御) を参照してください。
