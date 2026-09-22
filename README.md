@@ -88,7 +88,7 @@ pownforge analyze <run-id>
 (`webui/`)からtargetの追加・削除、labホストの起動・削除、新規スキャンの実行
 (WebSocketによるライブ進捗表示)、AI分析、finding検証、evidence検証、
 複数runをまたぐウォークスルー生成まで、ひととおりの操作がブラウザだけで
-完結します。詳細は [docs/handbook.md §8 Web UI / API](docs/handbook.md#8-web-ui--api) を
+完結します。詳細は [docs/handbook.md §9 Web UI / API](docs/handbook.md#9-web-ui--api) を
 参照してください。
 
 ## アーキテクチャ・全体像
@@ -128,9 +128,12 @@ make test-all     # pytest + webuiビルド + Emacs ERT(npm/Emacsが入ってい
   PownForge自身はコマンドを実行しない）
 - `Engagement`(既存Targetのグループ化)による横展開の記録（`pownforge engagement add`、
   `result import --engagement/--via`。PownForgeが実際にホスト間を移動することはない）
+- `Playbook`による複数プラグインの線形連続実行（`pownforge playbook run`。
+  実行順は人間が事前に書いたYAMLで決まり、実行時の分岐・AI判断は入らない。
+  詳細は[docs/handbook.md §8](docs/handbook.md#8-playbook-複数プラグインの連続実行)）
 - LLM分析アダプタ（`llm` CLI経由。ローカルOllama/Claude/OpenAI等をモデル名で切替）
 - Emacs連携（`emacs/pownforge.el`）: 対象/プラグイン一覧、`--live`によるスキャンの
-  ライブ表示、findingのレビュー、Org-modeへのfindings出力（[docs/handbook.md §9](docs/handbook.md#9-emacs連携)）
+  ライブ表示、findingのレビュー、Org-modeへのfindings出力（[docs/handbook.md §10](docs/handbook.md#10-emacs連携)）
 
 高度な結果正規化（重大度判定・脆弱性分類の自動化など）は今後のフェーズで拡張します。
 
@@ -152,4 +155,4 @@ make test-all     # pytest + webuiビルド + Emacs ERT(npm/Emacsが入ってい
 | `Engagement`（横展開の記録） | 実nmapスキャン+手動pivot記録 | Engagement外の対象への記録が拒否されること、正規メンバー間のpivot記録とウォークスルーへの反映を確認 |
 | `pownforge lab`（攻撃対象ホストの動的追加） | `tleemcjr/metasploitable2` | **常駐しないラボイメージ向けの`docker run -i`修正**（[lab.py](src/pownforge/core/lab.py)）を実機検証で発見・修正 |
 
-見つかったバグはいずれも実機検証でのみ露見するもので（モックXML/JSONを使うユニットテストだけでは検出できなかった）、発見のたびに再現テストを追加した上で修正しています。詳細な検証記録は [docs/handbook.md §6 プラグイン](docs/handbook.md#6-プラグイン)・[§7 ラボネットワーク](docs/handbook.md#7-ラボネットワーク)・[§11 Target modelとスコープ制御](docs/handbook.md#11-target-modelとスコープ制御) を参照してください。
+見つかったバグはいずれも実機検証でのみ露見するもので（モックXML/JSONを使うユニットテストだけでは検出できなかった）、発見のたびに再現テストを追加した上で修正しています。詳細な検証記録は [docs/handbook.md §6 プラグイン](docs/handbook.md#6-プラグイン)・[§7 ラボネットワーク](docs/handbook.md#7-ラボネットワーク)・[§12 Target modelとスコープ制御](docs/handbook.md#12-target-modelとスコープ制御) を参照してください。

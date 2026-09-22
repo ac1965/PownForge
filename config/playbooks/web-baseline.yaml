@@ -1,0 +1,18 @@
+# Baseline assessment for a registered `url`-kind target: port/service
+# discovery, content discovery, then template-based vulnerability scanning.
+# The target must allow all three plugins (--allowed-plugins network,web,nuclei).
+#
+# Usage:
+#   pownforge playbook run web-baseline --target <name>
+name: web-baseline
+description: "network(nmap) -> web(ffuf) -> nuclei against a url-kind target"
+steps:
+  - plugin: network
+    options:
+      ports: "80,443"
+  - plugin: web
+    options:
+      wordlist: config/wordlists/common.txt
+  - plugin: nuclei
+    options:
+      tags: exposure,misconfig,tech

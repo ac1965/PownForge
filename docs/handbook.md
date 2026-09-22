@@ -15,13 +15,14 @@ lab.md/web.md/emacs.md/walkthrough-report.md/walkthrough.md/roadmap.md)は
 5. [CLIコマンドリファレンス](#5-cliコマンドリファレンス)
 6. [プラグイン](#6-プラグイン)
 7. [ラボネットワーク](#7-ラボネットワーク)
-8. [Web UI / API](#8-web-ui--api)
-9. [Emacs連携](#9-emacs連携)
-10. [AIによる分析・ウォークスルー・提案](#10-aiによる分析ウォークスルー提案)
-11. [Target modelとスコープ制御](#11-target-modelとスコープ制御)
-12. [証跡とレポート](#12-証跡とレポート)
-13. [テスト](#13-テスト)
-14. [付録: 実装状況サマリー](#14-付録-実装状況サマリー)
+8. [Playbook: 複数プラグインの連続実行](#8-playbook-複数プラグインの連続実行)
+9. [Web UI / API](#9-web-ui--api)
+10. [Emacs連携](#10-emacs連携)
+11. [AIによる分析・ウォークスルー・提案](#11-aiによる分析ウォークスルー提案)
+12. [Target modelとスコープ制御](#12-target-modelとスコープ制御)
+13. [証跡とレポート](#13-証跡とレポート)
+14. [テスト](#14-テスト)
+15. [付録: 実装状況サマリー](#15-付録-実装状況サマリー)
 
 ---
 
@@ -69,6 +70,7 @@ graph TD
         ScopePolicy["ScopePolicy<br/>(config/targets.yaml)"]
         Registry["PluginRegistry"]
         Runner["ScanRunner"]
+        Orchestrator["orchestrator.py<br/>(config/playbooks/*.yaml)"]
         Lab["LabManager"]
         Evidence["EvidenceStore"]
         Reporting["reporting/"]
@@ -78,6 +80,7 @@ graph TD
     Runner --> ScopePolicy
     Runner --> Registry
     Runner --> Evidence
+    Orchestrator -- "各ステップでScanRunner.run()を呼ぶだけ" --> Runner
     Registry --> Plugins["plugins/<br/>recon・network・web・nuclei・kubernetes・container・sqlmap・vulncheck"]
     Plugins -- "build_command" --> ExtTools["外部ツール<br/>subfinder/nmap/ffuf/nuclei/trivy/sqlmap"]
     Runner -- "subprocess実行" --> ExtTools
@@ -130,7 +133,7 @@ sequenceDiagram
   レポートを生成するだけ)。`Suggestion.plugin`はAIの自由記述で
   レジストリと突き合わせず、実行するには人間が改めて
   `pownforge scan <plugin>`を呼ぶ必要があります(詳細は
-  [§10](#10-aiによる分析ウォークスルー提案))
+  [§11](#11-aiによる分析ウォークスルー提案))
 - **スコープはコードで強制する**: `pownforge scan`は`config/targets.yaml`に
   登録された対象名でしか実行できません。`pownforge lab add`も最終的に
   同じ`ScopePolicy.add_target()`を通ります。`Target.environment`が
@@ -271,7 +274,7 @@ pownforge analyze <run-id>
 | `pownforge target add <name> --address <addr> [--kind host\|url] [--type network\|web\|api\|kubernetes\|container] [--environment local-lab\|staging\|production] [--allowed-plugins a,b] [--notes <text>]` | 対象を登録。`type`は分類用の任意項目(スキャン許可判定には使わない)。`--environment production`は`--notes`(認可/契約の参照)が必須、無いと登録は拒否される |
 | `pownforge target remove <name>` | 対象の登録を解除。in-place編集(address/allowed_plugins等の変更)は無く、変更したい場合は一度`remove`してから`add`し直す |
 | `pownforge engagement list` | 登録済みEngagementの一覧 |
-| `pownforge engagement add <name> --targets a,b[,c...] [--notes <text>]` | 既存Targetをグループ化したEngagementを登録。横展開の記録・ウォークスルーでのみ使う。詳細は[§11](#11-target-modelとスコープ制御) |
+| `pownforge engagement add <name> --targets a,b[,c...] [--notes <text>]` | 既存Targetをグループ化したEngagementを登録。横展開の記録・ウォークスルーでのみ使う。詳細は[§12](#12-target-modelとスコープ制御) |
 | `pownforge plugin list` | 利用可能なプラグインと外部ツールの有無 |
 | `pownforge plugin info <name>` | プラグインの詳細(`expected kind`は`host\|url\|any`のうちそのプラグインが前提とするaddress形式) |
 | `pownforge scan recon --target <name> [--option sources=... --option exclude_sources=...] [--live]` | reconプラグイン(subfinder、受動的サブドメイン列挙)を実行。対象へトラフィックは送らない |
@@ -284,16 +287,19 @@ pownforge analyze <run-id>
 | `pownforge scan vulncheck --target <name> --option script=<許可されたNSEスクリプト名> [--option port=...] [--live]` | vulncheckプラグイン(nmapの許可リスト済み`vuln safe`スクリプト1本による既知CVE検証)を実行 |
 | `pownforge result list` | 実行結果の一覧 |
 | `pownforge result show <run-id>` | 実行結果の詳細(JSON) |
-| `pownforge result import --target <name> --command <text> --output <text> [--tool ... --tool-version ... --returncode ... --engagement <name> --via <target>]` | 人間が別ツールで実施した工程の証跡を記録(PownForgeは`--command`を実行しない)。`--engagement`/`--via`は横展開の記録用(両方同時に指定、詳細は[§11](#11-target-modelとスコープ制御))。詳細は[§12](#12-証跡とレポート) |
+| `pownforge result import --target <name> --command <text> --output <text> [--tool ... --tool-version ... --returncode ... --engagement <name> --via <target>]` | 人間が別ツールで実施した工程の証跡を記録(PownForgeは`--command`を実行しない)。`--engagement`/`--via`は横展開の記録用(両方同時に指定、詳細は[§12](#12-target-modelとスコープ制御))。詳細は[§13](#13-証跡とレポート) |
 | `pownforge result add-finding <run-id> --title <text> [--severity ... --detail ...]` | 人間が観測したfinding(`source: "manual"`)をrunに追加。既定`needs-review` |
 | `pownforge result review <run-id> <finding-id> <needs-review\|confirmed\|false-positive>` | findingの検証状態を更新 |
 | `pownforge report generate <run-id> [--format markdown\|html]` | レポートを`.pownforge/reports/<run-id>.{md,html}`に生成 |
 | `pownforge analyze <run-id> [--model ...] [--language ja\|en]` | LLMによる分析草案を出力。`--model`/`--language`省略時は`pownforge config`の保存値を使う |
-| `pownforge walkthrough generate <run-id>... \| --target <name> \| --engagement <name> [--model ...] [--language ja\|en] [--format markdown\|html]` | 複数runをまたぐ物語調ウォークスルーを生成。読み取り専用(詳細は[§10](#10-aiによる分析ウォークスルー提案))。`--engagement`はEngagement全メンバーのrunをまとめて選択(詳細は[§11](#11-target-modelとスコープ制御)) |
-| `pownforge config show` / `pownforge config set [--model <name>] [--language ja\|en]` | `analyze`/`walkthrough generate`が使う既定モデル・出力言語を表示/更新(詳細は[§10](#10-aiによる分析ウォークスルー提案)) |
+| `pownforge walkthrough generate <run-id>... \| --target <name> \| --engagement <name> [--model ...] [--language ja\|en] [--format markdown\|html]` | 複数runをまたぐ物語調ウォークスルーを生成。読み取り専用(詳細は[§11](#11-aiによる分析ウォークスルー提案))。`--engagement`はEngagement全メンバーのrunをまとめて選択(詳細は[§12](#12-target-modelとスコープ制御)) |
+| `pownforge config show` / `pownforge config set [--model <name>] [--language ja\|en]` | `analyze`/`walkthrough generate`が使う既定モデル・出力言語を表示/更新(詳細は[§11](#11-aiによる分析ウォークスルー提案)) |
 | `pownforge lab add <name> --image <image> [--kind host\|url] [--port <n>] [--scheme http\|https] [--env k=v ...] [--allowed-plugins a,b] [--no-register] [--network <name>]` | 隔離ネットワーク上に攻撃対象ホストを起動 |
 | `pownforge lab list [--network <name>]` | 稼働中/停止中のラボホスト一覧 |
 | `pownforge lab remove <name> [--purge] [--network <name>]` | ラボホストを停止・削除 |
+| `pownforge playbook list [--playbooks-dir <dir>]` | 利用可能なPlaybookの一覧 |
+| `pownforge playbook show <name> [--playbooks-dir <dir>]` | Playbookのステップ内容を表示 |
+| `pownforge playbook run <name> --target <target> [--playbooks-dir <dir>]` | Playbookの全ステップを対象に順次実行。1ステップ失敗しても後続は継続(詳細は[§8](#8-playbook-複数プラグインの連続実行)) |
 | `pownforge audit list` | `ScopePolicy`が拒否したスキャン実行の試みを一覧表示 |
 | `pownforge audit show <violation-id>` | 拒否された試みの詳細(JSON) |
 | `pownforge evidence verify <run-id>` | 保存済みoutputからハッシュを再計算し、証跡と一致するか確認 |
@@ -485,7 +491,7 @@ URL中のパラメータに対するSQLインジェクションを検出・(オ�
   しまうため、それぞれ拒否リストに含めている)
 - **`environment=production`のtargetに対する一律禁止は設けない**。
   Target登録時点で`environment=production`は`notes`必須という強制が
-  既に入っており([§11](#11-target-modelとスコープ制御)参照)、これを
+  既に入っており([§12](#12-target-modelとスコープ制御)参照)、これを
   sqlmap実行の認可としてそのまま流用する
 
 ```bash
@@ -718,7 +724,77 @@ hostnameを抽出するよう`plugins/network.py::_scan_host()`として修正�
 再度実機で`scan network --target lab-web --option ports=3000`を実行して
 Juice Shopの待受ポート(3000/tcp open)を正しく検出できることを確認した。
 
-## 8. Web UI / API
+## 8. Playbook: 複数プラグインの連続実行
+
+`pownforge scan <plugin>`は常に1プラグイン・1runです。実際のエンゲージ
+メントでは「network→web→nuclei」のように複数プラグインを順番に対象へ
+実行することが多く、毎回コマンドを手で打ち直すのは煩雑です。`Playbook`
+は、この「対象に対してどのプラグインをどの順で実行するか」を人間が
+事前に書いた、バージョン管理可能なYAMLファイルとして宣言し、
+`pownforge playbook run`でまとめて実行する機能です。
+
+### 設計上の一線: 実行時の分岐・AI判断は入れない
+
+Playbookは意図的に**線形かつ静的**です。「前のステップの結果を見て
+次に何を実行するか動的に決める」という分岐ロジックは、実行時にAI
+(または複雑な条件式エンジン)が「次に何をスキャンするか」を決める
+ことになり、既存の「AIは直接スキャンを実行しない」という原則
+([[feedback-ai-advisory-boundary]]、[§11](#11-aiによる分析ウォークスルー提案)参照)
+と衝突します。Playbookが決めるのはファイルを書いた**人間**であり、
+`pownforge playbook run`を実行するのも人間です。各ステップは内部的には
+既存の`ScanRunner.run()`(=通常の`pownforge scan <plugin>`と全く同じ
+`ScopePolicy`認可・証跡保存パイプライン)を順番に呼んでいるだけで、
+Playbookという単位そのものは何の実行権限も追加しません
+(各プラグインは引き続きTargetの`allowed_plugins`で許可されている必要が
+あります)。
+
+```yaml
+# config/playbooks/web-baseline.yaml
+name: web-baseline
+description: "network(nmap) -> web(ffuf) -> nuclei against a url-kind target"
+steps:
+  - plugin: network
+    options:
+      ports: "80,443"
+  - plugin: web
+    options:
+      wordlist: config/wordlists/common.txt
+  - plugin: nuclei
+    options:
+      tags: exposure,misconfig,tech
+```
+
+```bash
+pownforge playbook list
+pownforge playbook show web-baseline
+pownforge playbook run web-baseline --target lab-web
+```
+
+### 失敗したステップで止めない
+
+あるステップが失敗(スコープ拒否・ツール未インストール・プラグイン
+エラー)しても、Playbook全体は止まりません。後続のステップは失敗した
+ステップの出力に依存しない独立したスキャンであることがほとんどのため、
+継続した方がより多くの情報を得られると判断しています。失敗は
+`FAILED -- <reason>`として明示的に表示され、黙って握りつぶされることは
+ありません(§7で追加した「stderrヒント」と同じ設計方針)。最後に
+`playbook '<name>' finished: N/M steps succeeded`という要約と、成功した
+run idをまとめた`pownforge walkthrough generate <id> <id> ...`コマンド例が
+表示されます。
+
+### Playbookファイルの置き場所
+
+既定では`config/playbooks/*.yaml`(`--playbooks-dir`または
+`POWNFORGE_PLAYBOOKS`環境変数で変更可)を読みます。`config/targets.yaml`
+とは異なり秘密情報を含まないため`.gitignore`されておらず、チームで
+共有・レビューできます。
+
+**実機検証**: OWASP Juice Shopラボ対象に対し、同梱の`web-baseline`
+Playbook(network→web→nuclei)を実際に`pownforge playbook run`で実行し、
+3ステップ全てが成功、各runが実データ(サービス検出・ffufヒット12件・
+nuclei finding 1件)を持つことを確認した。
+
+## 9. Web UI / API
 
 `pownforge web serve`で、CLIと同じコア(`ScopePolicy`/`ScanRunner`/
 `LabManager`/`EvidenceStore`)をそのまま使うFastAPIバックエンドを起動
@@ -806,8 +882,8 @@ medium/青=low/灰=info)付きで、検証状態(確認済み/要確認/誤検�
 | `GET /api/runs/{run_id}/verify` | 証跡のハッシュと一致するか確認 |
 | `GET /api/audit` | `ScopePolicy`が拒否したスキャン実行の試みを一覧表示 |
 | `GET /api/audit/{violation_id}` | 拒否された試みの詳細(JSON) |
-| `POST /api/walkthroughs` | 複数runをまたぐウォークスルーを生成。詳細は[§10](#10-aiによる分析ウォークスルー提案) |
-| `GET`/`PUT /api/settings` | AI既定モデル・出力言語(`config/settings.yaml`)を取得/更新。詳細は[§10](#10-aiによる分析ウォークスルー提案) |
+| `POST /api/walkthroughs` | 複数runをまたぐウォークスルーを生成。詳細は[§11](#11-aiによる分析ウォークスルー提案) |
+| `GET`/`PUT /api/settings` | AI既定モデル・出力言語(`config/settings.yaml`)を取得/更新。詳細は[§11](#11-aiによる分析ウォークスルー提案) |
 
 ### WebSocketメッセージ形式
 
@@ -866,7 +942,7 @@ pytest
 いるため、`[web]`をインストールしていない環境でも`pytest`全体は失敗せず、
 該当テストはskipされます。
 
-## 9. Emacs連携
+## 10. Emacs連携
 
 `emacs/pownforge.el`は`pownforge`実行バイナリをそのまま呼び出す薄い
 Emacs Lispラッパーです。スコープ検証・プラグイン実行・証跡保存はCLI/Web UI
@@ -958,7 +1034,7 @@ localhostへのライブスキャンがバッファへ逐次表示されるこ�
 2件のrunに対しrun idを対話的に選んで生成→ファイルオープンまで(ローカル
 Ollama経由で)確認済み。
 
-## 10. AIによる分析・ウォークスルー・提案
+## 11. AIによる分析・ウォークスルー・提案
 
 PownForgeには、AIがすでに保存された結果を扱う機能が2種類あります。
 
@@ -1057,7 +1133,7 @@ Web UIの`Walkthrough`ページ(`/walkthrough/new`)では、runの一覧から
 ドロップダウンから選び、model/formatを指定して生成します。「AIの提案」は
 独立したセクションとして一覧表示され、HTML形式はiframeでプレビューでき、
 ダウンロードボタンでファイルとして保存できます。Emacsからは
-`pownforge-walkthrough-generate`([§9](#9-emacs連携)参照)で同じことが
+`pownforge-walkthrough-generate`([§10](#10-emacs連携)参照)で同じことが
 できます。
 
 ### モデル選択・出力言語(`pownforge config` / Web UIの`Settings`)
@@ -1117,7 +1193,7 @@ AIの提案についても、実際に`network`(findingsなし)→`web`(ffufが`
 パースされ、CLI生成のHTML・Web UIの専用セクション双方に表示されることを
 確認した。
 
-## 11. Target modelとスコープ制御
+## 12. Target modelとスコープ制御
 
 ```python
 class Target(BaseModel):
@@ -1174,7 +1250,7 @@ pownforge walkthrough generate --engagement pentest-2026 --model qwen3:14b
 ```
 
 **Engagementが与える権限はこれだけ**: `pownforge result import --engagement
-... --via ...`([§10](#10-aiによる分析ウォークスルー提案)参照)が、
+... --via ...`([§11](#11-aiによる分析ウォークスルー提案)参照)が、
 `--target`と`--via`が両方とも同じEngagementのメンバーであることを検証
 できるようになる、それだけです。`--via`に指定した対象がEngagementの
 メンバーでない場合、`ScopePolicy.authorize_pivot()`が拒否し
@@ -1210,7 +1286,7 @@ Engagement外の対象への`result import --via`が拒否されること、Enga
 ナラティブを生成し、レポートに「Reached via: jump-host」が表示される
 ことを確認済み。
 
-## 12. 証跡とレポート
+## 13. 証跡とレポート
 
 `EvidenceStore`が実行証跡(コマンド・タイムスタンプ・SHA-256ハッシュ)を
 1実行1JSONファイル(`.pownforge/runs/{run_id}.json`)として保存します。
@@ -1295,7 +1371,7 @@ generate --target ... --model qwen3:14b`(ローカルOllama)で実際に
 (`The Hacker Playbook 2`の"Post-Game Analysis"章 — 報告書は詳細な指摘一覧の
 前に全体像を示すべき、という考え方に着想を得ています)。
 
-## 13. テスト
+## 14. テスト
 
 ```bash
 make install
@@ -1317,7 +1393,7 @@ make test-all
 findingsが正しく記録・表示されることを確認してから完了としています
 (各プラグインの「実機検証記録」を参照)。
 
-## 14. 付録: 実装状況サマリー
+## 15. 付録: 実装状況サマリー
 
 設計当初に提示された「Phase 2〜10」のロードマップ(10フェーズ・M1〜M7
 マイルストーン)と、実際にこのリポジトリで実装した内容の対比サマリーです。
@@ -1349,7 +1425,9 @@ PownForge自身が安全に実行できる範囲に絞って取り込んだも�
 `Engagement`モデルによる横展開の記録(同書"The Lateral Pass"章の考え方を、
 PownForgeが実際にホスト間を移動するのではなく、既に個別に認可された
 複数対象間の関係を正しく認可した上で記録・ウォークスルー化する形で
-取り込んだもの)。
+取り込んだもの)、`Playbook`による複数プラグインの線形連続実行(実行時の
+分岐・AI判断は含めず、人間が事前に書いた静的なステップ列を
+`ScanRunner`経由で順に流すだけ)。
 
 **既知の未実装項目**:
 

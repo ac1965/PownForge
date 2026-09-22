@@ -62,6 +62,25 @@ class Engagement(BaseModel):
     notes: str | None = None
 
 
+class PlaybookStep(BaseModel):
+    plugin: str
+    options: dict[str, str] = Field(default_factory=dict)
+
+
+class Playbook(BaseModel):
+    """A human-authored, version-controlled sequence of plugin runs against
+    one target -- `pownforge playbook run <name> --target <t>` executes each
+    step in order via the same ScanRunner/ScopePolicy path a manual
+    `pownforge scan <plugin>` would use. Deliberately linear and static (no
+    runtime branching on a prior step's findings): what plugin runs when is
+    decided by whoever wrote the Playbook file, never by an LLM at run time
+    -- see core/orchestrator.py and docs/handbook.md §7.5."""
+
+    name: str
+    description: str = ""
+    steps: list[PlaybookStep] = Field(default_factory=list)
+
+
 class PluginMeta(BaseModel):
     name: str
     version: str
