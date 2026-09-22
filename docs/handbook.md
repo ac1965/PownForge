@@ -1265,7 +1265,13 @@ generate --target ... --model qwen3:14b`(ローカルOllama)で実際に
 make install
 make test           # .venv/bin/pytest
 make emacs-test      # Emacs ERT(スタブCLI経由)
-cd webui && npm run build   # フロントエンドの型チェック+ビルド
+make web-build       # フロントエンドの型チェック+ビルド(cd webui && npm run build)
+
+# 上記3つ(pytest/webuiビルド/Emacs ERT)をまとめて実行。
+# npm(webui/node_modules、事前に `make web-install`)とEmacsが
+# 両方インストールされている場合のローカル開発向け。CI/貢献者環境では
+# Node/Emacsが無いこともあるため、`test`自体はpytestだけに留めている
+make test-all
 ```
 
 このプロジェクトの一貫した方針は、**実機で検証してから完了とする**こと

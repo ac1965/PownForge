@@ -1,7 +1,7 @@
 PYTHON ?= python3.11
 VENV := .venv
 
-.PHONY: install test lint run clean docker-build docker-run web-install web-build emacs-test
+.PHONY: install test test-all lint run clean docker-build docker-run web-install web-build emacs-test
 
 install:
 	test -d $(VENV) || $(PYTHON) -m venv $(VENV)
@@ -21,6 +21,12 @@ web-build:
 
 test:
 	$(VENV)/bin/pytest
+
+# Runs the Python suite plus the optional webui/Emacs front-ends together.
+# Kept separate from `test` (which CI and contributors without Node/Emacs
+# installed still need to work) -- use this locally when you have `npm`
+# (webui/node_modules present) and `emacs` on PATH.
+test-all: test web-build emacs-test
 
 lint:
 	$(VENV)/bin/python -m compileall src

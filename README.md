@@ -94,7 +94,8 @@ pownforge analyze <run-id>
 
 ```bash
 make install
-make test
+make test        # pytest のみ
+make test-all     # pytest + webuiビルド + Emacs ERT(npm/Emacsが入っている場合)
 ```
 
 コミット規約・エージェント向けの運用ルールは [AGENTS.md](AGENTS.md) にまとめています。
