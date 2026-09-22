@@ -50,6 +50,16 @@ def test_network_plugin_normalizes_nmap_xml(monkeypatch: pytest.MonkeyPatch) -> 
     assert not xml_path.exists()
 
 
+def test_network_plugin_extracts_host_from_url_kind_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    plugin = NetworkPlugin()
+    target = Target(name="lab-web", kind=TargetKind.URL, address="http://lab-web:3000")
+    monkeypatch.setattr(NetworkPlugin, "check", lambda self: True)
+
+    command = plugin.build_command(target, {})
+
+    assert command[-1] == "lab-web"
+
+
 def test_network_plugin_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     plugin = NetworkPlugin()
     monkeypatch.setattr(NetworkPlugin, "check", lambda self: False)

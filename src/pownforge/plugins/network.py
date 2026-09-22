@@ -5,10 +5,23 @@ import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 from xml.etree import ElementTree
 
-from pownforge.core.models import Target
+from pownforge.core.models import Target, TargetKind
 from pownforge.plugins.base import Plugin, PluginError
+
+
+def _scan_host(target: Target) -> str:
+    """The bare host/IP nmap should scan: TARGET.address as-is for a `host`
+    target, or the hostname portion of a `url` target's address (nmap can't
+    parse a full "http://host:port" URL as a scan target)."""
+    if target.kind != TargetKind.URL:
+        return target.address
+    hostname = urlparse(target.address).hostname
+    if not hostname:
+        raise PluginError(f"could not extract a host from url target address '{target.address}'")
+    return hostname
 
 
 class NetworkPlugin(Plugin):
@@ -39,7 +52,7 @@ class NetworkPlugin(Plugin):
         ports = options.get("ports")
         if ports:
             args += ["-p", str(ports)]
-        args.append(target.address)
+        args.append(_scan_host(target))
         return args
 
     def normalize(self, target: Target, raw_stdout: str, raw_stderr: str) -> dict[str, Any]:

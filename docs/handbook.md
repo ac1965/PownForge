@@ -607,15 +607,23 @@ OpenSSH 4.7p1/Apache httpd 2.2.8/Samba 3.X-4.X/MySQL 5.0.51a/PostgreSQL
 
 `pownforge lab add lab-web --image bkimminich/juice-shop --kind url --port
 3000`でJuice Shopをラボネットワークに追加し、`pownforge-lab`ネットワークが
-無ければ自動作成されることを確認。`scan web`(ffuf)で`/admin`
-`/encryptionkeys`等のエンドポイントを実際に検出、`scan network`(nmap)で
-`--option ports=3000`指定時にJuice Shopの待受ポートを検出できることを
-確認した。`WebPlugin.normalize()`/`NetworkPlugin.normalize()`が、ffufの
-`-o <一時ファイル> -of json`/nmapの`-oX <一時ファイル>`出力を、それぞれ
-`hits: [{path, url, status, length, words}]`/`hosts: [{address, ports:
-[{port, protocol, state, service, product, version}]}]`の構造化データに
-変換できることを実データで確認した。検証に使ったコンテナ・スコープ登録は
+無ければ自動作成されることを確認。`scan web`(ffuf)で`/encryptionkeys`
+`/ftp`(いずれもJuice Shop特有の既知チャレンジエンドポイント)
+`/metrics`等を実際に検出、`WebPlugin.normalize()`がffufの`-o <一時ファイル>
+-of json`出力を`hits: [{path, url, status, length, words}]`の構造化データ
+に変換できることを実データで確認した。検証に使ったコンテナ・スコープ登録は
 検証後に削除している。
+
+**この検証で発見・修正したバグ**: `scan network`(nmap)を`--kind url`の
+対象(`lab-web`のaddressは`http://lab-web:3000`)に対して実行すると、
+`NetworkPlugin.build_command()`がURL文字列をそのままnmapの引数に渡して
+おり、nmapが`"Unable to split netmask from target expression"`で失敗して
+いた。`expected_kind = None`のコメントには元々「host/IPまたはURLのhostの
+どちらでも動く」と書かれていたが、実装はURLからhostを抽出していなかった
+(そもそもこの経路のテストが無かった)。`urllib.parse.urlparse`でURLの
+hostnameを抽出するよう`plugins/network.py::_scan_host()`として修正し、
+再度実機で`scan network --target lab-web --option ports=3000`を実行して
+Juice Shopの待受ポート(3000/tcp open)を正しく検出できることを確認した。
 
 ## 8. Web UI / API
 
