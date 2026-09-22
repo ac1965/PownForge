@@ -7,6 +7,7 @@ import RunDetail from "./pages/RunDetail";
 import Audit from "./pages/Audit";
 import NewScan from "./pages/NewScan";
 import ScanLive from "./pages/ScanLive";
+import Walkthrough from "./pages/Walkthrough";
 
 const navClass = ({ isActive }: { isActive: boolean }) => (isActive ? "active" : "");
 
@@ -34,6 +35,9 @@ export default function App() {
           <NavLink to="/scan/new" className={navClass}>
             New Scan
           </NavLink>
+          <NavLink to="/walkthrough/new" className={navClass}>
+            Walkthrough
+          </NavLink>
         </nav>
         <main className="content">
           <Routes>
@@ -45,6 +49,7 @@ export default function App() {
             <Route path="/audit" element={<Audit />} />
             <Route path="/scan/new" element={<NewScan />} />
             <Route path="/scans/:jobId/live" element={<ScanLive />} />
+            <Route path="/walkthrough/new" element={<Walkthrough />} />
           </Routes>
         </main>
       </div>

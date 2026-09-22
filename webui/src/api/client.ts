@@ -1,5 +1,5 @@
 export type TargetKind = "host" | "url";
-export type TargetType = "network" | "web" | "api" | "kubernetes";
+export type TargetType = "network" | "web" | "api" | "kubernetes" | "container";
 export type TargetEnvironment = "local-lab" | "staging" | "production";
 
 export interface Target {
@@ -110,6 +110,18 @@ export interface ScanStatus {
   error: string | null;
 }
 
+export interface WalkthroughRequest {
+  run_ids: string[];
+  target: string | null;
+  model: string | null;
+  format: "markdown" | "html";
+}
+
+export interface WalkthroughResult {
+  markdown?: string;
+  html?: string;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -158,4 +170,7 @@ export const api = {
       body: JSON.stringify({ target, plugin, options }),
     }),
   getScan: (jobId: string) => request<ScanStatus>(`/scans/${jobId}`),
+
+  createWalkthrough: (body: WalkthroughRequest) =>
+    request<WalkthroughResult>("/walkthroughs", { method: "POST", body: JSON.stringify(body) }),
 };
