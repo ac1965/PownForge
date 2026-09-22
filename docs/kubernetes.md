@@ -11,8 +11,9 @@
 扱いますが、**kubernetesプラグインは`Target.address`をkubeconfigの
 context名として扱います**(`kind get clusters`や`kubectl config
 get-contexts`で確認できる文字列、例: `kind-pownforge-lab`)。
-`Target.kind`は`host`のままで問題ありません(スキーマ上の新しい種別は
-追加していません)。
+`Target.kind`(host/url、address形式)は`host`のままで問題ありません。
+分類用に`Target.type`へ`kubernetes`を設定できますが、これは表示・分類目的のみで、
+スキャン許可判定には引き続き`allowed_plugins`だけが使われます。
 
 対象のクラスタへは、`pownforge`を実行しているマシンの`~/.kube/config`
 経由で到達できる必要があります。`pownforge scan network/web/nuclei`が
@@ -25,8 +26,10 @@ kubernetesプラグインは通常、開発者のホスト上で(kubectl/trivy�
 
 ```bash
 # kubeconfigのcontext名をそのままaddressとして対象登録
+# --type kubernetes は分類用（レポート/一覧表示のため）で、スキャン許可判定は
+# 引き続き --allowed-plugins だけが行う
 pownforge target add kind-lab --address kind-pownforge-lab --kind host \
-  --allowed-plugins kubernetes
+  --type kubernetes --allowed-plugins kubernetes
 
 # namespaceとseverityで絞り込んでスキャン
 pownforge scan kubernetes --target kind-lab \

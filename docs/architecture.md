@@ -26,6 +26,9 @@ CLI (Typer)
 - **スコープはコードで強制する**: `pownforge scan` は `config/targets.yaml` に
   登録された対象名でしか実行できません。任意のホスト名・URLを直接引数に取りません。
   `pownforge lab add` も最終的に同じ `ScopePolicy.add_target()` を通ります。
+  `Target.environment`が`production`の対象は`notes`(認可/契約の参照)が
+  必須で、無い場合`ScopePolicy.add_target()`自体が`PolicyError`を送出します
+  (CLI/Web API/Web UIいずれの登録経路でも同じチェックを通る)。
 - **コマンド組み立てと実行を分離する**: プラグインは `build_command`/`normalize` の
   みを担当し、実際に外部プロセスを起動するのは `ScanRunner`（`LabManager` も同様の
   分離）に一本化しています。証跡の保存形式やファイルパスは `evidence/` が一元管理し、
@@ -58,7 +61,27 @@ severity表記が`Severity` enumに合わない場合は`info`にフォールバ
 finding自体は破棄しません（`core/finding_utils.py::coerce_finding`、
 `pownforge analyze`のJSON解析と共通のロジックを使っています）。
 
+## Target model
+
+```python
+class Target(BaseModel):
+    name: str
+    kind: TargetKind              # host | url（プラグインが使うaddress形式）
+    address: str
+    allowed_plugins: list[str]
+    notes: str | None
+    type: TargetType | None       # network | web | api | kubernetes（分類用、任意）
+    environment: TargetEnvironment  # local-lab(既定) | staging | production
+```
+
+`type`は`kind`(address形式)とは独立した、レポート/一覧表示用の分類軸です。
+どのプラグインを実行できるかは引き続き`allowed_plugins`だけが決めます
+(`type`はスキャン実行を許可/拒否する判定には使いません)。`environment`は
+「どれだけ本番/権威的な対象か」を表し、`production`だけは上記の通り
+`notes`必須というコード上の強制が入ります。`kubernetes`タイプの対象は
+`address`にkubeconfigのcontext名を格納します(詳細は
+[docs/kubernetes.md](kubernetes.md))。
+
 ## 今後の拡張
 
-- Target modelの`type`/`environment`拡張（web/api/k8s/実案件の区別が必要になった時点で）
 - Emacs連携（`pownforge.el`）

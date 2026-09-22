@@ -4,7 +4,7 @@
 | --- | --- |
 | `pownforge init` | 作業ディレクトリ（`.pownforge/`）と空のスコープファイルを作成 |
 | `pownforge target list` | 登録済み対象の一覧 |
-| `pownforge target add <name> --address <addr> [--kind host\|url] [--allowed-plugins a,b]` | 対象を登録 |
+| `pownforge target add <name> --address <addr> [--kind host\|url] [--type network\|web\|api\|kubernetes] [--environment local-lab\|staging\|production] [--allowed-plugins a,b] [--notes <text>]` | 対象を登録。`type`は分類用の任意項目（スキャン許可判定には使わない）。`--environment production`は`--notes`（認可/契約の参照）が必須、無いと登録は拒否される |
 | `pownforge plugin list` | 利用可能なプラグインと外部ツールの有無 |
 | `pownforge plugin info <name>` | プラグインの詳細 |
 | `pownforge scan network --target <name> [--option k=v ...]` | networkプラグイン（nmap）を実行 |

@@ -39,21 +39,26 @@ Emacsではなく先にWeb UIで実現した形になっている。
 | ポリシー違反が証跡に残る | ✅ **完了**。`ScanRunner`が`PolicyError`を`AuditStore`(`evidence/audit.py`)に記録してから再送出する。`pownforge audit list/show`、`GET /api/audit`、Web UIのAuditページ/Dashboardパネルから確認可能 |
 
 データモデルは当初案（`type`/`environment`/`endpoints`(複数)/`scope.allowed`+`excluded`/
-`policy.max_concurrency`）よりかなり簡素:
+`policy.max_concurrency`）と比べ、`endpoints`/`scope.allowed`+`excluded`/
+`policy.max_concurrency`は依然として簡素なまま:
 
 ```python
 class Target(BaseModel):
     name: str
-    kind: TargetKind        # host | url のみ。type(web/api/k8s)ではない
-    address: str            # endpoints(複数)ではなく単一
+    kind: TargetKind          # host | url。address形式(実行時にプラグインが使う)
+    address: str              # endpoints(複数)ではなく単一
     allowed_plugins: list[str]
     notes: str | None
-    # environment, excluded, max_concurrency は無い
+    type: TargetType | None   # network | web | api | kubernetes（✅ 追加。分類用のみ）
+    environment: TargetEnvironment  # ✅ 追加。local-lab(既定)|staging|production
+    # excluded, max_concurrency は無い
 ```
 
-「環境区分(local-lab/staging/production)」「除外対象」「対象ごとの同時実行数制限」は
-未実装。以前の検討で「具体的な利用者(k8s/実案件プラグイン)が無いまま拡張するのは
-時期尚早」として意図的に保留した部分。
+`type`/`environment`は✅**完了**（後述の優先順位リスト参照）。`environment`は
+表示用のラベルに留めず、`production`の場合`notes`(認可/契約の参照)が無いと
+`ScopePolicy.add_target()`が`PolicyError`を送出するようコードで強制した。
+「除外対象」「対象ごとの同時実行数制限」は依然未実装のまま
+（具体的な利用者が無いまま拡張するのは時期尚早、という判断を維持）。
 
 ### Phase 3: Network Recon Plugin — 🟡 部分完了
 
@@ -166,8 +171,8 @@ Web UIがある程度代替しているが、Emacs/Org-modeからの操作とい
 
 `Plugin` ABC(`check`/`build_command`/`normalize`)は実装済みだが、当初案の
 `PluginMetadata{name, version, description, capabilities}`のような正式なSDKパッケージ・
-入力出力スキーマの明文化・プラグイン用テストインターフェースは無い。候補プラグイン
-(`container`/`kubernetes`/`identity`)は未実装。
+入力出力スキーマの明文化・プラグイン用テストインターフェースは無い。候補プラグインの
+うち`kubernetes`(`trivy k8s`)は実装済み(Phase 8参照)、`container`/`identity`は未実装。
 
 ---
 
@@ -183,8 +188,8 @@ Web UIがある程度代替しているが、Emacs/Org-modeからの操作とい
 | ~~4~~ | ~~Web UIの書き込み系画面(Slice 3)~~: Target追加・Lab起動・NewScan+ライブ進捗 | ✅ **完了**。Targets/Labページに追加・削除フォーム、New Scan(target/plugin/options選択)→Scan live(WebSocketライブテール)→Run detailへの自動遷移まで実装。実機(Docker)でtarget追加→lab起動(alpine)→対象自動登録→スキャン実行→ライブ出力→Run detail遷移を確認済み |
 | ~~5~~ | ~~tool_versionの記録~~ | ✅ **完了**。`Plugin.version_command()`をScanRunnerが実行し`Evidence.tool_version`に保存。CLI/Web API/Web UIから確認可能 |
 | ~~1~~ | ~~Web/APIプラグインの拡充~~(nuclei) | ✅ **完了**。`NucleiPlugin`を追加(`pownforge scan nuclei`)。JSONL出力を構造化し、テンプレート単位の検出をそのまま`Finding`として記録する`_findings`規約を`Plugin.normalize()`に追加(既存プラグインは無変更で影響なし)。sqlmapは安全上の設計判断が必要なため引き続き未着手 |
-| ~~2~~ | ~~Kubernetesプラグイン~~(Phase 8) | ✅ **完了**。`trivy k8s`を使う`KubernetesPlugin`を追加(`pownforge scan kubernetes`)。`Target.address`にkubeconfigのcontext名を格納する方式とし、Target modelのschema拡張は見送った。既存の`_findings`規約をそのまま再利用し、実機`kind`クラスタで検証済み |
-| 3 | **Target modelのtype/environment拡張** | 実案件プラグイン(Phase 4)に着手するタイミングで一緒に設計(既存判断を維持) |
+| ~~2~~ | ~~Kubernetesプラグイン~~(Phase 8) | ✅ **完了**。`trivy k8s`を使う`KubernetesPlugin`を追加(`pownforge scan kubernetes`)。`Target.address`にkubeconfigのcontext名を格納する方式とし、Target modelのschema拡張(type/environment)は別項目として後追いした。既存の`_findings`規約をそのまま再利用し、実機`kind`クラスタで検証済み |
+| ~~3~~ | ~~Target modelのtype/environment拡張~~ | ✅ **完了**。`type`(network/web/api/kubernetes、分類用のみ)と`environment`(local-lab/staging/production)を`Target`に追加。`environment=production`は`notes`(認可/契約の参照)必須を`ScopePolicy.add_target()`でコード強制。CLI(`--type`/`--environment`)・Web API(Targetモデルにそのまま含まれる)・Web UI(Targetsページのフォーム/一覧)いずれからも設定・確認可能 |
 | 4 | **Emacs連携(Phase 9)** | 明示的な依頼があるまで着手しない |
 
 M7(Emacs)は当初計画のまま残っており、着手時期は未定です。M6(Kubernetes Lab)は
