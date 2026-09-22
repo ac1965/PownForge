@@ -9,8 +9,8 @@ PownForge は、許可された検証環境・ラボ環境に対するセキュ�
 Pown.js の「モジュールを独立させ、CLIから呼び出す」という思想を参考にしていますが、
 実装はPython/Typerによる独自設計です。
 
-詳細な設計方針は [docs/architecture.md](docs/architecture.md) を、
-コマンド一覧は [docs/cli-contract.md](docs/cli-contract.md) を参照してください。
+詳細な設計方針・コマンド一覧・利用方法は [docs/handbook.md](docs/handbook.md)
+(設計・ビルド・利用の手引書)を参照してください。
 
 ## セットアップ
 
@@ -98,8 +98,7 @@ make test
   finding検証、evidence検証をひととおりカバーする
 - `emacs/pownforge.el`: `pownforge`実行バイナリをサブプロセスとして呼ぶだけの
   Elisp front-end（`emacs/tests/`にERTテスト、実行はスタブCLI経由）
-- `docs/lab.md`: ラボネットワーク機能（`pownforge lab`）の使い方
-- `docs/web.md`: Web UI/APIの使い方
-- `docs/emacs.md`: Emacs連携（`emacs/pownforge.el`）の使い方
-- `docs/walkthrough.md`: 実機（OWASP Juice Shop等）での検証記録
+- `docs/handbook.md`: 設計・ビルド・利用の手引書（アーキテクチャ図、CLI/
+  プラグイン/ラボ/Web UI/Emacs/AI機能の使い方、実機検証記録、実装状況
+  サマリーを一冊に集約。図はMermaid、画面キャプチャは`docs/images/`）
 - `.pownforge/`: 実行時の状態（runs, reports, violations）。gitignore対象

@@ -24,7 +24,7 @@ class Plugin(ABC):
     = no constraint, e.g. NetworkPlugin works with either host or url). Purely
     additive metadata plus the one check every url/host-specific plugin was
     already hand-rolling ad hoc -- see require_kind() and
-    docs/architecture.md."""
+    docs/handbook.md §2 (全体アーキテクチャ)."""
 
     kind_hint: str | None = None
     """Optional extra guidance appended to require_kind()'s error message,

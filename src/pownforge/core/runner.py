@@ -74,7 +74,7 @@ class ScanRunner:
             raise RunnerError(
                 f"'{plugin.required_tool}' is required for the '{plugin_name}' plugin but "
                 f"was not found on PATH. Install it, or run via the docker runtime image "
-                f"(see docs/lab.md) which already includes it."
+                f"(see docs/handbook.md #3) which already includes it."
             )
 
         tool_version = _tool_version(plugin)

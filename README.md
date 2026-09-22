@@ -43,7 +43,7 @@ pownforge init
 
 # 利用可能なプラグインを確認（"missing tool" と出た場合、そのプラグインの
 # 外部ツールがホストに無い。network なら `brew install nmap` 等でホストに
-# 直接入れるか、代わりに Dockerランタイム(docs/lab.md参照)を使う）
+# 直接入れるか、代わりに Dockerランタイム(docs/handbook.md §3参照)を使う）
 pownforge plugin list
 
 # 検証対象を登録（自分のラボ環境などに限定すること）
@@ -69,23 +69,24 @@ pownforge analyze <run-id>
 ## ラボ環境（攻撃対象ホストの動的追加）
 
 `pownforge lab add/list/remove` で、隔離されたDockerネットワーク上に
-攻撃対象ホストを動的に起動・停止できます。詳細は [docs/lab.md](docs/lab.md) を
-参照してください。OWASP Juice Shopに対する実スキャンでの検証記録は
-[docs/walkthrough.md](docs/walkthrough.md) を参照してください。
+攻撃対象ホストを動的に起動・停止できます。詳細は
+[docs/handbook.md §7 ラボネットワーク](docs/handbook.md#7-ラボネットワーク) を
+参照してください。
 
 ## Web UI / API
 
 `pip install -e ".[web]"` の上で `pownforge web serve` を実行すると、CLIと
 同じコアをそのまま使うFastAPIバックエンドが起動します。React製フロントエンド
 (`webui/`)からtargetの追加・削除、labホストの起動・削除、新規スキャンの実行
-(WebSocketによるライブ進捗表示)、AI分析、finding検証、evidence検証まで、
-ひととおりの操作がブラウザだけで完結します。詳細は
-[docs/web.md](docs/web.md) を参照してください。
+(WebSocketによるライブ進捗表示)、AI分析、finding検証、evidence検証、
+複数runをまたぐウォークスルー生成まで、ひととおりの操作がブラウザだけで
+完結します。詳細は [docs/handbook.md §8 Web UI / API](docs/handbook.md#8-web-ui--api) を
+参照してください。
 
-## アーキテクチャ
+## アーキテクチャ・全体像
 
-設計の詳細は [docs/architecture.md](docs/architecture.md) と [docs/cli-contract.md](docs/cli-contract.md) を参照してください。
-設計当初のロードマップとの対比・今後の優先順位は [docs/roadmap.md](docs/roadmap.md) にまとめています。
+設計・ビルド・利用をまとめた手引書は [docs/handbook.md](docs/handbook.md) を
+参照してください。図解・実装状況サマリーも含まれています。
 
 ## 開発
 
@@ -104,7 +105,7 @@ make test
   `kubernetes`（`trivy k8s`によるクラスタ誤設定・RBAC・イメージ脆弱性検出）/
   `container`（`trivy image`によるコンテナイメージの脆弱性・誤設定・シークレット検出）/
   `sqlmap`（SQLインジェクション検出・抽出。OS/ファイル操作系オプションは常に拒否、
-  詳細は[docs/sqlmap.md](docs/sqlmap.md)）。各ツールの出力は構造化データに正規化し、
+  詳細は[docs/handbook.md §6](docs/handbook.md#6-プラグイン)）。各ツールの出力は構造化データに正規化し、
   nuclei/kubernetes/container/sqlmapは検出結果をfinding（`source: "tool"`）としても記録
 - 隔離Dockerネットワーク上への攻撃対象ホストの動的追加（`pownforge lab`）
 - Web API + ライブ進捗WebSocket（`pownforge web serve`、optional extra `[web]`）+ React製の閲覧用SPA（`webui/`）
@@ -112,6 +113,6 @@ make test
 - Markdownレポート生成
 - ローカルLLM（Ollama）分析アダプタ
 - Emacs連携（`emacs/pownforge.el`）: 対象/プラグイン一覧、`--live`によるスキャンの
-  ライブ表示、findingのレビュー、Org-modeへのfindings出力（[docs/emacs.md](docs/emacs.md)）
+  ライブ表示、findingのレビュー、Org-modeへのfindings出力（[docs/handbook.md §9](docs/handbook.md#9-emacs連携)）
 
 高度な結果正規化（重大度判定・脆弱性分類の自動化など）は今後のフェーズで拡張します。

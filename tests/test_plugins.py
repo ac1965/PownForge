@@ -185,7 +185,7 @@ def test_nuclei_plugin_falls_back_to_default_parsing_when_no_version_line() -> N
 
 
 # Shape captured from a real `trivy k8s <context> -f json` run against a
-# local kind cluster (see docs/walkthrough.md).
+# local kind cluster (see docs/handbook.md §6 プラグイン).
 TRIVY_K8S_JSON = json.dumps(
     {
         "ClusterName": "kind-pownforge-lab",
@@ -282,7 +282,7 @@ def test_kubernetes_plugin_version_command() -> None:
 # Captured verbatim (trimmed of [INFO]/timestamp noise) from a real
 # `sqlmap --url http://127.0.0.1:.../product?id=1 --batch --risk 1 --level 1`
 # run against a deliberately vulnerable local Flask/sqlite endpoint
-# (sqlmap 1.10.9). See docs/sqlmap.md.
+# (sqlmap 1.10.9). See docs/handbook.md §6 プラグイン.
 SQLMAP_STDOUT_INJECTABLE = """\
 sqlmap identified the following injection point(s) with a total of 52 HTTP(s) requests:
 ---
@@ -427,7 +427,7 @@ def test_sqlmap_plugin_version_command() -> None:
 
 
 # Shape captured from a real `trivy image -f json alpine:3.10` run (trivy
-# 0.74.0). See docs/container.md.
+# 0.74.0). See docs/handbook.md §6 プラグイン.
 TRIVY_IMAGE_JSON = json.dumps(
     {
         "ArtifactName": "alpine:3.10",

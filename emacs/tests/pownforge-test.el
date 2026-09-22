@@ -8,7 +8,7 @@
 ;; (see `make emacs-test').
 ;;
 ;; Parsing functions are tested against literal strings copied from real
-;; `pownforge' output (see docs/cli-contract.md and the fixtures in
+;; `pownforge' output (see docs/handbook.md §5 and the fixtures in
 ;; tests/test_plugins.py on the Python side). Process-invoking functions are
 ;; tested against emacs/tests/fixtures/fake-pownforge, a stub shell script
 ;; that reproduces the same output shapes without needing a Python

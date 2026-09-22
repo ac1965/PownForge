@@ -9,7 +9,7 @@ def test_masks_two_token_flag_value() -> None:
 def test_single_letter_flags_are_not_covered_by_the_keyword_heuristic() -> None:
     # -H is a common shorthand for --header in several tools, but a bare
     # single letter carries no keyword to match against -- this is a known
-    # limit of the heuristic (see docs/architecture.md), not a bug.
+    # limit of the heuristic (see docs/handbook.md §2 全体アーキテクチャ), not a bug.
     command = ["tool", "-H", "user:pass"]
     assert mask_command(command) == command
 

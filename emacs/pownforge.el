@@ -6,7 +6,7 @@
 ;;; Commentary:
 
 ;; A thin Emacs wrapper around the `pownforge' CLI (see README.md and
-;; docs/cli-contract.md in the pownforge repository).  Every command here
+;; docs/handbook.md in the pownforge repository).  Every command here
 ;; shells out to the real `pownforge' binary and never re-implements scope
 ;; enforcement, plugin execution, or evidence handling itself: scope checks
 ;; and command execution stay in ScopePolicy/ScanRunner (Python side), same
@@ -33,8 +33,8 @@
 ;;     `pownforge-review-finding-in-org-at-point' to review a finding
 ;;     directly from that Org heading.
 ;;
-;; See docs/emacs.md in the pownforge repository for setup and a full
-;; walkthrough.
+;; See docs/handbook.md §9 (Emacs連携) in the pownforge repository for setup
+;; and a full walkthrough.
 
 ;;; Code:
 
@@ -73,8 +73,8 @@ When nil, pownforge's own default (.pownforge/) is used instead."
   "Return the --config/--workdir args allowed by ACCEPTS.
 ACCEPTS is a list that may contain `:config' and/or `:workdir', matching
 exactly which global options the target subcommand accepts (see
-docs/cli-contract.md: `plugin list'/`plugin info'/`lab list' accept
-neither)."
+docs/handbook.md §5 CLIコマンドリファレンス: `plugin list'/`plugin info'/
+`lab list' accept neither)."
   (append
    (when (and (memq :config accepts) pownforge-config-file)
      (list "--config" (expand-file-name pownforge-config-file)))

@@ -58,7 +58,7 @@ _DENIED_OPTIONS = frozenset(
 #       Type: error-based
 #       ...
 # up to the next "Parameter:" line, a "---" separator, or end of string.
-# Verified against real sqlmap 1.10.9 output (see docs/sqlmap.md).
+# Verified against real sqlmap 1.10.9 output (see docs/handbook.md §6).
 _PARAMETER_BLOCK_RE = re.compile(
     r"^Parameter:\s*(?P<param>.+?)\s*\((?P<method>[A-Za-z]+)\)\s*$\n"
     r"(?P<body>(?:(?!^Parameter:|^---).*\n?)*)",
@@ -100,7 +100,7 @@ class SqlmapPlugin(Plugin):
                     f"sqlmap option '--{normalized}' is not allowed by pownforge: it "
                     "escalates beyond SQL injection testing (OS/registry/file access, "
                     "an interactive shell, or extra config injection). This is enforced "
-                    "regardless of --risk/--level (see docs/sqlmap.md)"
+                    "regardless of --risk/--level (see docs/handbook.md #6)"
                 )
 
         self._output_dir = Path(tempfile.mkdtemp(prefix="pownforge-sqlmap-"))

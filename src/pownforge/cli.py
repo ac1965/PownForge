@@ -261,7 +261,7 @@ def scan_sqlmap(
         help=(
             "key=value, may repeat; supports risk=, level=, dump=true, dbs=true, etc. "
             "Options that escalate beyond SQLi (os-shell, file-read/write, tamper, ...) "
-            "are rejected -- see docs/sqlmap.md."
+            "are rejected -- see docs/handbook.md #6."
         ),
     ),
     live: bool = typer.Option(
