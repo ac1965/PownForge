@@ -628,6 +628,32 @@ VULNCHECK_VULNERABLE_XML = """<?xml version="1.0"?>
 </nmaprun>
 """
 
+# Captured verbatim from a real `nmap --script smb-vuln-ms17-010
+# --script-args vulns.showall -p 445 <host>` run against a live
+# Metasploitable2 container -- this script is hostrule-based, so its result
+# lands under <hostscript>, not nested inside a <port> element.
+VULNCHECK_HOSTSCRIPT_XML = """<?xml version="1.0"?>
+<nmaprun>
+  <host>
+    <address addr="172.19.0.2" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="445">
+        <state state="open"/>
+        <service name="microsoft-ds"/>
+      </port>
+    </ports>
+    <hostscript>
+      <script id="smb-vuln-ms17-010" output="&#xa;  NOT VULNERABLE:&#xa;">
+        <table key="CVE-2017-0143">
+          <elem key="title">Remote Code Execution vulnerability in Microsoft SMBv1 servers (ms17-010)</elem>
+          <elem key="state">NOT VULNERABLE</elem>
+        </table>
+      </script>
+    </hostscript>
+  </host>
+</nmaprun>
+"""
+
 
 def test_vulncheck_plugin_requires_script_option(monkeypatch: pytest.MonkeyPatch) -> None:
     plugin = VulncheckPlugin()
@@ -689,6 +715,27 @@ def test_vulncheck_plugin_normalizes_vulnerable_result_into_finding(monkeypatch:
     assert len(output["_findings"]) == 1
     assert output["_findings"][0]["severity"] == "high"
     assert "Heartbleed" in output["_findings"][0]["title"]
+
+
+def test_vulncheck_plugin_parses_hostscript_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    plugin = VulncheckPlugin()
+    monkeypatch.setattr(VulncheckPlugin, "check", lambda self: True)
+    target = Target(name="lab", kind=TargetKind.HOST, address="metasploitable2")
+    command = plugin.build_command(target, {"script": "smb-vuln-ms17-010"})
+    xml_path = Path(command[command.index("-oX") + 1])
+    xml_path.write_text(VULNCHECK_HOSTSCRIPT_XML)
+
+    output = plugin.normalize(target, "", "")
+
+    assert output["results"] == [
+        {
+            "script": "smb-vuln-ms17-010",
+            "port": None,
+            "state": "NOT VULNERABLE",
+            "detail": "Remote Code Execution vulnerability in Microsoft SMBv1 servers (ms17-010)",
+        }
+    ]
+    assert output["_findings"] == []
 
 
 def test_vulncheck_plugin_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch) -> None:

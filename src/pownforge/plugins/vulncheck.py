@@ -147,29 +147,38 @@ class VulncheckPlugin(Plugin):
         except ElementTree.ParseError:
             return results
 
+        # Most scripts here (ssl-*, http-vuln-*) are portrule-based and land
+        # under <port>, but some (smb-vuln-ms17-010, smb-double-pulsar-backdoor)
+        # are hostrule-based and land under <hostscript> instead, with no
+        # <port> ancestor at all -- both must be checked or those scripts'
+        # results are silently dropped even though nmap did run them.
         for port_el in root.findall(".//port"):
             for script_el in port_el.findall("script"):
-                script_id = script_el.get("id", "")
-                output = script_el.get("output", "").strip()
-                state = None
-                title = None
-                table_el = script_el.find("table")
-                if table_el is not None:
-                    for elem in table_el.findall("elem"):
-                        key = elem.get("key")
-                        if key == "state":
-                            state = (elem.text or "").strip()
-                        elif key == "title":
-                            title = (elem.text or "").strip()
-                results.append(
-                    {
-                        "script": script_id,
-                        "port": port_el.get("portid"),
-                        "state": state or "UNKNOWN",
-                        "detail": title or output,
-                    }
-                )
+                results.append(_parse_script_result(script_el, port=port_el.get("portid")))
+        for script_el in root.findall(".//hostscript/script"):
+            results.append(_parse_script_result(script_el, port=None))
         return results
+
+
+def _parse_script_result(script_el: ElementTree.Element, port: str | None) -> dict[str, Any]:
+    script_id = script_el.get("id", "")
+    output = script_el.get("output", "").strip()
+    state = None
+    title = None
+    table_el = script_el.find("table")
+    if table_el is not None:
+        for elem in table_el.findall("elem"):
+            key = elem.get("key")
+            if key == "state":
+                state = (elem.text or "").strip()
+            elif key == "title":
+                title = (elem.text or "").strip()
+    return {
+        "script": script_id,
+        "port": port,
+        "state": state or "UNKNOWN",
+        "detail": title or output,
+    }
 
 
 def _is_vulnerable_state(state: str) -> bool:

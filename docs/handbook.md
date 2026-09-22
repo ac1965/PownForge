@@ -521,6 +521,19 @@ pownforge scan vulncheck --target app-tls \
 外の`http-shellshock`を指定した場合にツールを起動せず拒否されることも
 確認済み。
 
+続けて、[§7](#7-ラボネットワーク)のMetasploitable2ラボ対象に対して
+`http-vuln-cve2011-3192`(Apache Range headerによるDoS、Metasploitable2の
+Apache 2.2.8が対象になりうる)と`smb-vuln-ms17-010`(EternalBlue、
+Metasploitable2のSamba相手に実行)を実行。この検証で**実バグを発見**した:
+`smb-vuln-ms17-010`はportrule(`<port>`配下)ではなくhostrule
+(`<hostscript>`配下)で結果を返すnmap NSEスクリプトで、`_parse_xml()`は
+`<port>`配下の`<script>`しか見ていなかったため、スクリプトは実際に
+実行され結果も出力されているのに`output.results`が常に空になっていた。
+`<hostscript>/<script>`も走査するよう修正し、`smb-vuln-ms17-010`の
+「NOT VULNERABLE」判定が正しく`output.results`に記録されることを
+再検証で確認した(この場合`port`は`null`になる。ポート番号を伴わない
+ホストレベルの結果であるため)。
+
 ## 7. ラボネットワーク
 
 `pownforge lab`サブコマンドは、意図的に脆弱なコンテナイメージを
