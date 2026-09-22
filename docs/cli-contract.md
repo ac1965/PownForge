@@ -9,6 +9,7 @@
 | `pownforge plugin info <name>` | プラグインの詳細 |
 | `pownforge scan network --target <name> [--option k=v ...]` | networkプラグイン（nmap）を実行 |
 | `pownforge scan web --target <name> --option wordlist=<path>` | webプラグイン（ffuf）を実行 |
+| `pownforge scan nuclei --target <name> [--option tags=... --option severity=... --option templates=...]` | nucleiプラグイン（テンプレートベースの脆弱性検出）を実行。検出結果はそのままfinding（`source: "tool"`、既定`needs-review`）として記録 |
 | `pownforge result list` | 実行結果の一覧 |
 | `pownforge result show <run-id>` | 実行結果の詳細（JSON） |
 | `pownforge result review <run-id> <finding-id> <needs-review\|confirmed\|false-positive>` | findingの検証状態を更新 |

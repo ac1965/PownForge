@@ -44,6 +44,19 @@ CLI (Typer)
 - `version_command() -> list[str] | None`: ツールのバージョン確認コマンド
   （省略可、既定は`None`）。`build_command`と同様にargvを返すだけで、
   実行するのは`ScanRunner`。返した場合は`Evidence.tool_version`に記録される
+- `parse_version_output(stdout, stderr) -> str | None`: `version_command()`の
+  出力から実際のバージョン文字列を取り出す（既定は「stdoutの最初の行、無ければ
+  stderrの最初の行」）。ツールが警告等を同じストリームに先に出す場合は
+  オーバーライドする（`NucleiPlugin`はGoランタイムの警告行を読み飛ばして
+  `Nuclei Engine Version: ...`の行を探す）
+
+`normalize()`が返す辞書に`"_findings"`キー（`{"title", "severity", "detail"}`の
+リスト）を含めると、`ScanRunner`がそれを取り出して`Finding`（`source="tool"`）に
+変換し`RunRecord.findings`へ格納します（`NucleiPlugin`が使用）。このキーを
+使わないプラグイン（`NetworkPlugin`/`WebPlugin`）には影響しません。ツール側の
+severity表記が`Severity` enumに合わない場合は`info`にフォールバックし、
+finding自体は破棄しません（`core/finding_utils.py::coerce_finding`、
+`pownforge analyze`のJSON解析と共通のロジックを使っています）。
 
 ## 今後の拡張
 

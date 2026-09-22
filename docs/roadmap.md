@@ -10,7 +10,7 @@
 | **M1** | CLI + Target + Plugin Registry | ✅ 完了 | Typer CLI、`ScopePolicy`、`PluginRegistry` |
 | **M2** | Network Plugin + Result Store | ✅ 完了 | `NetworkPlugin`(nmap)、`EvidenceStore` |
 | **M3** | Evidence + Markdown Report | 🟡 部分完了 | 保存構造・検証コマンドが当初案と異なる（後述） |
-| **M4** | Web/API Plugin | 🟡 部分完了 | `WebPlugin`(ffuf)のみ。nuclei/sqlmap/API専用プラグインは未着手 |
+| **M4** | Web/API Plugin | 🟡 部分完了 | `WebPlugin`(ffuf)/`NucleiPlugin`(nuclei)。sqlmap/API専用プラグインは未着手 |
 | **M5** | Ollama Analysis | ✅ 完了 | 当初設計とほぼ一致 |
 | **M6** | Kubernetes Lab | ❌ 未着手 | |
 | **M7** | Emacs Integration + SDK | ❌ 未着手 | Emacs連携は未着手。SDKは`Plugin` ABCのみ |
@@ -101,8 +101,12 @@ class Target(BaseModel):
 | ツール | 状況 |
 | --- | --- |
 | ffuf | ✅ 実装済み(`WebPlugin`、オートキャリブレーション`-ac`込み) |
-| nuclei | ❌ 未実装 |
-| sqlmap | ❌ 未実装 |
+| nuclei | ✅ 実装済み(`NucleiPlugin`)。テンプレート単位の検出結果をそのまま
+  `Finding`(`source="tool"`、既定`needs-review`)として記録する、当初案の
+  検証ワークフローに最も近いプラグイン |
+| sqlmap | ❌ 未実装(SQLインジェクションを能動的に試行するツールのため、
+  ffuf/nucleiより安全上の検討が必要。着手時は既定を最も保守的なオプション
+  にする、対象の同意確認を厚くする等の設計判断が要る) |
 | curl/httpx(API確認) | ❌ 未実装(`httpx`は依存関係にあるが未使用) |
 
 当初案の「Tool Output → Parser → Candidate Finding → Manual Verification →
@@ -172,7 +176,7 @@ Web UIがある程度代替しているが、Emacs/Org-modeからの操作とい
 | ~~3~~ | ~~`pownforge evidence verify`~~ | ✅ **完了**。CLI/Web API/Web UIから、保存済み`output`と証跡ハッシュの一致を確認できる |
 | ~~4~~ | ~~Web UIの書き込み系画面(Slice 3)~~: Target追加・Lab起動・NewScan+ライブ進捗 | ✅ **完了**。Targets/Labページに追加・削除フォーム、New Scan(target/plugin/options選択)→Scan live(WebSocketライブテール)→Run detailへの自動遷移まで実装。実機(Docker)でtarget追加→lab起動(alpine)→対象自動登録→スキャン実行→ライブ出力→Run detail遷移を確認済み |
 | ~~5~~ | ~~tool_versionの記録~~ | ✅ **完了**。`Plugin.version_command()`をScanRunnerが実行し`Evidence.tool_version`に保存。CLI/Web API/Web UIから確認可能 |
-| 1 | **Web/APIプラグインの拡充**(nuclei等) | Phase 5の主要ツールが未着手 |
+| ~~1~~ | ~~Web/APIプラグインの拡充~~(nuclei) | ✅ **完了**。`NucleiPlugin`を追加(`pownforge scan nuclei`)。JSONL出力を構造化し、テンプレート単位の検出をそのまま`Finding`として記録する`_findings`規約を`Plugin.normalize()`に追加(既存プラグインは無変更で影響なし)。sqlmapは安全上の設計判断が必要なため引き続き未着手 |
 | 2 | **Target modelのtype/environment拡張** | Kubernetes/実案件プラグインに着手するタイミングで一緒に設計(既存判断を維持) |
 | 3 | **Kubernetesプラグイン(Phase 8)、Emacs連携(Phase 9)** | 明示的な依頼があるまで着手しない |
 
