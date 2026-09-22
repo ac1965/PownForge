@@ -85,6 +85,7 @@ Lab/Runs/Run detail(Analyze実行含む)の閲覧ができます(target登録・
 ## アーキテクチャ
 
 設計の詳細は [docs/architecture.md](docs/architecture.md) と [docs/cli-contract.md](docs/cli-contract.md) を参照してください。
+設計当初のロードマップとの対比・今後の優先順位は [docs/roadmap.md](docs/roadmap.md) にまとめています。
 
 ## 開発
 
