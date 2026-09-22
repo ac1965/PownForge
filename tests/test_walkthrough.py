@@ -7,6 +7,7 @@ import pytest
 
 from pownforge.ai.ollama import OllamaAdapter, OllamaError
 from pownforge.core.models import Evidence, Finding, RunRecord
+from pownforge.core.settings import Language
 from pownforge.core.walkthrough import WalkthroughError, generate_walkthrough, select_runs
 from pownforge.evidence.store import EvidenceStore
 
@@ -170,6 +171,41 @@ def test_generate_walkthrough_falls_back_to_plain_text_when_not_json(
     walkthrough = generate_walkthrough(store, OllamaAdapter(), [a.run_id], None)
     assert walkthrough.narrative == "the model just ignored the JSON instructions"
     assert walkthrough.suggestions == []
+
+
+def test_generate_walkthrough_defaults_to_japanese_instruction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = EvidenceStore(tmp_path / "runs")
+    a = _make_record(store, "lab", "network", "2026-01-01T00:00:00Z")
+
+    seen_prompt = {}
+
+    def fake_analyze(self, prompt: str) -> str:
+        seen_prompt["prompt"] = prompt
+        return "narrative"
+
+    monkeypatch.setattr(OllamaAdapter, "analyze", fake_analyze)
+    generate_walkthrough(store, OllamaAdapter(), [a.run_id], None)
+    assert "Japanese" in seen_prompt["prompt"]
+
+
+def test_generate_walkthrough_honors_explicit_english_language(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = EvidenceStore(tmp_path / "runs")
+    a = _make_record(store, "lab", "network", "2026-01-01T00:00:00Z")
+
+    seen_prompt = {}
+
+    def fake_analyze(self, prompt: str) -> str:
+        seen_prompt["prompt"] = prompt
+        return "narrative"
+
+    monkeypatch.setattr(OllamaAdapter, "analyze", fake_analyze)
+    generate_walkthrough(store, OllamaAdapter(), [a.run_id], None, language=Language.EN)
+    assert "entirely in English" in seen_prompt["prompt"]
+    assert "Japanese" not in seen_prompt["prompt"]
 
 
 def test_generate_walkthrough_wraps_ollama_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

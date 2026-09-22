@@ -6,10 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from pownforge.ai.ollama import OllamaAdapter, OllamaError
+from pownforge.core.settings import AppSettings, Language
 from pownforge.core.walkthrough import WalkthroughError, generate_walkthrough
 from pownforge.evidence.store import EvidenceStore
 from pownforge.reporting.walkthrough import render_html, render_markdown
-from pownforge.web.deps import get_store
+from pownforge.web.deps import get_app_settings, get_store
 
 router = APIRouter(tags=["walkthroughs"])
 
@@ -18,16 +19,25 @@ class WalkthroughRequest(BaseModel):
     run_ids: list[str] = []
     target: str | None = None
     model: str | None = None
+    language: Language | None = None
     format: str = "markdown"
 
 
 @router.post("/walkthroughs")
 def create_walkthrough(
-    body: WalkthroughRequest, store: EvidenceStore = Depends(get_store)
+    body: WalkthroughRequest,
+    store: EvidenceStore = Depends(get_store),
+    settings: AppSettings = Depends(get_app_settings),
 ) -> dict[str, Any]:
-    adapter = OllamaAdapter(model=body.model)
+    adapter = OllamaAdapter(model=body.model or settings.model)
     try:
-        walkthrough = generate_walkthrough(store, adapter, body.run_ids or None, body.target)
+        walkthrough = generate_walkthrough(
+            store,
+            adapter,
+            body.run_ids or None,
+            body.target,
+            language=body.language or settings.language,
+        )
     except WalkthroughError as exc:
         # generate_walkthrough wraps an OllamaError (LLM router unavailable/
         # failed) as a WalkthroughError too; distinguish it from a plain bad

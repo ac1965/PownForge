@@ -1,11 +1,12 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { api, RunRecord, WalkthroughResult } from "../api/client";
+import { api, Language, RunRecord, WalkthroughResult } from "../api/client";
 
 export default function Walkthrough() {
   const [runs, setRuns] = useState<RunRecord[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [target, setTarget] = useState("");
   const [model, setModel] = useState("");
+  const [language, setLanguage] = useState<Language | "">("");
   const [format, setFormat] = useState<"markdown" | "html">("markdown");
   const [result, setResult] = useState<WalkthroughResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +34,7 @@ export default function Walkthrough() {
         run_ids: selected,
         target: selected.length === 0 ? target || null : null,
         model: model || null,
+        language: language || null,
         format,
       })
       .then(setResult)
@@ -104,8 +106,20 @@ export default function Walkthrough() {
           </select>
         </label>
         <label>
-          model(任意、Ollamaモデル名)
-          <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="qwen3:14b" />
+          model(任意。空欄なら<a href="/settings">Settings</a>の既定値を使用)
+          <input
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            placeholder="qwen3:14b / claude-haiku-4.5"
+          />
+        </label>
+        <label>
+          language(任意。空欄なら<a href="/settings">Settings</a>の既定値を使用)
+          <select value={language} onChange={(e) => setLanguage(e.target.value as Language | "")}>
+            <option value="">(既定値を使用)</option>
+            <option value="ja">日本語</option>
+            <option value="en">English</option>
+          </select>
         </label>
         <label>
           format

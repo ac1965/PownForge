@@ -1,0 +1,14 @@
+# AIアシスタント(analyze/walkthrough)のローカル設定。
+# `pownforge config set --model <name> --language <ja|en>` で更新します。
+#
+# model: llmルーター(https://llm.datasette.io/)に渡すモデル名。
+#   例: "qwen3:14b" (ローカルOllama), "claude-haiku-4.5" (要 `llm install
+#   llm-anthropic` と `llm keys set anthropic`), "gpt-4o-mini" (要
+#   `llm keys set openai`)。null にすると `llm` CLI自身のデフォルトモデルを使う。
+# language: analyze/walkthroughの要約・ナラティブ・提案文を書かせる言語(ja/en)。
+#
+# 実際に使う際は、このファイルを config/settings.yaml としてコピーしてください
+# (config/settings.yaml は .gitignore済みで、リポジトリにはコミットされません。
+# 使えるモデルはマシンごとに異なるため)。
+model: null
+language: ja

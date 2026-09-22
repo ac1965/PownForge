@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pownforge.ai.ollama import AnalysisResult, OllamaAdapter, OllamaError, parse_analysis_response
 from pownforge.core.models import RunRecord
+from pownforge.core.settings import Language, language_instruction
 from pownforge.evidence.store import EvidenceStore
 
 _PROMPT_TEMPLATE = (
@@ -12,7 +13,7 @@ _PROMPT_TEMPLATE = (
     '"detail": "<1-2 sentence explanation>"}}]}}. Only include findings you can support '
     "directly from the raw output below; return an empty findings list if nothing stands "
     "out. Phrase every finding as something worth a human reviewing, never as a confirmed "
-    "vulnerability.\n\n"
+    "vulnerability. {language_instruction}\n\n"
     "Target: {target}\nPlugin: {plugin}\n\n"
     "Raw output:\n{raw_stdout}"
 )
@@ -22,7 +23,12 @@ class AnalysisError(RuntimeError):
     """Raised when a run cannot be analyzed (unknown run_id, or the LLM router failed)."""
 
 
-def run_analysis(store: EvidenceStore, run_id: str, adapter: OllamaAdapter) -> tuple[RunRecord, AnalysisResult]:
+def run_analysis(
+    store: EvidenceStore,
+    run_id: str,
+    adapter: OllamaAdapter,
+    language: Language = Language.JA,
+) -> tuple[RunRecord, AnalysisResult]:
     """Ask the local LLM to summarize/classify a run, then persist the result.
 
     Shared by the CLI `analyze` command and the web API so the prompt, JSON
@@ -37,6 +43,7 @@ def run_analysis(store: EvidenceStore, run_id: str, adapter: OllamaAdapter) -> t
         target=record.target,
         plugin=record.plugin,
         raw_stdout=record.output.get("raw_stdout", ""),
+        language_instruction=language_instruction(language),
     )
     try:
         response = adapter.analyze(prompt)

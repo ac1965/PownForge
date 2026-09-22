@@ -9,11 +9,12 @@ from starlette.staticfiles import StaticFiles
 from starlette.types import Scope
 
 from pownforge.web.jobs import JobManager
-from pownforge.web.routers import audit, lab, runs, scans, targets, walkthroughs
+from pownforge.web.routers import audit, lab, runs, scans, settings as settings_router, targets, walkthroughs
 
 # Built React SPA (see webui/). Overridable so a non-editable install or a
 # custom deployment layout can point elsewhere without code changes.
 DEFAULT_FRONTEND_DIST = Path(__file__).resolve().parents[3] / "webui" / "dist"
+DEFAULT_SETTINGS_PATH = Path("config/settings.yaml")
 
 
 class SPAStaticFiles(StaticFiles):
@@ -32,10 +33,13 @@ class SPAStaticFiles(StaticFiles):
             raise
 
 
-def create_app(config: Path, workdir: Path, frontend_dist: Path | None = None) -> FastAPI:
+def create_app(
+    config: Path, workdir: Path, settings: Path | None = None, frontend_dist: Path | None = None
+) -> FastAPI:
     app = FastAPI(title="PownForge")
     app.state.config_path = config
     app.state.workdir = workdir
+    app.state.settings_path = settings or DEFAULT_SETTINGS_PATH
     app.state.jobs = JobManager()
 
     app.include_router(targets.router, prefix="/api")
@@ -44,6 +48,7 @@ def create_app(config: Path, workdir: Path, frontend_dist: Path | None = None) -
     app.include_router(scans.router, prefix="/api")
     app.include_router(audit.router, prefix="/api")
     app.include_router(walkthroughs.router, prefix="/api")
+    app.include_router(settings_router.router, prefix="/api")
 
     dist = frontend_dist or Path(os.environ.get("POWNFORGE_WEB_DIST", str(DEFAULT_FRONTEND_DIST)))
     if dist.is_dir():

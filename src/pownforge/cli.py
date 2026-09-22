@@ -15,6 +15,7 @@ from pownforge.core.models import FindingStatus, Target, TargetEnvironment, Targ
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.core.registry import default_registry
 from pownforge.core.runner import RunnerError, ScanRunner
+from pownforge.core.settings import Language, load_settings, save_settings
 from pownforge.core.walkthrough import WalkthroughError, generate_walkthrough
 from pownforge.evidence.audit import AuditStore
 from pownforge.evidence.store import EvidenceStore
@@ -34,6 +35,7 @@ lab_app = typer.Typer(help="Start/stop attack-target containers on an isolated l
 web_app = typer.Typer(help=r"Serve the web UI (needs the \[web] extra: pip install -e '.\[web]').")
 audit_app = typer.Typer(help="Inspect scan attempts that ScopePolicy rejected.")
 evidence_app = typer.Typer(help="Verify stored evidence integrity.")
+config_app = typer.Typer(help="View/update local AI assistant preferences (model, language).")
 
 app.add_typer(target_app, name="target")
 app.add_typer(plugin_app, name="plugin")
@@ -45,9 +47,11 @@ app.add_typer(lab_app, name="lab")
 app.add_typer(web_app, name="web")
 app.add_typer(audit_app, name="audit")
 app.add_typer(evidence_app, name="evidence")
+app.add_typer(config_app, name="config")
 
 DEFAULT_CONFIG = Path(os.environ.get("POWNFORGE_CONFIG", "config/targets.yaml"))
 DEFAULT_WORKDIR = Path(os.environ.get("POWNFORGE_HOME", ".pownforge"))
+DEFAULT_SETTINGS = Path(os.environ.get("POWNFORGE_SETTINGS", "config/settings.yaml"))
 
 
 def _policy(config: Path) -> ScopePolicy:
@@ -422,19 +426,30 @@ def walkthrough_generate(
         None, "--target", help="Include every run recorded against this target, oldest first."
     ),
     model: Optional[str] = typer.Option(
-        None, "--model", help="Ollama model name to request from the local llm router."
+        None,
+        "--model",
+        help="llm router model name (e.g. an Ollama model or 'claude-haiku-4.5'); "
+        "defaults to `pownforge config`'s saved model.",
+    ),
+    language: Optional[Language] = typer.Option(
+        None, "--language", help="Output language for the narrative/suggestions; "
+        "defaults to `pownforge config`'s saved language."
     ),
     format: ReportFormat = typer.Option(ReportFormat.MARKDOWN, "--format", help="markdown or html"),
     workdir: Path = typer.Option(DEFAULT_WORKDIR),
+    settings: Path = typer.Option(DEFAULT_SETTINGS, "--settings"),
 ) -> None:
     """Generate a narrative walkthrough connecting multiple runs, via the local LLM.
 
     Read-only: no run's stored findings/analysis are modified, unlike `analyze`.
     """
     store = _store(workdir)
-    adapter = OllamaAdapter(model=model)
+    app_settings = load_settings(settings)
+    adapter = OllamaAdapter(model=model or app_settings.model)
     try:
-        walkthrough = generate_walkthrough(store, adapter, run_ids or None, target)
+        walkthrough = generate_walkthrough(
+            store, adapter, run_ids or None, target, language=language or app_settings.language
+        )
     except WalkthroughError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
@@ -563,15 +578,23 @@ def lab_list(network: str = typer.Option(LAB_NETWORK)) -> None:
 def analyze(
     run_id: str,
     model: Optional[str] = typer.Option(
-        None, help="Ollama model name to request from the local llm router."
+        None,
+        help="llm router model name (e.g. an Ollama model or 'claude-haiku-4.5'); "
+        "defaults to `pownforge config`'s saved model.",
+    ),
+    language: Optional[Language] = typer.Option(
+        None, "--language", help="Output language for the summary; "
+        "defaults to `pownforge config`'s saved language."
     ),
     workdir: Path = typer.Option(DEFAULT_WORKDIR),
+    settings: Path = typer.Option(DEFAULT_SETTINGS, "--settings"),
 ) -> None:
     """Ask the local LLM router to classify findings and draft a summary for a run."""
     store = _store(workdir)
-    adapter = OllamaAdapter(model=model)
+    app_settings = load_settings(settings)
+    adapter = OllamaAdapter(model=model or app_settings.model)
     try:
-        _, result = run_analysis(store, run_id, adapter)
+        _, result = run_analysis(store, run_id, adapter, language=language or app_settings.language)
     except AnalysisError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
@@ -588,6 +611,40 @@ def analyze(
         typer.echo(f"- [{finding.severity.value}] {finding.title} — {finding.detail}")
 
 
+@config_app.command("show")
+def config_show(settings: Path = typer.Option(DEFAULT_SETTINGS, "--settings")) -> None:
+    """Print the saved AI assistant preferences (model, language)."""
+    app_settings = load_settings(settings)
+    model_display = app_settings.model or "(unset -- uses the llm CLI's own default)"
+    typer.echo(f"model: {model_display}")
+    typer.echo(f"language: {app_settings.language.value}")
+
+
+@config_app.command("set")
+def config_set(
+    model: Optional[str] = typer.Option(
+        None,
+        "--model",
+        help="llm router model name to use by default (e.g. an Ollama model name, or "
+        "'claude-haiku-4.5' once `llm keys set anthropic` has an API key). "
+        "Pass '' (empty string) to unset and fall back to the `llm` CLI's own default.",
+    ),
+    language: Optional[Language] = typer.Option(
+        None, "--language", help="Output language for analyze/walkthrough prose (ja or en)."
+    ),
+    settings: Path = typer.Option(DEFAULT_SETTINGS, "--settings"),
+) -> None:
+    """Update saved AI assistant preferences. Only given fields change."""
+    app_settings = load_settings(settings)
+    if model is not None:
+        app_settings.model = model or None
+    if language is not None:
+        app_settings.language = language
+    save_settings(app_settings, settings)
+    typer.echo(f"wrote {settings}")
+    config_show(settings)
+
+
 @web_app.command("serve")
 def web_serve(
     host: str = typer.Option(
@@ -598,6 +655,7 @@ def web_serve(
     port: int = typer.Option(8420),
     config: Path = typer.Option(DEFAULT_CONFIG),
     workdir: Path = typer.Option(DEFAULT_WORKDIR),
+    settings: Path = typer.Option(DEFAULT_SETTINGS, "--settings"),
 ) -> None:
     """Serve the PownForge web UI and API."""
     try:
@@ -612,7 +670,7 @@ def web_serve(
         )
         raise typer.Exit(code=1) from exc
 
-    web_app_instance = create_app(config=config, workdir=workdir)
+    web_app_instance = create_app(config=config, workdir=workdir, settings=settings)
     uvicorn.run(web_app_instance, host=host, port=port)
 
 

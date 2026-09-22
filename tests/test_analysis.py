@@ -8,6 +8,7 @@ import pytest
 from pownforge.ai.ollama import OllamaAdapter, OllamaError
 from pownforge.core.analysis import AnalysisError, run_analysis
 from pownforge.core.models import Evidence, RunRecord
+from pownforge.core.settings import Language
 from pownforge.evidence.store import EvidenceStore
 
 
@@ -67,3 +68,32 @@ def test_run_analysis_raises_when_llm_unavailable(tmp_path: Path) -> None:
     seeded = _seed_record(store)
     with pytest.raises(AnalysisError):
         run_analysis(store, seeded.run_id, FailingAdapter())  # type: ignore[arg-type]
+
+
+class CapturingAdapter:
+    def __init__(self, response: str) -> None:
+        self._response = response
+        self.seen_prompt: str | None = None
+
+    def analyze(self, prompt: str) -> str:
+        self.seen_prompt = prompt
+        return self._response
+
+
+def test_run_analysis_defaults_to_japanese_instruction(tmp_path: Path) -> None:
+    store = EvidenceStore(tmp_path / "runs")
+    seeded = _seed_record(store)
+    adapter = CapturingAdapter(json.dumps({"summary": "ok", "findings": []}))
+
+    run_analysis(store, seeded.run_id, adapter)  # type: ignore[arg-type]
+    assert "Japanese" in adapter.seen_prompt
+
+
+def test_run_analysis_honors_explicit_english_language(tmp_path: Path) -> None:
+    store = EvidenceStore(tmp_path / "runs")
+    seeded = _seed_record(store)
+    adapter = CapturingAdapter(json.dumps({"summary": "ok", "findings": []}))
+
+    run_analysis(store, seeded.run_id, adapter, language=Language.EN)  # type: ignore[arg-type]
+    assert "entirely in English" in adapter.seen_prompt
+    assert "Japanese" not in adapter.seen_prompt

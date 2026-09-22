@@ -8,6 +8,7 @@ from pownforge.core.lab import LabManager
 from pownforge.core.policy import ScopePolicy
 from pownforge.core.registry import PluginRegistry, default_registry
 from pownforge.core.runner import ScanRunner
+from pownforge.core.settings import AppSettings, load_settings
 from pownforge.evidence.audit import AuditStore
 from pownforge.evidence.store import EvidenceStore
 from pownforge.web.jobs import JobManager
@@ -19,6 +20,17 @@ def get_config_path(request: Request) -> Path:
 
 def get_workdir(request: Request) -> Path:
     return request.app.state.workdir
+
+
+def get_settings_path(request: Request) -> Path:
+    return request.app.state.settings_path
+
+
+def get_app_settings(path: Path = Depends(get_settings_path)) -> AppSettings:
+    # Reloaded from disk on every request, same as get_policy, so a change
+    # from the Settings page or `pownforge config set` is picked up
+    # immediately without restarting the server.
+    return load_settings(path)
 
 
 def get_policy(config: Path = Depends(get_config_path)) -> ScopePolicy:

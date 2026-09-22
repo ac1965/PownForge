@@ -257,7 +257,8 @@ pownforge result show <run-id>
 # レポート生成(既定Markdown、--format htmlでスタンドアロンHTML)
 pownforge report generate <run-id>
 
-# ローカルLLMによる分析(~/.local/bin/llm 経由でOllamaを利用)
+# LLMによる分析(~/.local/bin/llm 経由。ローカルOllamaでもClaude/OpenAI等の
+# ホスト型モデルでも、使うモデルは `pownforge config set --model ...` で選ぶ)
 pownforge analyze <run-id>
 ```
 
@@ -280,8 +281,9 @@ pownforge analyze <run-id>
 | `pownforge result show <run-id>` | 実行結果の詳細(JSON) |
 | `pownforge result review <run-id> <finding-id> <needs-review\|confirmed\|false-positive>` | findingの検証状態を更新 |
 | `pownforge report generate <run-id> [--format markdown\|html]` | レポートを`.pownforge/reports/<run-id>.{md,html}`に生成 |
-| `pownforge analyze <run-id>` | ローカルLLMによる分析草案を出力 |
-| `pownforge walkthrough generate <run-id>... \| --target <name> [--model ...] [--format markdown\|html]` | 複数runをまたぐ物語調ウォークスルーを生成。読み取り専用(詳細は[§10](#10-aiによる分析ウォークスルー提案)) |
+| `pownforge analyze <run-id> [--model ...] [--language ja\|en]` | LLMによる分析草案を出力。`--model`/`--language`省略時は`pownforge config`の保存値を使う |
+| `pownforge walkthrough generate <run-id>... \| --target <name> [--model ...] [--language ja\|en] [--format markdown\|html]` | 複数runをまたぐ物語調ウォークスルーを生成。読み取り専用(詳細は[§10](#10-aiによる分析ウォークスルー提案)) |
+| `pownforge config show` / `pownforge config set [--model <name>] [--language ja\|en]` | `analyze`/`walkthrough generate`が使う既定モデル・出力言語を表示/更新(詳細は[§10](#10-aiによる分析ウォークスルー提案)) |
 | `pownforge lab add <name> --image <image> [--kind host\|url] [--port <n>] [--scheme http\|https] [--env k=v ...] [--allowed-plugins a,b] [--no-register] [--network <name>]` | 隔離ネットワーク上に攻撃対象ホストを起動 |
 | `pownforge lab list [--network <name>]` | 稼働中/停止中のラボホスト一覧 |
 | `pownforge lab remove <name> [--purge] [--network <name>]` | ラボホストを停止・削除 |
@@ -299,6 +301,10 @@ pownforge analyze <run-id>
   `--config`を受け付けない(`EvidenceStore`上のrunを`target`文字列で
   絞り込むだけで、スコープの再照会が不要なため)
 - `plugin list/info`と`lab list`はどちらも取らない
+- `--settings`(既定: `config/settings.yaml`、`POWNFORGE_SETTINGS`で上書き可):
+  `analyze`、`walkthrough generate`、`web serve`、`config show/set`が受け付ける。
+  `config/targets.yaml`同様、マシンごとに使えるモデルが異なるため
+  `.gitignore`済み(`config/settings.yaml.example`参照)
 - `scan`は登録済みの対象名しか受け付けない。各プラグインは前提とする
   `Target.kind`を宣言しており(`network`は`any`、`web`/`nuclei`/`sqlmap`は
   `url`、`kubernetes`/`container`は`host`)、一致しない対象で`scan`すると
@@ -588,12 +594,13 @@ medium/青=low/灰=info)付きで、検証状態(確認済み/要確認/誤検�
 | `GET /api/runs` | 実行結果の一覧 |
 | `GET /api/runs/{run_id}` | 実行結果の詳細(JSON) |
 | `GET /api/runs/{run_id}/report[?format=markdown\|html]` | レポート文字列を返す |
-| `POST /api/runs/{run_id}/analyze` | ローカルLLMで分析・分類し、結果を永続化 |
+| `POST /api/runs/{run_id}/analyze[?model=...&language=ja\|en]` | LLMで分析・分類し、結果を永続化。省略時は`config/settings.yaml`の値を使う |
 | `PATCH /api/runs/{run_id}/findings/{finding_id}` | findingの検証状態を更新 |
 | `GET /api/runs/{run_id}/verify` | 証跡のハッシュと一致するか確認 |
 | `GET /api/audit` | `ScopePolicy`が拒否したスキャン実行の試みを一覧表示 |
 | `GET /api/audit/{violation_id}` | 拒否された試みの詳細(JSON) |
 | `POST /api/walkthroughs` | 複数runをまたぐウォークスルーを生成。詳細は[§10](#10-aiによる分析ウォークスルー提案) |
+| `GET`/`PUT /api/settings` | AI既定モデル・出力言語(`config/settings.yaml`)を取得/更新。詳細は[§10](#10-aiによる分析ウォークスルー提案) |
 
 ### WebSocketメッセージ形式
 
@@ -828,6 +835,48 @@ Web UIの`Walkthrough`ページ(`/walkthrough/new`)では、runの一覧から
 ダウンロードボタンでファイルとして保存できます。Emacsからは
 `pownforge-walkthrough-generate`([§9](#9-emacs連携)参照)で同じことが
 できます。
+
+### モデル選択・出力言語(`pownforge config` / Web UIの`Settings`)
+
+`analyze`/`walkthrough generate`はどちらも`ai/ollama.py::OllamaAdapter`
+経由で`llm`(https://llm.datasette.io/)CLIを呼び出すだけの薄いラッパーで、
+名前に反してOllama専用ではありません。`llm`にプラグインを追加すれば
+ローカルOllama以外のモデルも同じ経路(`--model`/`-m`フラグ)で使えます:
+
+```bash
+# Claude(Anthropic API、Claude Consoleの従量課金)を使う場合
+llm install llm-anthropic
+llm keys set anthropic   # APIキー入力はターミナルで直接行う(ツール側では代行しない)
+pownforge analyze <run-id> --model claude-haiku-4.5
+
+# OpenAIを使う場合
+llm keys set openai
+pownforge analyze <run-id> --model gpt-4o-mini
+```
+
+毎回`--model`/`--language`を指定しなくて済むよう、既定値は
+`config/settings.yaml`(`config/targets.yaml`と同様、マシンごとに使える
+モデルが違うため`.gitignore`済み。`config/settings.yaml.example`参照)に
+保存できます:
+
+```bash
+pownforge config show
+pownforge config set --model qwen3:14b --language ja
+pownforge config set --model claude-haiku-4.5 --language en
+pownforge config set --model ""   # 未設定に戻す(`llm` CLI自身の既定モデルを使う)
+```
+
+`--model`/`--language`をコマンドラインで明示した場合はそちらが優先され、
+省略時のみ`config/settings.yaml`の値にフォールバックします
+(`src/pownforge/core/settings.py::AppSettings`)。`language`はプロンプトに
+「要約・ナラティブ・提案文は日本語(または英語)で書け」という指示文
+(`language_instruction()`)を追加するだけで、プラグイン名やCVE番号等の
+技術識別子はそのまま出力するよう明示しています。
+
+Web UIでは`/settings`ページで同じ2項目(model/language)を編集でき、
+`GET`/`PUT /api/settings`(`config/settings.yaml`を読み書き)経由で
+即座に反映されます。`Walkthrough`ページのmodel/language欄を空のままにすると
+この既定値が使われ、明示指定すればそちらが優先されます(CLIと同じ優先順位)。
 
 **実機検証記録**: 実際に`nmap`で2回スキャンした`network`プラグインのrunを
 2件用意し、ローカルOllama(`qwen3:14b`、`llm-ollama`プラグイン経由)で

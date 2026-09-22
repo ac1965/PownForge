@@ -48,6 +48,7 @@ def _client(tmp_path: Path, docker: FakeDocker) -> TestClient:
     app = create_app(
         config=tmp_path / "targets.yaml",
         workdir=tmp_path / "state",
+        settings=tmp_path / "settings.yaml",
         frontend_dist=tmp_path / "no-such-dist",
     )
     app.dependency_overrides[get_lab_manager] = lambda: LabManager(network="test-lab", runner=docker)

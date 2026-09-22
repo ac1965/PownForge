@@ -8,6 +8,7 @@ import Audit from "./pages/Audit";
 import NewScan from "./pages/NewScan";
 import ScanLive from "./pages/ScanLive";
 import Walkthrough from "./pages/Walkthrough";
+import Settings from "./pages/Settings";
 
 const navClass = ({ isActive }: { isActive: boolean }) => (isActive ? "active" : "");
 
@@ -38,6 +39,9 @@ export default function App() {
           <NavLink to="/walkthrough/new" className={navClass}>
             Walkthrough
           </NavLink>
+          <NavLink to="/settings" className={navClass}>
+            Settings
+          </NavLink>
         </nav>
         <main className="content">
           <Routes>
@@ -50,6 +54,7 @@ export default function App() {
             <Route path="/scan/new" element={<NewScan />} />
             <Route path="/scans/:jobId/live" element={<ScanLive />} />
             <Route path="/walkthrough/new" element={<Walkthrough />} />
+            <Route path="/settings" element={<Settings />} />
           </Routes>
         </main>
       </div>

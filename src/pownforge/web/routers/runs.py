@@ -7,10 +7,11 @@ from pownforge.ai.ollama import OllamaAdapter
 from pownforge.core.analysis import AnalysisError, run_analysis
 from pownforge.core.findings import FindingNotFoundError, review_finding
 from pownforge.core.models import EvidenceVerification, FindingStatus, RunRecord
+from pownforge.core.settings import AppSettings, Language
 from pownforge.evidence.store import EvidenceStore
 from pownforge.reporting.html import render as render_html
 from pownforge.reporting.markdown import render as render_markdown
-from pownforge.web.deps import get_store
+from pownforge.web.deps import get_app_settings, get_store
 
 router = APIRouter(tags=["runs"])
 
@@ -53,11 +54,13 @@ def verify_run(run_id: str, store: EvidenceStore = Depends(get_store)) -> Eviden
 def analyze_run(
     run_id: str,
     model: str | None = None,
+    language: Language | None = None,
     store: EvidenceStore = Depends(get_store),
+    settings: AppSettings = Depends(get_app_settings),
 ) -> RunRecord:
-    adapter = OllamaAdapter(model=model)
+    adapter = OllamaAdapter(model=model or settings.model)
     try:
-        record, _ = run_analysis(store, run_id, adapter)
+        record, _ = run_analysis(store, run_id, adapter, language=language or settings.language)
     except AnalysisError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return record

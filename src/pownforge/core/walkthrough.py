@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 
 from pownforge.ai.ollama import OllamaAdapter, OllamaError
 from pownforge.core.models import RunRecord, Suggestion
+from pownforge.core.settings import Language, language_instruction
 from pownforge.evidence.store import EvidenceStore
 
 _PROMPT_TEMPLATE = (
@@ -27,7 +28,7 @@ _PROMPT_TEMPLATE = (
     "ruled out. Only include a suggestion when it is concretely motivated by "
     "the steps below; return an empty suggestions list if nothing stands out. "
     "A suggestion is advice for a human to consider, never something you can "
-    "act on yourself.\n\n"
+    "act on yourself. {language_instruction}\n\n"
     "Steps, in order:\n{steps}"
 )
 
@@ -130,6 +131,7 @@ def generate_walkthrough(
     adapter: OllamaAdapter,
     run_ids: list[str] | None,
     target: str | None,
+    language: Language = Language.JA,
 ) -> Walkthrough:
     """Select runs (see select_runs) and ask the local LLM for connective
     narrative prose plus "what to try next" suggestions covering them.
@@ -140,7 +142,7 @@ def generate_walkthrough(
     human must still explicitly run `pownforge scan <plugin>`."""
     records = select_runs(store, run_ids, target)
     steps = "\n".join(_describe_run(i, r) for i, r in enumerate(records, start=1))
-    prompt = _PROMPT_TEMPLATE.format(steps=steps)
+    prompt = _PROMPT_TEMPLATE.format(steps=steps, language_instruction=language_instruction(language))
     try:
         response = adapter.analyze(prompt)
     except OllamaError as exc:

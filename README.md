@@ -4,7 +4,8 @@
 Pown.js の「独立したモジュールをCLIから呼び出す」という考え方を参考にしていますが、実装はPython/Typerによる独自設計です。
 
 対象範囲の検証（`config/targets.yaml`）、外部ツールの実行、結果の正規化、証跡保存、
-ローカルLLM（Ollama）によるレポート草案作成までを一貫して行います。
+LLM（ローカルOllama、またはClaude/OpenAI等のホスト型モデル。`pownforge config`で選択）
+によるレポート草案作成までを一貫して行います。
 
 > **重要:** このツールは、明示的に許可された対象に対してのみ使用してください。
 > `config/targets.yaml` に登録されていない対象はスキャンできない設計になっています。
@@ -62,7 +63,8 @@ pownforge result show <run-id>
 # Markdownレポート生成
 pownforge report generate <run-id>
 
-# ローカルLLMによる分析（~/.local/bin/llm 経由でOllamaを利用）
+# LLMによる分析（~/.local/bin/llm 経由。使うモデル/出力言語は以下で設定）
+pownforge config set --model qwen3:14b --language ja
 pownforge analyze <run-id>
 ```
 
@@ -111,7 +113,7 @@ make test
 - Web API + ライブ進捗WebSocket（`pownforge web serve`、optional extra `[web]`）+ React製の閲覧用SPA（`webui/`）
 - 実行証跡（コマンド・タイムスタンプ・SHA-256ハッシュ）の保存
 - Markdownレポート生成
-- ローカルLLM（Ollama）分析アダプタ
+- LLM分析アダプタ（`llm` CLI経由。ローカルOllama/Claude/OpenAI等をモデル名で切替）
 - Emacs連携（`emacs/pownforge.el`）: 対象/プラグイン一覧、`--live`によるスキャンの
   ライブ表示、findingのレビュー、Org-modeへのfindings出力（[docs/handbook.md §9](docs/handbook.md#9-emacs連携)）
 

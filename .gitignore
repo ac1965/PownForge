@@ -14,3 +14,4 @@ webui/.vite/
 *.tsbuildinfo
 
 config/targets.yaml
+config/settings.yaml

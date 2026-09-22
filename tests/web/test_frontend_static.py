@@ -17,7 +17,12 @@ def _client_with_frontend(tmp_path: Path) -> TestClient:
     (dist / "index.html").write_text("<html><body>spa shell</body></html>")
     (dist / "app.js").write_text("console.log('hi')")
 
-    app = create_app(config=tmp_path / "targets.yaml", workdir=tmp_path / "state", frontend_dist=dist)
+    app = create_app(
+        config=tmp_path / "targets.yaml",
+        workdir=tmp_path / "state",
+        settings=tmp_path / "settings.yaml",
+        frontend_dist=dist,
+    )
     return TestClient(app)
 
 

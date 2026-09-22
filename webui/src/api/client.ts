@@ -110,10 +110,18 @@ export interface ScanStatus {
   error: string | null;
 }
 
+export type Language = "ja" | "en";
+
+export interface AppSettings {
+  model: string | null;
+  language: Language;
+}
+
 export interface WalkthroughRequest {
   run_ids: string[];
   target: string | null;
   model: string | null;
+  language: Language | null;
   format: "markdown" | "html";
 }
 
@@ -181,4 +189,8 @@ export const api = {
 
   createWalkthrough: (body: WalkthroughRequest) =>
     request<WalkthroughResult>("/walkthroughs", { method: "POST", body: JSON.stringify(body) }),
+
+  getSettings: () => request<AppSettings>("/settings"),
+  updateSettings: (body: AppSettings) =>
+    request<AppSettings>("/settings", { method: "PUT", body: JSON.stringify(body) }),
 };

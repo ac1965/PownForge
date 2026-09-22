@@ -42,6 +42,7 @@ def _app(tmp_path: Path):
     app = create_app(
         config=tmp_path / "targets.yaml",
         workdir=tmp_path / "state",
+        settings=tmp_path / "settings.yaml",
         frontend_dist=tmp_path / "no-such-dist",
     )
     app.dependency_overrides[get_registry] = _echo_registry
