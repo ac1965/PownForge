@@ -534,6 +534,34 @@ Metasploitable2のSamba相手に実行)を実行。この検証で**実バグを
 再検証で確認した(この場合`port`は`null`になる。ポート番号を伴わない
 ホストレベルの結果であるため)。
 
+さらに、`_ALLOWED_SCRIPTS`収録の残り13本についても、ローカルTLS
+サーバー(コンテナ化した`alpine/openssl s_server`)とMetasploitable2ラボ
+対象に対して実機検証を行い、以下を確認した。
+
+- `ssl-poodle`/`ssl-ccs-injection`/`rsa-vuln-roca`/`http-vuln-cve2015-1635`:
+  いずれも正しく「NOT VULNERABLE」を`output.results`に記録
+- `smb-double-pulsar-backdoor`: `smb-vuln-ms17-010`と同じhostrule系
+  スクリプトで、修正後の`<hostscript>`走査で正しく記録されることを確認
+- `tls-ticketbleed`: raw socket特権が必要なスクリプトで、非rootの
+  ローカルnmapでは`NSE: Not running due to lack of privileges.`で
+  スキップされ`output.results`が空になる(バグではなく、nmap自体が
+  スクリプトを実行していないため)。`pownforge:runtime`イメージは
+  コンテナ内でroot実行される(`uid=0`)ため、実際のラボ運用では問題なく
+  動作することを、コンテナ化したTLSサーバーに対して確認した
+- `http-vuln-cve2010-0738`(JBoss JMX)/`http-vuln-cve2014-2126`〜`2129`
+  (Cisco ASA VPN系)は、対象が該当製品でない場合スクリプト自体が何も
+  出力しない(`<script>`要素が生成されない)ため`output.results`は空になる。
+  これは各スクリプトの想定どおりの挙動で、パース側の不具合ではないことを
+  raw XMLで確認
+- `http-vuln-cve2017-1001000`(WordPress REST API)は、対象がWordPressで
+  ない場合にスクリプト自身がLua例外を投げて失敗することがある(nmap NSE
+  側の既知の弱さ)。この場合`<script>`要素にはエラーメッセージだけが入り、
+  `state`要素が無いため`_parse_script_result()`は`state="UNKNOWN"`として
+  扱う。`_is_vulnerable_state("UNKNOWN")`は`False`を返すため、スクリプトが
+  失敗してもfindingが誤って生成されないことを確認した
+
+これで許可リスト15本全てについて、実際のnmapでの実行結果を確認済み。
+
 ## 7. ラボネットワーク
 
 `pownforge lab`サブコマンドは、意図的に脆弱なコンテナイメージを
