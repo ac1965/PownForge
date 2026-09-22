@@ -151,6 +151,20 @@ def target_add(
     typer.echo(f"registered target '{name}' -> {address}")
 
 
+@target_app.command("remove")
+def target_remove(name: str, config: Path = typer.Option(DEFAULT_CONFIG)) -> None:
+    """Unregister a target. To change a target's address/allowed_plugins/etc.,
+    remove it and `target add` it again -- there is no in-place edit."""
+    policy = _policy(config)
+    try:
+        policy.remove_target(name)
+    except PolicyError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    policy.save(config)
+    typer.echo(f"removed target '{name}'")
+
+
 @engagement_app.command("list")
 def engagement_list(config: Path = typer.Option(DEFAULT_CONFIG)) -> None:
     """List registered engagements."""
@@ -241,6 +255,16 @@ def _run_scan(
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(f"run {record.run_id} completed (exit={record.evidence.returncode})")
+    # A tool exiting 0 doesn't mean it found what you expected -- e.g. nmap
+    # exits 0 on "0 hosts up" whether that's a genuinely empty result or a
+    # DNS resolution failure. Flag non-empty stderr so a run that silently
+    # did nothing useful doesn't look identical to a real result.
+    if record.output.get("raw_stderr"):
+        typer.echo(
+            f"note: the tool wrote to stderr -- run `pownforge result show {record.run_id}` "
+            "before assuming this run found what you expected",
+            err=True,
+        )
 
 
 @scan_app.command("recon")

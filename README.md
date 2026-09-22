@@ -75,6 +75,12 @@ pownforge analyze <run-id>
 [docs/handbook.md §7 ラボネットワーク](docs/handbook.md#7-ラボネットワーク) を
 参照してください。
 
+> **注意:** ラボホストへの`scan`は`docker compose run pownforge ...`
+> 経由で実行する必要があります（ホストマシンから直接実行するとDNSが
+> 効かず到達できません）。一方、`analyze`/`walkthrough generate`は逆に
+> **ホスト側の`.venv/bin/pownforge`から**実行してください（Dockerランタイムには
+> `llm` CLIが無く、ラボネットワークは外部到達不可のため）。
+
 ## Web UI / API
 
 `pip install -e ".[web]"` の上で `pownforge web serve` を実行すると、CLIと

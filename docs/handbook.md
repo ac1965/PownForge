@@ -269,6 +269,7 @@ pownforge analyze <run-id>
 | `pownforge init` | 作業ディレクトリ(`.pownforge/`)と空のスコープファイルを作成 |
 | `pownforge target list` | 登録済み対象の一覧 |
 | `pownforge target add <name> --address <addr> [--kind host\|url] [--type network\|web\|api\|kubernetes\|container] [--environment local-lab\|staging\|production] [--allowed-plugins a,b] [--notes <text>]` | 対象を登録。`type`は分類用の任意項目(スキャン許可判定には使わない)。`--environment production`は`--notes`(認可/契約の参照)が必須、無いと登録は拒否される |
+| `pownforge target remove <name>` | 対象の登録を解除。in-place編集(address/allowed_plugins等の変更)は無く、変更したい場合は一度`remove`してから`add`し直す |
 | `pownforge engagement list` | 登録済みEngagementの一覧 |
 | `pownforge engagement add <name> --targets a,b[,c...] [--notes <text>]` | 既存Targetをグループ化したEngagementを登録。横展開の記録・ウォークスルーでのみ使う。詳細は[§11](#11-target-modelとスコープ制御) |
 | `pownforge plugin list` | 利用可能なプラグインと外部ツールの有無 |
@@ -596,6 +597,20 @@ Metasploitable2のSamba相手に実行)を実行。この検証で**実バグを
   (`docker compose run pownforge ...`)から実行してください。ホスト
   マシンから直接実行すると、Dockerの組み込みDNSが効かず対象に到達
   できません
+- **DNS到達不可の状態でも、`nmap`のような外部ツールは「0件検出」を
+  正常終了として扱うため、`scan`コマンドは`completed (exit=0)`と成功
+  したように見えるメッセージを返すことがあります。**`pownforge scan`は
+  ツールがstderrに何か出力していた場合に注意喚起の一行(`note: the tool
+  wrote to stderr ...`)を表示しますが、findingが0件・hostsが空だった
+  ときは必ず`pownforge result show <run-id>`で`output.raw_stderr`を
+  確認してください
+- `pownforge analyze`/`pownforge walkthrough generate`(LLM連携)は
+  **`docker compose run pownforge ...`経由では動きません**。理由は2つ:
+  (1) `docker/Dockerfile.runtime`には`llm` CLIが同梱されていない、
+  (2) `pownforge-lab`ネットワークは`--internal`のため、ローカルOllama等
+  LLMバックエンドへの到達経路も無い。これらのコマンドはホスト側の
+  `.venv/bin/pownforge`から実行してください(スキャン自体はコンテナ経由、
+  分析はホスト経由、という使い分けになります)
 
 ### 使い方
 
