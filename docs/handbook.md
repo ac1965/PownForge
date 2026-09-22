@@ -363,6 +363,15 @@ pownforge scan recon --target example-recon --option sources=crtsh,hackertarget
 `projectdiscovery.io`を対象に`crtsh`ソースで実行、`{"host", "input",
 "source"}`形式のJSONLが出力されることを確認した上でパーサーを実装。
 
+**`pownforge lab`のホストには使えません**: `recon`は`kind=host`かつ
+実在の公開ドメインが前提のプラグインです。`pownforge lab add`で登録される
+ラボホストのaddressはDocker DNS上のコンテナ名(例: `lab-web`)で、
+`kind=url`(web/nuclei/sqlmap向け)または`kind=host`であってもcrt.sh等の
+公開ソースには存在しない名前のため、`recon`を向けても意味のある結果は
+得られません(`kind=url`の対象に対してはそもそも`require_kind()`で
+`PluginError`となり実行前に拒否されます)。[§7](#7-ラボネットワーク)の
+Juice Shop等のラボ検証では、`recon`だけは対象外と考えてください。
+
 ### network(`nmap`)
 
 TCP/service discovery。`--option ports=80,443`のようなkey=valueオプション
@@ -589,6 +598,18 @@ Metasploitable2のSamba相手に実行)を実行。この検証で**実バグを
 
 - ラボ用ネットワーク(既定名: `pownforge-lab`)は`docker network create
   --internal`で作成され、外部ネットワークへはルーティングされません
+- **`--internal`ネットワーク上で作成したコンテナは、ホストへのポート
+  公開(`docker run -p`)が効きません。** `--internal`はデフォルト
+  ゲートウェイを持たないため、ポート公開が依存するNAT/フォワーディング
+  経路自体が存在しないという、Docker自体の仕様です。`pownforge lab add`
+  はこの制約をそのまま引き継ぎます(コンテナを`pownforge-lab`ネットワーク
+  に直接作成するため)。sqlmapのようにDockerランタイムイメージに含まれず
+  ホスト側venvから実行する必要があるツールでラボホストを検証したい場合は、
+  `docker run -d -p 127.0.0.1:<host-port>:<container-port> <image>`で
+  デフォルトブリッジ上に作成してから`docker network connect pownforge-lab
+  <name>`で追加接続する(コンテナは複数ネットワークに同時所属できる)、
+  という回避策が必要です。既存の`pownforge lab add`コマンド自体には
+  ポート公開オプションはありません
 - `pownforge lab add`で追加したホストは、既定で`config/targets.yaml`にも
   自動登録されます(`--no-register`で無効化可能)。スキャンは引き続き
   `ScopePolicy`による対象名の検証を経由するため、ラボホストを追加した
