@@ -128,8 +128,9 @@ make test-all     # pytest + webuiビルド + Emacs ERT(npm/Emacsが入ってい
   PownForge自身はコマンドを実行しない）
 - `Engagement`(既存Targetのグループ化)による横展開の記録（`pownforge engagement add`、
   `result import --engagement/--via`。PownForgeが実際にホスト間を移動することはない）
-- `Playbook`による複数プラグインの線形連続実行（`pownforge playbook run`。
-  実行順は人間が事前に書いたYAMLで決まり、実行時の分岐・AI判断は入らない。
+- `Playbook`による複数プラグインの連続実行（`pownforge playbook run`。
+  実行順・条件(`when`: 直前までのstepのfinding severityによる分岐)は
+  人間が事前に書いたYAMLで決まり、実行時にAIが次の一手を決めることはない。
   詳細は[docs/handbook.md §8](docs/handbook.md#8-playbook-複数プラグインの連続実行)）
 - LLM分析アダプタ（`llm` CLI経由。ローカルOllama/Claude/OpenAI等をモデル名で切替）
 - Emacs連携（`emacs/pownforge.el`）: 対象/プラグイン一覧、`--live`によるスキャンの

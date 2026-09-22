@@ -1,0 +1,20 @@
+# Runs nuclei first; only runs sqlmap against the same target if nuclei
+# already found something at high/critical severity. The condition is
+# evaluated purely against step 1's stored Finding.severity values -- no
+# LLM or other runtime judgment decides whether step 2 runs (see
+# docs/handbook.md §8). The target must allow both plugins
+# (--allowed-plugins nuclei,sqlmap) and its address must have an
+# injectable-looking parameter for sqlmap to make sense of.
+name: web-adaptive
+description: "nuclei -> sqlmap, but only if nuclei found a high/critical finding"
+steps:
+  - plugin: nuclei
+    options:
+      tags: exposure,misconfig,sqli
+  - plugin: sqlmap
+    when:
+      after_step: 1
+      min_severity: high
+    options:
+      risk: "1"
+      level: "1"

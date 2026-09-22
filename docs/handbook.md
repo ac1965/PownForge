@@ -299,7 +299,7 @@ pownforge analyze <run-id>
 | `pownforge lab remove <name> [--purge] [--network <name>]` | ラボホストを停止・削除 |
 | `pownforge playbook list [--playbooks-dir <dir>]` | 利用可能なPlaybookの一覧 |
 | `pownforge playbook show <name> [--playbooks-dir <dir>]` | Playbookのステップ内容を表示 |
-| `pownforge playbook run <name> --target <target> [--playbooks-dir <dir>]` | Playbookの全ステップを対象に順次実行。1ステップ失敗しても後続は継続(詳細は[§8](#8-playbook-複数プラグインの連続実行)) |
+| `pownforge playbook run <name> --target <target> [--playbooks-dir <dir>]` | Playbookの全ステップを対象に順次実行。1ステップ失敗しても後続は継続、`when`条件を満たさないステップはSKIPPEDとして報告(詳細は[§8](#8-playbook-複数プラグインの連続実行)) |
 | `pownforge audit list` | `ScopePolicy`が拒否したスキャン実行の試みを一覧表示 |
 | `pownforge audit show <violation-id>` | 拒否された試みの詳細(JSON) |
 | `pownforge evidence verify <run-id>` | 保存済みoutputからハッシュを再計算し、証跡と一致するか確認 |
@@ -793,6 +793,54 @@ run idをまとめた`pownforge walkthrough generate <id> <id> ...`コマンド�
 Playbook(network→web→nuclei)を実際に`pownforge playbook run`で実行し、
 3ステップ全てが成功、各runが実データ(サービス検出・ffufヒット12件・
 nuclei finding 1件)を持つことを確認した。
+
+### v2: 条件分岐(`when`)
+
+ステップに`when`を指定すると、**直前より前のステップが出した
+finding(`severity`)を条件に**、そのステップを実行するかスキップするかを
+決められます。
+
+```yaml
+# config/playbooks/web-adaptive.yaml
+name: web-adaptive
+description: "nuclei -> sqlmap, but only if nuclei found a high/critical finding"
+steps:
+  - plugin: nuclei
+    options:
+      tags: exposure,misconfig,sqli
+  - plugin: sqlmap
+    when:
+      after_step: 1        # 1-indexed。このステップより前の番号でなければならない
+      min_severity: high    # step1のfindingにhigh以上が1件でもあれば実行
+    options:
+      risk: "1"
+      level: "1"
+```
+
+**条件判定は`findings`(`severity`)だけを見ます**。プラグインごとに形が
+違う生出力(`hosts[]`/`matches[]`/`injection_points[]`等)は一切参照しま
+せん。理由は2つです。
+
+- 全プラグイン共通の型(`Finding.severity`)なので、プラグインが増えても
+  条件の書き方が変わらない
+- **判定はYAMLに書かれた閾値との比較だけで完結し、LLM/AIは一切関与し
+  ません**。「次に何をスキャンするか」を実行時にAIが決めることは無く、
+  Playbookを書いた人間が事前に決めた条件をそのまま評価するだけです
+  (既存の「AIは直接スキャンを実行しない」原則を維持)
+
+条件を満たさなかったステップは`SKIPPED`として明示的に報告され(黙って
+消えない)、Playbook全体は止まりません。判定対象のステップ自体が失敗して
+いた場合(`record`が無い)も「条件を満たさない」= スキップ扱いになります
+(失敗したステップは何の情報も示さないため)。`after_step`が自分自身や
+未来のステップを指している場合、`pownforge playbook run`は実行前に
+`PlaybookError`で拒否します。
+
+**実機検証**: Juice Shopラボに対し`web-adaptive`(nucleiがmedium止まりの
+finding)を実行し、`step 2: SKIPPED`が正しく報告されることを確認。
+続けて閾値を`medium`に下げた変種を実行し、今度は条件が満たされて
+sqlmapステップが実際に起動されることを確認した(この環境ではsqlmap自体が
+Dockerランタイムに含まれないため`FAILED`で終わるが、それはステップが
+実行を試みた証拠であり、条件判定自体は正しく機能している)。
 
 ## 9. Web UI / API
 

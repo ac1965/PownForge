@@ -5,7 +5,15 @@ from typing import Any
 
 import pytest
 
-from pownforge.core.models import Playbook, PlaybookStep, Target, TargetKind
+from pownforge.core.models import (
+    Finding,
+    Playbook,
+    PlaybookStep,
+    PlaybookStepCondition,
+    Severity,
+    Target,
+    TargetKind,
+)
 from pownforge.core.orchestrator import (
     PlaybookError,
     list_playbooks,
@@ -34,6 +42,29 @@ class EchoPlugin(Plugin):
         return {"raw_stdout": raw_stdout, "raw_stderr": raw_stderr}
 
 
+class FindingPlugin(Plugin):
+    """Test double whose normalize() reports one finding at a configurable
+    severity (via options["severity"]), through the same "_findings"
+    convention a real plugin (e.g. nuclei) uses."""
+
+    name = "finding-maker"
+    version = "0.0.1"
+    description = "test double that reports one finding at options['severity']"
+
+    def check(self) -> bool:
+        return True
+
+    def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
+        return ["echo", options.get("severity", "info")]
+
+    def normalize(self, target: Target, raw_stdout: str, raw_stderr: str) -> dict[str, Any]:
+        return {
+            "raw_stdout": raw_stdout,
+            "raw_stderr": raw_stderr,
+            "_findings": [{"title": "simulated finding", "severity": raw_stdout.strip(), "detail": ""}],
+        }
+
+
 class AlwaysFailsPlugin(Plugin):
     name = "always-fails"
     version = "0.0.1"
@@ -55,6 +86,7 @@ def _setup(tmp_path: Path) -> tuple[ScopePolicy, PluginRegistry, EvidenceStore]:
     registry = PluginRegistry()
     registry.register(EchoPlugin())
     registry.register(AlwaysFailsPlugin())
+    registry.register(FindingPlugin())
     store = EvidenceStore(tmp_path / "runs")
     return policy, registry, store
 
@@ -123,6 +155,88 @@ def test_run_playbook_calls_on_step_callback_with_index_and_total(tmp_path: Path
     assert seen == [(1, 2, "echo"), (2, 2, "echo")]
 
 
+def test_run_playbook_runs_gated_step_when_severity_threshold_met(tmp_path: Path) -> None:
+    policy, registry, store = _setup(tmp_path)
+    playbook = Playbook(
+        name="p",
+        steps=[
+            PlaybookStep(plugin="finding-maker", options={"severity": "high"}),
+            PlaybookStep(
+                plugin="echo", when=PlaybookStepCondition(after_step=1, min_severity=Severity.MEDIUM)
+            ),
+        ],
+    )
+
+    results = run_playbook(playbook, "lab", policy, registry, store)
+
+    assert results[0].record.findings[0].severity == Severity.HIGH
+    assert results[1].skipped is False
+    assert results[1].record is not None
+
+
+def test_run_playbook_skips_gated_step_when_severity_threshold_not_met(tmp_path: Path) -> None:
+    policy, registry, store = _setup(tmp_path)
+    playbook = Playbook(
+        name="p",
+        steps=[
+            PlaybookStep(plugin="finding-maker", options={"severity": "low"}),
+            PlaybookStep(
+                plugin="echo", when=PlaybookStepCondition(after_step=1, min_severity=Severity.HIGH)
+            ),
+        ],
+    )
+
+    results = run_playbook(playbook, "lab", policy, registry, store)
+
+    assert results[1].skipped is True
+    assert results[1].record is None
+    assert results[1].error is None
+
+
+def test_run_playbook_skips_gated_step_when_gate_step_failed(tmp_path: Path) -> None:
+    policy, registry, store = _setup(tmp_path)
+    playbook = Playbook(
+        name="p",
+        steps=[
+            PlaybookStep(plugin="always-fails", options={}),
+            PlaybookStep(
+                plugin="echo", when=PlaybookStepCondition(after_step=1, min_severity=Severity.INFO)
+            ),
+        ],
+    )
+
+    results = run_playbook(playbook, "lab", policy, registry, store)
+
+    assert results[0].record is None  # failed
+    assert results[1].skipped is True  # a failed gate step never satisfies a condition
+
+
+def test_run_playbook_rejects_when_referencing_a_later_or_equal_step(tmp_path: Path) -> None:
+    policy, registry, store = _setup(tmp_path)
+    # Step 1 tries to gate on itself.
+    playbook = Playbook(
+        name="p",
+        steps=[
+            PlaybookStep(plugin="echo", when=PlaybookStepCondition(after_step=1, min_severity=Severity.INFO)),
+        ],
+    )
+    with pytest.raises(PlaybookError):
+        run_playbook(playbook, "lab", policy, registry, store)
+
+
+def test_run_playbook_rejects_when_referencing_step_zero(tmp_path: Path) -> None:
+    policy, registry, store = _setup(tmp_path)
+    playbook = Playbook(
+        name="p",
+        steps=[
+            PlaybookStep(plugin="echo", options={}),
+            PlaybookStep(plugin="echo", when=PlaybookStepCondition(after_step=0, min_severity=Severity.INFO)),
+        ],
+    )
+    with pytest.raises(PlaybookError):
+        run_playbook(playbook, "lab", policy, registry, store)
+
+
 def test_load_playbook_parses_yaml(tmp_path: Path) -> None:
     path = tmp_path / "p.yaml"
     path.write_text(
@@ -138,6 +252,20 @@ def test_load_playbook_parses_yaml(tmp_path: Path) -> None:
     assert playbook.steps[0].plugin == "network"
     assert playbook.steps[0].options == {"ports": "80"}
     assert playbook.steps[1].options == {}
+    assert playbook.steps[0].when is None
+
+
+def test_load_playbook_parses_when_condition(tmp_path: Path) -> None:
+    path = tmp_path / "p.yaml"
+    path.write_text(
+        "name: p\nsteps:\n"
+        "  - plugin: nuclei\n"
+        "  - plugin: sqlmap\n    when:\n      after_step: 1\n      min_severity: high\n"
+    )
+
+    playbook = load_playbook(path)
+
+    assert playbook.steps[1].when == PlaybookStepCondition(after_step=1, min_severity=Severity.HIGH)
 
 
 def test_load_playbook_raises_for_invalid_yaml(tmp_path: Path) -> None:

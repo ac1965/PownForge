@@ -237,7 +237,10 @@ def playbook_show(
     typer.echo(f"{playbook.name}: {playbook.description}")
     for i, step in enumerate(playbook.steps, start=1):
         options = ", ".join(f"{k}={v}" for k, v in step.options.items())
-        typer.echo(f"  {i}. {step.plugin}" + (f" ({options})" if options else ""))
+        line = f"  {i}. {step.plugin}" + (f" ({options})" if options else "")
+        if step.when is not None:
+            line += f" [when: step {step.when.after_step} has finding >= {step.when.min_severity.value}]"
+        typer.echo(line)
 
 
 @playbook_app.command("run")
@@ -274,8 +277,17 @@ def playbook_run(
 
     run_ids: list[str] = []
     failures = 0
+    skipped = 0
     for index, result in enumerate(results, start=1):
-        if result.record is not None:
+        if result.skipped:
+            skipped += 1
+            assert result.step.when is not None
+            typer.echo(
+                f"[{index}/{len(results)}] {result.step.plugin}: SKIPPED "
+                f"(condition not met: step {result.step.when.after_step} needed a finding "
+                f">= {result.step.when.min_severity.value})"
+            )
+        elif result.record is not None:
             run_ids.append(result.record.run_id)
             typer.echo(
                 f"[{index}/{len(results)}] {result.step.plugin}: run {result.record.run_id} "
@@ -291,7 +303,10 @@ def playbook_run(
             failures += 1
             typer.echo(f"[{index}/{len(results)}] {result.step.plugin}: FAILED -- {result.error}", err=True)
 
-    typer.echo(f"playbook '{name}' finished: {len(results) - failures}/{len(results)} steps succeeded")
+    typer.echo(
+        f"playbook '{name}' finished: {len(results) - failures - skipped}/{len(results)} steps "
+        f"succeeded ({skipped} skipped, {failures} failed)"
+    )
     if run_ids:
         typer.echo(f"next: pownforge walkthrough generate {' '.join(run_ids)}")
     if failures:
