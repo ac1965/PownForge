@@ -9,6 +9,7 @@ from pownforge.core.finding_utils import coerce_finding
 from pownforge.core.models import Evidence, Finding, RunRecord, Target
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.core.registry import PluginRegistry
+from pownforge.core.secrets import mask_command
 from pownforge.evidence.audit import AuditStore
 from pownforge.evidence.hashing import sha256_text
 from pownforge.evidence.store import EvidenceStore
@@ -126,7 +127,9 @@ class ScanRunner:
                 findings.append(finding)
 
         evidence = Evidence(
-            command=command,
+            # Masked for storage/display only -- `command` (unmasked) is
+            # what actually ran above, via subprocess.Popen.
+            command=mask_command(command),
             started_at=started_at,
             finished_at=finished_at,
             returncode=proc.returncode,

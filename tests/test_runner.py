@@ -188,3 +188,38 @@ def test_runner_converts_plugin_findings_convention(tmp_path: Path) -> None:
     assert record.findings[1].title == "Bad severity"
     assert record.findings[1].severity.value == "info"  # invalid severity falls back
     assert "_findings" not in record.output  # convention key is consumed, not stored raw
+
+
+class CredentialBearingPlugin(Plugin):
+    name = "cred-echo"
+    version = "0.0.1"
+    description = "test double whose build_command carries a credential-looking flag"
+
+    def check(self) -> bool:
+        return True
+
+    def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
+        return ["echo", "--token", "sekrit", target.address]
+
+    def normalize(self, target: Target, raw_stdout: str, raw_stderr: str) -> dict[str, Any]:
+        return {"raw_stdout": raw_stdout, "raw_stderr": raw_stderr}
+
+
+def test_runner_masks_evidence_command_but_still_runs_unmasked(tmp_path: Path) -> None:
+    policy = ScopePolicy(targets={})
+    policy.add_target(Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1"))
+    registry = PluginRegistry()
+    registry.register(CredentialBearingPlugin())
+    store = EvidenceStore(tmp_path / "runs")
+    runner = ScanRunner(policy=policy, registry=registry, store=store)
+
+    record = runner.run("lab", "cred-echo", {})
+
+    # The evidence stored/persisted has the value redacted...
+    assert record.evidence.command == ["echo", "--token", "***", "127.0.0.1"]
+    # ...but the real subprocess actually ran with the unmasked value (echo
+    # printed it to stdout), proving masking never touched execution.
+    assert "sekrit" in record.output["raw_stdout"]
+
+    reloaded = EvidenceStore(tmp_path / "runs").load(record.run_id)
+    assert reloaded.evidence.command == ["echo", "--token", "***", "127.0.0.1"]
