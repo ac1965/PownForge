@@ -148,7 +148,14 @@ def plugin_info(name: str) -> None:
     typer.echo(f"tool available: {plugin.check()}")
 
 
-def _run_scan(plugin_name: str, target: str, option: list[str], config: Path, workdir: Path) -> None:
+def _run_scan(
+    plugin_name: str,
+    target: str,
+    option: list[str],
+    config: Path,
+    workdir: Path,
+    live: bool = False,
+) -> None:
     options: dict[str, str] = {}
     for item in option:
         if "=" not in item:
@@ -161,8 +168,9 @@ def _run_scan(plugin_name: str, target: str, option: list[str], config: Path, wo
     registry = default_registry()
     store = _store(workdir)
     runner = ScanRunner(policy=policy, registry=registry, store=store, audit=_audit(workdir))
+    on_line = (lambda line: typer.echo(f"| {line}")) if live else None
     try:
-        record = runner.run(target, plugin_name, options)
+        record = runner.run(target, plugin_name, options, on_line=on_line)
     except (PolicyError, RunnerError, PluginError) as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
@@ -173,11 +181,14 @@ def _run_scan(plugin_name: str, target: str, option: list[str], config: Path, wo
 def scan_network(
     target: str = typer.Option(..., "--target"),
     option: list[str] = typer.Option([], "--option", help="key=value, may repeat"),
+    live: bool = typer.Option(
+        False, "--live", help="Stream the underlying tool's stdout line-by-line as it runs."
+    ),
     config: Path = typer.Option(DEFAULT_CONFIG),
     workdir: Path = typer.Option(DEFAULT_WORKDIR),
 ) -> None:
     """Run the network plugin (nmap) against a registered target."""
-    _run_scan("network", target, option, config, workdir)
+    _run_scan("network", target, option, config, workdir, live)
 
 
 @scan_app.command("web")
@@ -186,11 +197,14 @@ def scan_web(
     option: list[str] = typer.Option(
         [], "--option", help="key=value, may repeat; web plugin requires wordlist=<path>"
     ),
+    live: bool = typer.Option(
+        False, "--live", help="Stream the underlying tool's stdout line-by-line as it runs."
+    ),
     config: Path = typer.Option(DEFAULT_CONFIG),
     workdir: Path = typer.Option(DEFAULT_WORKDIR),
 ) -> None:
     """Run the web plugin (ffuf) against a registered target."""
-    _run_scan("web", target, option, config, workdir)
+    _run_scan("web", target, option, config, workdir, live)
 
 
 @scan_app.command("nuclei")
@@ -201,11 +215,14 @@ def scan_nuclei(
         "--option",
         help="key=value, may repeat; supports tags=, severity=, templates=",
     ),
+    live: bool = typer.Option(
+        False, "--live", help="Stream the underlying tool's stdout line-by-line as it runs."
+    ),
     config: Path = typer.Option(DEFAULT_CONFIG),
     workdir: Path = typer.Option(DEFAULT_WORKDIR),
 ) -> None:
     """Run the nuclei plugin (template-based vulnerability detection) against a registered target."""
-    _run_scan("nuclei", target, option, config, workdir)
+    _run_scan("nuclei", target, option, config, workdir, live)
 
 
 @scan_app.command("kubernetes")
@@ -216,11 +233,14 @@ def scan_kubernetes(
     option: list[str] = typer.Option(
         [], "--option", help="key=value, may repeat; supports namespaces=, severity="
     ),
+    live: bool = typer.Option(
+        False, "--live", help="Stream the underlying tool's stdout line-by-line as it runs."
+    ),
     config: Path = typer.Option(DEFAULT_CONFIG),
     workdir: Path = typer.Option(DEFAULT_WORKDIR),
 ) -> None:
     """Run the kubernetes plugin (trivy k8s: misconfig/RBAC/image vulnerabilities) against a registered target."""
-    _run_scan("kubernetes", target, option, config, workdir)
+    _run_scan("kubernetes", target, option, config, workdir, live)
 
 
 @result_app.command("list")
