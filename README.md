@@ -107,7 +107,7 @@ make test-all     # pytest + webuiビルド + Emacs ERT(npm/Emacsが入ってい
 
 コミット規約・エージェント向けの運用ルールは [AGENTS.md](AGENTS.md) にまとめています。
 
-## 現在の実装範囲（Phase 1）
+## Attack Operation model\n\nPhase 2では、既存の `ScanRunner → Plugin → EvidenceStore` を維持したまま、その上位に `AttackOperation → Action → OperationRunner` を追加します。`AttackOperation` は攻撃経路を第一級オブジェクトとして保持し、`AttackNode`/`AttackEdge` で到達関係、`Action` で実行候補、`Approval` で人間の承認を記録します。既存のスキャンだけが最初の実行プロバイダであり、`manual`/`pivot` Action はモデル化・承認できますが、このリファクタリングでは実行プロバイダを有効化しません。AIから直接コマンドを実行する経路も追加しません。\n\n主なCLI:\n\n- `pownforge operation create <name> --objective ...`\n- `pownforge operation add-action <name> <action-id> <action-name> --target <target> --phase <phase> --plugin <plugin>`\n- `pownforge operation approve <name> <action-id> --approved-by <operator>`\n- `pownforge operation execute <name> <action-id>`\n- `pownforge operation show <name>`\n\nこれにより既存の `AttackSession` は後方互換の「既存Runの物語化」に残し、新しい `AttackOperation` を実行計画・認可・状態遷移の中心モデルとします。\n\n## 現在の実装範囲（Phase 1）
 
 - CLI基盤（Typer）
 - 対象管理・スコープ検証（`core/policy.py`）
