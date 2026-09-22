@@ -1,13 +1,13 @@
 PYTHON ?= python3.11
 VENV := .venv
 
-.PHONY: install test lint run docker-build docker-run web-install web-build emacs-test
+.PHONY: install test lint run clean docker-build docker-run web-install web-build emacs-test
 
 install:
 	test -d $(VENV) || $(PYTHON) -m venv $(VENV)
 	$(VENV)/bin/pip install -e ".[dev]"
 
-# Web UI (optional). See docs/web.md for the two-terminal dev workflow:
+# Web UI (optional). See docs/handbook.md §8 for the two-terminal dev workflow:
 # `.venv/bin/pownforge web serve` in one, `cd webui && npm run dev` in the
 # other. No single `make web-dev` target on purpose, so both processes stay
 # visible in their own terminal.
@@ -28,7 +28,15 @@ lint:
 run:
 	$(VENV)/bin/pownforge --help
 
-# Emacs front-end (optional). See docs/emacs.md. Requires Emacs 27.1+; tests
+# Removes generated/cache files only -- never .venv, webui/node_modules, or
+# .pownforge/ (real scan evidence), since those are either expensive to
+# rebuild or actual data, not build output.
+clean:
+	find . -name '__pycache__' -not -path './.venv/*' -not -path './webui/node_modules/*' -exec rm -rf {} +
+	rm -rf *.egg-info src/*.egg-info .pytest_cache dist build
+	rm -rf webui/dist webui/.vite
+
+# Emacs front-end (optional). See docs/handbook.md §9. Requires Emacs 27.1+; tests
 # run against emacs/tests/fixtures/fake-pownforge, not the real CLI/Python env.
 emacs-test:
 	emacs --batch -L emacs -L emacs/tests -l ert -l emacs/pownforge.el \
