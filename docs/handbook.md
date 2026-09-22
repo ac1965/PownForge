@@ -739,6 +739,81 @@ hostnameを抽出するよう`plugins/network.py::_scan_host()`として修正�
 再度実機で`scan network --target lab-web --option ports=3000`を実行して
 Juice Shopの待受ポート(3000/tcp open)を正しく検出できることを確認した。
 
+### KubeForge(kind クラスタ)への接続
+
+[KubeForge](https://github.com/ac1965/KubeForge)(別リポジトリ、意図的に
+脆弱なkindクラスタを提供するKubernetesセキュリティ診断ラボ)を`kubernetes`プラグイン
+(`trivy k8s`、§6「プラグイン」参照)の対象として、
+`pownforge-lab`ネットワーク上の`pownforge`サービスコンテナ
+(`docker compose run pownforge ...`)から直接スキャンする手順。
+
+`kubernetes`プラグインは`trivy k8s <context>`をそのまま呼び出すだけで、
+接続先はambientなkubeconfig(`KUBECONFIG`環境変数)が持つcontextの
+`server`フィールドに委ねられている。kindが生成する既定のkubeconfig
+(`~/.kube/config`にマージされるもの)は`server: https://127.0.0.1:<port>`
+というホスト向けのアドレスになっており、`pownforge-lab`(`--internal`、
+ホストへのルートなし)からは到達できない。そこで`kind get kubeconfig
+--internal`が生成する、kindのDockerネットワーク上のコンテナ名
+(例: `kubeforge-lab-control-plane:6443`)をserverとする**内部向け
+kubeconfig**を使う。
+
+**前提条件**: `docker/Dockerfile.runtime`にtrivyを追加済み(元々は
+nuclei/ffuf/subfinderのみでtrivyは同梱されていなかった)。`go install`系の
+レイヤーはQEMUエミュレーション下では非常に時間がかかるため、trivyの
+`pacman`インストールはそれらの**後**に置き、変更してもgoツール群の
+ビルドキャッシュを壊さないようにしている(順序を変えるとキャッシュが
+効かず、フルリビルドで数十分単位の手戻りになることを実機で確認した)。
+
+```yaml
+# compose.yaml: pownforgeサービスをkindクラスタのDockerネットワークにも接続
+services:
+  pownforge:
+    networks:
+      - pownforge-lab
+      - kind
+
+networks:
+  pownforge-lab:
+    external: true
+    name: pownforge-lab
+  kind:
+    # kind create cluster が(既定名で)作成するネットワーク。--internalでは
+    # ないため、このネットワーク経由では外部到達も可能になる点に注意
+    external: true
+    name: kind
+```
+
+```bash
+# KubeForge側でクラスタを作成(既に稼働中なら不要)
+cd ../KubeForge && make cluster-up && make lab-deploy
+
+# 内部向けkubeconfigをPownForgeのconfig/へ配置(config/*.kubeconfigは
+# 認証情報を含むためgit管理外、.gitignore済み)
+kind get kubeconfig --internal --name kubeforge-lab \
+  > ../PownForge/config/kubeforge-lab.kubeconfig
+
+cd ../PownForge
+pownforge target add kubeforge-lab --address kind-kubeforge-lab \
+  --kind host --type kubernetes --allowed-plugins kubernetes
+
+docker compose run --rm \
+  -e KUBECONFIG=/app/config/kubeforge-lab.kubeconfig \
+  pownforge scan kubernetes --target kubeforge-lab \
+  --option namespaces=vulnerable-lab --option severity=CRITICAL,HIGH,MEDIUM
+```
+
+**実機検証記録**: `make cluster-up`でKubeForgeのkindクラスタ
+(`kubeforge-lab`、Calico込み3ノード)を起動し`make lab-deploy`で
+`manifests/vulnerable-lab/`をデプロイ。上記手順で`pownforge-lab`と
+`kind`の両ネットワークに接続した`pownforge`コンテナから
+`kubeforge-lab-control-plane`への名前解決・到達を確認した上で
+`scan kubernetes`を実行、`trivy k8s`が`vulnerable-lab`namespace内の
+`privileged-host-breakout`(hostNetwork/hostPID/hostIPC/SYS_ADMIN付与等)
+と`root-no-limits`(root実行、CVEを含む脆弱なベースイメージ)を実際に
+検出し、430件のfinding(`source: "tool"`)として永続化されることを
+確認した。検証に使ったkindクラスタは削除せず稼働したままにしている
+(継続してラボとして使う想定のため)。
+
 ## 8. Playbook: 複数プラグインの連続実行
 
 `pownforge scan <plugin>`は常に1プラグイン・1runです。実際のエンゲージ

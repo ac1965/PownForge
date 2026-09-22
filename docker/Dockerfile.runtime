@@ -26,6 +26,10 @@ RUN go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest \
 # stage still has network access.
 RUN nuclei -update-templates
 
+# Appended after the (slow, emulated) go installs above so changes here don't
+# bust their build cache. Needed by the `kubernetes` plugin (`trivy k8s`).
+RUN pacman -Sy --noconfirm trivy && pacman -Scc --noconfirm
+
 WORKDIR /app
 COPY pyproject.toml README.md /app/
 COPY src /app/src

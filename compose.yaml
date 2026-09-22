@@ -12,6 +12,7 @@ services:
     working_dir: /app
     networks:
       - pownforge-lab
+      - kind
 
 networks:
   pownforge-lab:
@@ -21,3 +22,13 @@ networks:
     # `docker compose up` / `docker compose run` してください。
     external: true
     name: pownforge-lab
+  kind:
+    # `kind create cluster` が作成する既定のDockerネットワークです。ここに
+    # 参加することで、`kubernetes`プラグイン(trivy k8s)がkindクラスタの
+    # APIサーバー(コンテナ名:6443)へ到達できます。`pownforge-lab`とは異なり
+    # `--internal`ではない(kindノードがイメージ取得等で外部到達を必要と
+    # するため)ので、このネットワーク経由では外部への到達も可能になる点に
+    # 注意してください(docs/handbook.md §7参照)。先に対象のkindクラスタを
+    # 一度作成してから`docker compose up` / `docker compose run`してください。
+    external: true
+    name: kind

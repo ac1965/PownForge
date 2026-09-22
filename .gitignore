@@ -15,3 +15,4 @@ webui/.vite/
 
 config/targets.yaml
 config/settings.yaml
+config/*.kubeconfig
