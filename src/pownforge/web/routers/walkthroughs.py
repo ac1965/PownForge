@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -22,7 +24,7 @@ class WalkthroughRequest(BaseModel):
 @router.post("/walkthroughs")
 def create_walkthrough(
     body: WalkthroughRequest, store: EvidenceStore = Depends(get_store)
-) -> dict[str, str]:
+) -> dict[str, Any]:
     adapter = OllamaAdapter(model=body.model)
     try:
         walkthrough = generate_walkthrough(store, adapter, body.run_ids or None, body.target)
@@ -32,6 +34,13 @@ def create_walkthrough(
         # request (missing run_ids/target, unknown run id) via the cause.
         status = 502 if isinstance(exc.__cause__, OllamaError) else 400
         raise HTTPException(status_code=status, detail=str(exc)) from exc
+
+    # Suggestions are also embedded in the markdown/html body, but returned
+    # structured too so the Web UI can render its own "AIの提案" section
+    # instead of parsing it back out of the rendered text.
+    result: dict[str, Any] = {"suggestions": [s.model_dump() for s in walkthrough.suggestions]}
     if body.format == "html":
-        return {"html": render_html(walkthrough)}
-    return {"markdown": render_markdown(walkthrough)}
+        result["html"] = render_html(walkthrough)
+    else:
+        result["markdown"] = render_markdown(walkthrough)
+    return result

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -55,6 +56,34 @@ def test_create_walkthrough_by_run_ids(tmp_path: Path, monkeypatch: pytest.Monke
     body = resp.json()
     assert "markdown" in body
     assert "First we scanned the target." in body["markdown"]
+    assert body["suggestions"] == []  # plain-text stub response -> no structured suggestions
+
+
+def test_create_walkthrough_returns_structured_suggestions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    record = _seed_record(tmp_path)
+    response = json.dumps(
+        {
+            "narrative": "We scanned the target and found an open port.",
+            "suggestions": [
+                {"title": "Try nuclei next", "plugin": "nuclei", "rationale": "template-based follow-up"}
+            ],
+        }
+    )
+    monkeypatch.setattr(OllamaAdapter, "analyze", lambda self, prompt: response)
+    client = _client(tmp_path)
+
+    resp = client.post("/api/walkthroughs", json={"run_ids": [record.run_id]})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["suggestions"] == [
+        {
+            "suggestion_id": body["suggestions"][0]["suggestion_id"],
+            "title": "Try nuclei next",
+            "plugin": "nuclei",
+            "rationale": "template-based follow-up",
+        }
+    ]
+    assert "We scanned the target and found an open port." in body["markdown"]
 
 
 def test_create_walkthrough_html_format(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
