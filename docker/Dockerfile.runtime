@@ -11,10 +11,18 @@ RUN pacman -Syu --noconfirm \
     go \
     && pacman -Scc --noconfirm
 
-# ffuf isn't packaged in Arch's official repos; build it from source via Go.
+# ffuf/nuclei aren't packaged in Arch's official repos; build them from
+# source via Go.
 ENV GOPATH=/root/go
 RUN go install github.com/ffuf/ffuf/v2@latest \
     && install -m755 /root/go/bin/ffuf /usr/local/bin/ffuf
+RUN go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest \
+    && install -m755 /root/go/bin/nuclei /usr/local/bin/nuclei
+# nuclei has no templates on its own and refuses to scan without any.
+# The pownforge-lab network is --internal (no internet at scan time by
+# design), so fetch the official templates now, at build time, while this
+# stage still has network access.
+RUN nuclei -update-templates
 
 WORKDIR /app
 COPY pyproject.toml README.md /app/
