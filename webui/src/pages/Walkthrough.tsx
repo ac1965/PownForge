@@ -119,6 +119,27 @@ export default function Walkthrough() {
         </button>
       </form>
 
+      {result && (
+        <div>
+          <h3>AIの提案(要確認)</h3>
+          <p className="muted">これらはAIによる提案です。実行するかどうかは人間が判断してください。</p>
+          {result.suggestions.length === 0 ? (
+            <p className="muted">具体的な提案はありませんでした。</p>
+          ) : (
+            <ul>
+              {result.suggestions.map((s) => (
+                <li key={s.suggestion_id}>
+                  <strong>{s.title}</strong>
+                  {s.plugin && <code className="badge-plugin">{s.plugin}</code>}
+                  {" — "}
+                  {s.rationale}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       {result?.markdown && (
         <div>
           <h3>結果(Markdown)</h3>

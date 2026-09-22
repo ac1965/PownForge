@@ -117,9 +117,17 @@ export interface WalkthroughRequest {
   format: "markdown" | "html";
 }
 
+export interface Suggestion {
+  suggestion_id: string;
+  title: string;
+  plugin: string | null;
+  rationale: string;
+}
+
 export interface WalkthroughResult {
   markdown?: string;
   html?: string;
+  suggestions: Suggestion[];
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
