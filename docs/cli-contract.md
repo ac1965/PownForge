@@ -17,11 +17,15 @@
 | `pownforge lab add <name> --image <image> [--kind host\|url] [--port <n>] [--scheme http\|https] [--env k=v ...] [--allowed-plugins a,b] [--no-register] [--network <name>]` | 隔離ネットワーク上に攻撃対象ホストを起動し、既定でスコープにも登録（`--kind url` は `--port` 必須） |
 | `pownforge lab list [--network <name>]` | 稼働中/停止中のラボホスト一覧 |
 | `pownforge lab remove <name> [--purge] [--network <name>]` | ラボホストを停止・削除（`--purge` でスコープからも削除） |
+| `pownforge audit list` | `ScopePolicy` が拒否したスキャン実行の試みを一覧表示 |
+| `pownforge audit show <violation-id>` | 拒否された試みの詳細（JSON） |
 
 `--config`（既定: `config/targets.yaml`）はスコープファイルを読み書きするコマンド
 （`target list/add`、`scan network/web`、`lab add/remove`）だけが受け付けます。
 `--workdir` / `POWNFORGE_HOME`（既定: `.pownforge/`）は実行状態を読み書きする
-コマンド（`init`、`scan network/web`、`result list/show`、`report generate`、
-`analyze`）だけが受け付けます。`plugin list/info` と `lab list` はどちらも
-取りません。
+コマンド（`init`、`scan network/web`、`result list/show/review`、
+`report generate`、`analyze`、`audit list/show`）だけが受け付けます。
+`plugin list/info` と `lab list` はどちらも取りません。
 `scan` は登録済みの対象名しか受け付けず、任意のホスト名・URLを直接指定することはできません。
+拒否された試み（`config/targets.yaml`未登録の対象や許可されていないプラグインへの
+`scan`実行）は`.pownforge/violations/`に記録され、コマンド自体は一切実行されません。

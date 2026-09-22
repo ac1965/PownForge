@@ -36,7 +36,7 @@ Emacsではなく先にWeb UIで実現した形になっている。
 | 登録されていない対象を実行できない | ✅ `ScopePolicy.authorize()` |
 | 許可されていないプラグインを実行できない | ✅ `Target.allowed_plugins` |
 | 実行前に対象とポリシーを検証できる | ✅ |
-| **ポリシー違反が証跡に残る** | ❌ **未実装**。`PolicyError`は画面に出すだけで、拒否された試行はどこにも記録されない |
+| ポリシー違反が証跡に残る | ✅ **完了**。`ScanRunner`が`PolicyError`を`AuditStore`(`evidence/audit.py`)に記録してから再送出する。`pownforge audit list/show`、`GET /api/audit`、Web UIのAuditページ/Dashboardパネルから確認可能 |
 
 データモデルは当初案（`type`/`environment`/`endpoints`(複数)/`scope.allowed`+`excluded`/
 `policy.max_concurrency`）よりかなり簡素:
@@ -160,11 +160,11 @@ Web UIがある程度代替しているが、Emacs/Org-modeからの操作とい
 | 優先度 | 項目 | 理由 |
 | --- | --- | --- |
 | ~~1~~ | ~~Finding.status(needs-review/confirmed/false-positive)の導入~~ | ✅ **完了**。`finding_id`/`status`をFindingに追加し、`pownforge result review`・Web UI(Run detailの確認ボタン)・`PATCH /api/runs/{id}/findings/{id}`から状態遷移可能に。レポートも検証状態別に見出しを分けて出力するよう変更 |
-| 1 | **ポリシー違反の証跡化**(拒否された実行試行の記録) | Phase 2の完了条件で唯一未達。セキュリティツールとして「誰が何を試みて拒否されたか」を残せないのは監査上のギャップ |
-| 2 | **`pownforge evidence verify`** | ハッシュを保存しているのに検証手段が無い状態を解消 |
-| 3 | **Web UIの書き込み系画面(Slice 3)**: Target追加・Lab起動・NewScan+ライブ進捗 | 既に設計・バックエンドは完了しており、フロントエンドのフォーム追加のみ |
-| 4 | **tool_versionの記録** | nmap/ffufのバージョンを証跡に残す。トリアージ時に「どのバージョンで検出/未検出だったか」が分かるようにする |
-| 5 | **Web/APIプラグインの拡充**(nuclei等) | Phase 5の主要ツールが未着手 |
+| ~~2~~ | ~~ポリシー違反の証跡化~~(拒否された実行試行の記録) | ✅ **完了**。`ScanRunner`が`PolicyError`を`AuditStore`に記録。`pownforge audit list/show`・`GET /api/audit`・Web UIのAuditページ/Dashboardパネルから確認可能 |
+| 1 | **`pownforge evidence verify`** | ハッシュを保存しているのに検証手段が無い状態を解消 |
+| 2 | **Web UIの書き込み系画面(Slice 3)**: Target追加・Lab起動・NewScan+ライブ進捗 | 既に設計・バックエンドは完了しており、フロントエンドのフォーム追加のみ |
+| 3 | **tool_versionの記録** | nmap/ffufのバージョンを証跡に残す。トリアージ時に「どのバージョンで検出/未検出だったか」が分かるようにする |
+| 4 | **Web/APIプラグインの拡充**(nuclei等) | Phase 5の主要ツールが未着手 |
 | 7 | **Target modelのtype/environment拡張** | Kubernetes/実案件プラグインに着手するタイミングで一緒に設計(既存判断を維持) |
 | 8 | **Kubernetesプラグイン(Phase 8)、Emacs連携(Phase 9)** | 明示的な依頼があるまで着手しない |
 

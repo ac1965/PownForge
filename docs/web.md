@@ -70,6 +70,9 @@ pownforge web serve  # 同一オリジンでAPIとSPAの両方を配信
 | `GET /api/runs/{run_id}` | 実行結果の詳細（JSON） |
 | `GET /api/runs/{run_id}/report` | Markdownレポート文字列を返す |
 | `POST /api/runs/{run_id}/analyze` | ローカルLLMで分析・分類し、結果を永続化 |
+| `PATCH /api/runs/{run_id}/findings/{finding_id}` | findingの検証状態(`needs-review`/`confirmed`/`false-positive`)を更新 |
+| `GET /api/audit` | `ScopePolicy`が拒否したスキャン実行の試みを一覧表示 |
+| `GET /api/audit/{violation_id}` | 拒否された試みの詳細（JSON） |
 
 ## WebSocketメッセージ形式
 

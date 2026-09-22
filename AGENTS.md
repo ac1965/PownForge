@@ -49,6 +49,7 @@ make test
 - `core/policy.py` のスコープ検証ロジックを弱める変更（対象名チェックの無効化、`allowed_plugins` の無視など）は、ユーザーに明示的に確認を取ってから行う
 - スキャン範囲を自動的に拡大する機能（対象リストの自動探索・自動追加など）を、ユーザーの明示的な依頼なしに実装しない
 - `core/lab.py` のラボネットワーク（既定 `pownforge-lab`）は常に `docker network create --internal` で作成する前提を維持する。外部到達可能なネットワークに変更する場合はユーザーに確認を取る
+- `ScopePolicy.authorize()` が拒否したスキャン実行の試みは、`ScanRunner`（`core/runner.py`）が `AuditStore`（`evidence/audit.py`）へ必ず記録する。この記録経路を無効化・迂回する変更（例外を握りつぶす、`audit` を渡さない呼び出しを本番コードパスに追加する等）を提案しない
 
 ## コミットルール
 
@@ -81,6 +82,7 @@ make test
 - `src/pownforge/core/`: モデル・スコープポリシー・実行エンジン・プラグインレジストリ・ラボネットワーク管理（`lab.py`）
 - `src/pownforge/plugins/`: 個別ツール（nmap, ffuf 等）のプラグイン実装
 - `src/pownforge/evidence/`: 実行証跡（コマンド・タイムスタンプ・ハッシュ）の保存
+  (`store.py`)と、ポリシー違反で拒否されたスキャン試行の記録(`audit.py`)
 - `src/pownforge/reporting/`: Markdownレポート生成
 - `src/pownforge/ai/`: ローカルLLM（Ollama経由）による分析アダプタ
 - `config/targets.yaml`: 登録済みの許可対象（バージョン管理する）
@@ -88,9 +90,9 @@ make test
 - `src/pownforge/web/`: FastAPIバックエンド（optional extra `[web]`）。`ScopePolicy`/
   `ScanRunner`/`LabManager`/`EvidenceStore` を呼ぶだけの薄いルーター群
 - `webui/`: React製フロントエンド（Python packageの外、npmで別ビルド）。現状は
-  閲覧系画面(Dashboard/Targets/Lab/Runs/Run detail)とAnalyze実行のみで、
-  target登録・lab起動・新規スキャンのフォームは未実装
+  閲覧系画面(Dashboard/Targets/Lab/Runs/Run detail/Audit)とAnalyze実行・
+  finding検証のみで、target登録・lab起動・新規スキャンのフォームは未実装
 - `docs/lab.md`: ラボネットワーク機能（`pownforge lab`）の使い方
 - `docs/web.md`: Web UI/APIの使い方
 - `docs/walkthrough.md`: 実機（OWASP Juice Shop等）での検証記録
-- `.pownforge/`: 実行時の状態（runs, reports）。gitignore対象
+- `.pownforge/`: 実行時の状態（runs, reports, violations）。gitignore対象
