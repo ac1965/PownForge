@@ -13,12 +13,38 @@ class TargetKind(str, Enum):
     URL = "url"
 
 
+class TargetType(str, Enum):
+    """Assessment domain of a target, independent of `kind` (which only
+    describes the address format). Purely descriptive: it groups/labels
+    targets for reporting and the target list, and does not itself gate
+    which plugins may run (that remains `allowed_plugins`). For a
+    `kubernetes` target, `address` holds a kubeconfig context name rather
+    than a host/URL — see docs/kubernetes.md."""
+
+    NETWORK = "network"
+    WEB = "web"
+    API = "api"
+    KUBERNETES = "kubernetes"
+
+
+class TargetEnvironment(str, Enum):
+    """How exposed/authoritative a target is. `PRODUCTION` targets require
+    `notes` documenting the authorization/engagement reference (enforced by
+    ScopePolicy.add_target(), not just a UI convention)."""
+
+    LOCAL_LAB = "local-lab"
+    STAGING = "staging"
+    PRODUCTION = "production"
+
+
 class Target(BaseModel):
     name: str
     kind: TargetKind
     address: str
     allowed_plugins: list[str] = Field(default_factory=list)
     notes: str | None = None
+    type: TargetType | None = None
+    environment: TargetEnvironment = TargetEnvironment.LOCAL_LAB
 
 
 class PluginMeta(BaseModel):

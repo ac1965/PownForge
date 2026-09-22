@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from pownforge.core.models import Target
+from pownforge.core.models import Target, TargetEnvironment
 
 
 class PolicyError(RuntimeError):
@@ -39,6 +39,11 @@ class ScopePolicy:
     def add_target(self, target: Target) -> None:
         if target.name in self._targets:
             raise PolicyError(f"target '{target.name}' is already registered")
+        if target.environment == TargetEnvironment.PRODUCTION and not target.notes:
+            raise PolicyError(
+                f"target '{target.name}' has environment=production and requires "
+                "--notes documenting the authorization/engagement reference"
+            )
         self._targets[target.name] = target
 
     def list_targets(self) -> list[Target]:

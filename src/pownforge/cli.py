@@ -10,7 +10,7 @@ from pownforge.ai.ollama import OllamaAdapter
 from pownforge.core.analysis import AnalysisError, run_analysis
 from pownforge.core.findings import FindingNotFoundError, review_finding
 from pownforge.core.lab import LAB_NETWORK, LabError, LabManager, resolve_lab_target_address
-from pownforge.core.models import FindingStatus, Target, TargetKind
+from pownforge.core.models import FindingStatus, Target, TargetEnvironment, TargetKind, TargetType
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.core.registry import default_registry
 from pownforge.core.runner import RunnerError, ScanRunner
@@ -80,7 +80,11 @@ def target_list(config: Path = typer.Option(DEFAULT_CONFIG)) -> None:
         raise typer.Exit()
     for target in targets:
         allowed = ", ".join(target.allowed_plugins) or "any"
-        typer.echo(f"{target.name}\t{target.kind.value}\t{target.address}\tplugins={allowed}")
+        type_ = target.type.value if target.type else "-"
+        typer.echo(
+            f"{target.name}\t{target.kind.value}\t{target.address}\tplugins={allowed}"
+            f"\ttype={type_}\tenv={target.environment.value}"
+        )
 
 
 @target_app.command("add")
@@ -88,6 +92,14 @@ def target_add(
     name: str,
     address: str = typer.Option(..., help="Authorized host/IP or base URL for this target."),
     kind: TargetKind = typer.Option(TargetKind.HOST, help="host or url"),
+    type: Optional[TargetType] = typer.Option(
+        None, "--type", help="Assessment domain (network/web/api/kubernetes); purely descriptive."
+    ),
+    environment: TargetEnvironment = typer.Option(
+        TargetEnvironment.LOCAL_LAB,
+        "--environment",
+        help="local-lab/staging/production. production requires --notes.",
+    ),
     allowed_plugins: str = typer.Option(
         "", help="Comma-separated plugin names allowed for this target; empty = all."
     ),
@@ -97,7 +109,15 @@ def target_add(
     """Register a new authorized target."""
     policy = _policy(config)
     plugins = [p.strip() for p in allowed_plugins.split(",") if p.strip()]
-    target = Target(name=name, kind=kind, address=address, allowed_plugins=plugins, notes=notes or None)
+    target = Target(
+        name=name,
+        kind=kind,
+        address=address,
+        allowed_plugins=plugins,
+        notes=notes or None,
+        type=type,
+        environment=environment,
+    )
     try:
         policy.add_target(target)
     except PolicyError as exc:
