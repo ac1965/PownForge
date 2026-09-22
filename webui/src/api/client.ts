@@ -54,6 +54,14 @@ export interface PluginInfo {
   available: boolean;
 }
 
+export interface PolicyViolation {
+  violation_id: string;
+  occurred_at: string;
+  target: string;
+  plugin: string;
+  reason: string;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -87,4 +95,6 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ status }),
     }),
+
+  listAudit: () => request<PolicyViolation[]>("/audit"),
 };

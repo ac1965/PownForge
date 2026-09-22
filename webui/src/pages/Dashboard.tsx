@@ -1,19 +1,21 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, LabHost, RunRecord, Target } from "../api/client";
+import { api, LabHost, PolicyViolation, RunRecord, Target } from "../api/client";
 
 export default function Dashboard() {
   const [targets, setTargets] = useState<Target[]>([]);
   const [runs, setRuns] = useState<RunRecord[]>([]);
   const [lab, setLab] = useState<LabHost[]>([]);
+  const [violations, setViolations] = useState<PolicyViolation[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([api.listTargets(), api.listRuns(), api.listLab()])
-      .then(([t, r, l]) => {
+    Promise.all([api.listTargets(), api.listRuns(), api.listLab(), api.listAudit()])
+      .then(([t, r, l, v]) => {
         setTargets(t);
         setRuns(r);
         setLab(l);
+        setViolations(v);
       })
       .catch((e) => setError(String(e)));
   }, []);
@@ -57,6 +59,17 @@ export default function Dashboard() {
           ))}
         </ul>
         <Link to="/lab">全て見る →</Link>
+      </section>
+      <section className="panel">
+        <h2>Policy Violations ({violations.length})</h2>
+        <ul>
+          {violations.slice(0, 5).map((v) => (
+            <li key={v.violation_id}>
+              {v.target} / {v.plugin} — {v.reason}
+            </li>
+          ))}
+        </ul>
+        <Link to="/audit">全て見る →</Link>
       </section>
     </div>
   );

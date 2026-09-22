@@ -4,6 +4,7 @@ import Targets from "./pages/Targets";
 import Lab from "./pages/Lab";
 import Runs from "./pages/Runs";
 import RunDetail from "./pages/RunDetail";
+import Audit from "./pages/Audit";
 
 const navClass = ({ isActive }: { isActive: boolean }) => (isActive ? "active" : "");
 
@@ -25,6 +26,9 @@ export default function App() {
           <NavLink to="/runs" className={navClass}>
             Runs
           </NavLink>
+          <NavLink to="/audit" className={navClass}>
+            Audit
+          </NavLink>
         </nav>
         <main className="content">
           <Routes>
@@ -33,6 +37,7 @@ export default function App() {
             <Route path="/lab" element={<Lab />} />
             <Route path="/runs" element={<Runs />} />
             <Route path="/runs/:runId" element={<RunDetail />} />
+            <Route path="/audit" element={<Audit />} />
           </Routes>
         </main>
       </div>
