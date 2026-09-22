@@ -73,6 +73,13 @@ pownforge analyze <run-id>
 参照してください。OWASP Juice Shopに対する実スキャンでの検証記録は
 [docs/walkthrough.md](docs/walkthrough.md) を参照してください。
 
+## Web UI / API
+
+`pip install -e ".[web]"` の上で `pownforge web serve` を実行すると、CLIと
+同じコアをそのまま使うFastAPIバックエンドが起動し、スキャンのライブ進捗を
+WebSocketで確認できます。詳細は [docs/web.md](docs/web.md) を参照してください
+（React製フロントエンドは実装中で、現時点ではAPIや`/docs`(Swagger UI)から直接操作します）。
+
 ## アーキテクチャ
 
 設計の詳細は [docs/architecture.md](docs/architecture.md) と [docs/cli-contract.md](docs/cli-contract.md) を参照してください。
@@ -92,6 +99,7 @@ make test
 - 対象管理・スコープ検証（`core/policy.py`）
 - プラグインレジストリと `network`（nmap）/ `web`（ffuf）。nmap XML / ffuf JSON出力を構造化データに正規化済み
 - 隔離Dockerネットワーク上への攻撃対象ホストの動的追加（`pownforge lab`）
+- Web API + ライブ進捗WebSocket（`pownforge web serve`、optional extra `[web]`）。フロントエンド(SPA)は実装中
 - 実行証跡（コマンド・タイムスタンプ・SHA-256ハッシュ）の保存
 - Markdownレポート生成
 - ローカルLLM（Ollama）分析アダプタ

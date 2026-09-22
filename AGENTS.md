@@ -43,7 +43,8 @@ make test
 ## セキュリティ・スコープ上の制約（重要）
 
 - `config/targets.yaml` に登録されていない対象へスキャンを実行するコードを書かない・提案しない
-- 対象を登録できるコマンドは `pownforge target add` と `pownforge lab add`（既定で自動登録、`--no-register` で無効化可）に限定する。両方とも最終的に `ScopePolicy.add_target()` を通るため、これ以外の独自の登録経路（`targets.yaml` への直接書き込みなど、`ScopePolicy` を経由しない変更）を追加しない
+- 対象を登録できる経路は `pownforge target add` / `pownforge lab add` / Web API（`POST /api/targets`, `POST /api/lab`）に限定する。いずれも最終的に `ScopePolicy.add_target()` を通るため、これ以外の独自の登録経路（`targets.yaml` への直接書き込みなど、`ScopePolicy` を経由しない変更）を追加しない
+- Web層（`src/pownforge/web/`）のルーターは `ScopePolicy`/`ScanRunner`/`LabManager`/`EvidenceStore` を呼び出すだけの薄いラッパーに保つ。スコープ検証・ラボネットワークの`--internal`制約をWeb側で再実装・迂回しない。`pownforge web serve` の既定バインドは `127.0.0.1` のみとし、認証機構が無いことを踏まえて他インターフェースへのバインドはユーザーに確認を取る
 - テスト・ローカル検証は `127.0.0.1` や自分のラボ環境など、明示的に許可された対象のみに対して行う
 - `core/policy.py` のスコープ検証ロジックを弱める変更（対象名チェックの無効化、`allowed_plugins` の無視など）は、ユーザーに明示的に確認を取ってから行う
 - スキャン範囲を自動的に拡大する機能（対象リストの自動探索・自動追加など）を、ユーザーの明示的な依頼なしに実装しない
@@ -69,7 +70,7 @@ make test
   - `type` は `feat`（機能追加）/ `fix`（不具合修正）/ `docs`（ドキュメント）/
     `chore`（雑務・設定変更）/ `refactor`（挙動を変えないコード整理）などから選ぶ
   - `scope` はディレクトリ名や機能名を使う（例: `scripts`, `docker`, `kind`, `manifests`,
-    `agents`, `core`, `plugins`, `cli`, `evidence` など）
+    `agents`, `core`, `plugins`, `cli`, `evidence`, `web`, `api`, `frontend` など）
 - 本文（任意）は `- ` の箇条書きで変更点を列挙する。詳細な経緯や検証結果を
   書く場合もこの形式に合わせる
 - 破壊的変更や既存の証跡フォーマットに影響する変更は、本文の箇条書きにその旨を明記する
@@ -84,6 +85,10 @@ make test
 - `src/pownforge/ai/`: ローカルLLM（Ollama経由）による分析アダプタ
 - `config/targets.yaml`: 登録済みの許可対象（バージョン管理する）
 - `config/wordlists/`: ffuf等で使う動作確認用ワードリスト
+- `src/pownforge/web/`: FastAPIバックエンド（optional extra `[web]`）。`ScopePolicy`/
+  `ScanRunner`/`LabManager`/`EvidenceStore` を呼ぶだけの薄いルーター群
+- `webui/`: React製フロントエンド（Python packageの外、npmで別ビルド。今後追加予定）
 - `docs/lab.md`: ラボネットワーク機能（`pownforge lab`）の使い方
+- `docs/web.md`: Web UI/APIの使い方
 - `docs/walkthrough.md`: 実機（OWASP Juice Shop等）での検証記録
 - `.pownforge/`: 実行時の状態（runs, reports）。gitignore対象
