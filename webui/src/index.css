@@ -99,6 +99,16 @@ td {
   border: 1px solid #8884;
 }
 
+.finding-actions {
+  margin-top: 0.4rem;
+  display: flex;
+  gap: 0.4rem;
+}
+
+.finding-actions button {
+  font-size: 0.75rem;
+}
+
 .badge {
   display: inline-block;
   font-size: 0.75rem;

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { api, RunRecord, Severity } from "../api/client";
+import { api, Finding, FindingStatus, RunRecord, Severity } from "../api/client";
 
 // Mirrors reporting/markdown.py's _SEVERITY_ORDER so the web view and the
 // generated Markdown report always agree on ordering.
@@ -12,11 +12,28 @@ const SEVERITY_ORDER: Record<Severity, number> = {
   info: 4,
 };
 
+const STATUS_SECTIONS: [FindingStatus, string][] = [
+  ["confirmed", "確認済み"],
+  ["needs-review", "要確認"],
+  ["false-positive", "誤検知として却下"],
+];
+
+const STATUS_LABELS: Record<FindingStatus, string> = {
+  confirmed: "確認済みにする",
+  "needs-review": "要確認に戻す",
+  "false-positive": "誤検知にする",
+};
+
+function sortBySeverity(findings: Finding[]): Finding[] {
+  return [...findings].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
+}
+
 export default function RunDetail() {
   const { runId } = useParams<{ runId: string }>();
   const [record, setRecord] = useState<RunRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!runId) return;
@@ -26,10 +43,6 @@ export default function RunDetail() {
   if (error) return <p className="error">{error}</p>;
   if (!record) return <p>loading...</p>;
 
-  const findings = [...record.findings].sort(
-    (a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity],
-  );
-
   const runAnalyze = () => {
     if (!runId) return;
     setAnalyzing(true);
@@ -38,6 +51,16 @@ export default function RunDetail() {
       .then(setRecord)
       .catch((e) => setError(String(e)))
       .finally(() => setAnalyzing(false));
+  };
+
+  const reviewFinding = (findingId: string, status: FindingStatus) => {
+    if (!runId) return;
+    setReviewingId(findingId);
+    api
+      .reviewFinding(runId, findingId, status)
+      .then(setRecord)
+      .catch((e) => setError(String(e)))
+      .finally(() => setReviewingId(null));
   };
 
   return (
@@ -59,18 +82,38 @@ export default function RunDetail() {
       </dl>
 
       <h3>Findings</h3>
-      {findings.length === 0 ? (
+      {record.findings.length === 0 ? (
         <p className="muted">No findings recorded yet.</p>
       ) : (
-        <ul className="findings">
-          {findings.map((f, i) => (
-            <li key={i} className={`severity-${f.severity}`}>
-              <span className="badge">{f.severity}</span>
-              <span className="source">{f.source === "ai" ? "AI推定・要確認" : "manual"}</span>
-              <strong>{f.title}</strong> — {f.detail}
-            </li>
-          ))}
-        </ul>
+        STATUS_SECTIONS.map(([status, heading]) => {
+          const findings = sortBySeverity(record.findings.filter((f) => f.status === status));
+          if (findings.length === 0) return null;
+          return (
+            <div key={status}>
+              <h4>{heading}</h4>
+              <ul className="findings">
+                {findings.map((f) => (
+                  <li key={f.finding_id} className={`severity-${f.severity}`}>
+                    <span className="badge">{f.severity}</span>
+                    <span className="source">{f.source === "ai" ? "AI推定" : "manual"}</span>
+                    <strong>{f.title}</strong> — {f.detail}
+                    <div className="finding-actions">
+                      {STATUS_SECTIONS.filter(([s]) => s !== status).map(([target]) => (
+                        <button
+                          key={target}
+                          onClick={() => reviewFinding(f.finding_id, target)}
+                          disabled={reviewingId === f.finding_id}
+                        >
+                          {STATUS_LABELS[target]}
+                        </button>
+                      ))}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        })
       )}
 
       <h3>

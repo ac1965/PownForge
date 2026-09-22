@@ -24,12 +24,15 @@ export interface Evidence {
 }
 
 export type Severity = "info" | "low" | "medium" | "high" | "critical";
+export type FindingStatus = "needs-review" | "confirmed" | "false-positive";
 
 export interface Finding {
+  finding_id: string;
   title: string;
   severity: Severity;
   detail: string;
   source: string;
+  status: FindingStatus;
 }
 
 export interface RunRecord {
@@ -79,4 +82,9 @@ export const api = {
   getRun: (runId: string) => request<RunRecord>(`/runs/${runId}`),
   getRunReport: (runId: string) => request<{ markdown: string }>(`/runs/${runId}/report`),
   analyzeRun: (runId: string) => request<RunRecord>(`/runs/${runId}/analyze`, { method: "POST" }),
+  reviewFinding: (runId: string, findingId: string, status: FindingStatus) =>
+    request<RunRecord>(`/runs/${runId}/findings/${findingId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }),
 };
