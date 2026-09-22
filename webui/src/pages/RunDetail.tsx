@@ -91,6 +91,8 @@ export default function RunDetail() {
         <dd>
           <code>{record.evidence.command.join(" ")}</code>
         </dd>
+        <dt>Tool version</dt>
+        <dd>{record.evidence.tool_version ?? "unknown"}</dd>
         <dt>stdout sha256</dt>
         <dd>
           <code>{record.evidence.stdout_sha256}</code>

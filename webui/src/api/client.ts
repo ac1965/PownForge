@@ -38,6 +38,7 @@ export interface Evidence {
   returncode: number;
   stdout_sha256: string;
   stderr_sha256: string;
+  tool_version: string | null;
 }
 
 export type Severity = "info" | "low" | "medium" | "high" | "critical";
