@@ -6,8 +6,9 @@ from typing import Optional
 
 import typer
 
-from pownforge.ai.ollama import OllamaAdapter, OllamaError, parse_analysis_response
-from pownforge.core.lab import LAB_NETWORK, LabError, LabManager
+from pownforge.ai.ollama import OllamaAdapter
+from pownforge.core.analysis import AnalysisError, run_analysis
+from pownforge.core.lab import LAB_NETWORK, LabError, LabManager, resolve_lab_target_address
 from pownforge.core.models import Target, TargetKind
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.core.registry import default_registry
@@ -23,6 +24,7 @@ scan_app = typer.Typer(help="Run a plugin against a registered target.")
 result_app = typer.Typer(help="Inspect past scan runs.")
 report_app = typer.Typer(help="Generate Markdown reports from a run.")
 lab_app = typer.Typer(help="Start/stop attack-target containers on an isolated lab network.")
+web_app = typer.Typer(help=r"Serve the web UI (needs the \[web] extra: pip install -e '.\[web]').")
 
 app.add_typer(target_app, name="target")
 app.add_typer(plugin_app, name="plugin")
@@ -30,6 +32,7 @@ app.add_typer(scan_app, name="scan")
 app.add_typer(result_app, name="result")
 app.add_typer(report_app, name="report")
 app.add_typer(lab_app, name="lab")
+app.add_typer(web_app, name="web")
 
 DEFAULT_CONFIG = Path(os.environ.get("POWNFORGE_CONFIG", "config/targets.yaml"))
 DEFAULT_WORKDIR = Path(os.environ.get("POWNFORGE_HOME", ".pownforge"))
@@ -229,9 +232,11 @@ def lab_add(
         key, value = item.split("=", 1)
         env_map[key] = value
 
-    if kind == TargetKind.URL and port is None:
-        typer.echo("error: --port is required when --kind url is used", err=True)
-        raise typer.Exit(code=1)
+    try:
+        address = resolve_lab_target_address(name, kind, scheme, port)
+    except LabError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
 
     manager = LabManager(network=network)
     try:
@@ -245,7 +250,6 @@ def lab_add(
         return
     policy = _policy(config)
     plugins = [p.strip() for p in allowed_plugins.split(",") if p.strip()]
-    address = f"{scheme}://{name}:{port}" if kind == TargetKind.URL else name
     target = Target(
         name=name,
         kind=kind,
@@ -316,32 +320,13 @@ def analyze(
 ) -> None:
     """Ask the local LLM router to classify findings and draft a summary for a run."""
     store = _store(workdir)
-    try:
-        record = store.load(run_id)
-    except FileNotFoundError as exc:
-        typer.echo(f"error: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
-
     adapter = OllamaAdapter(model=model)
-    prompt = (
-        "You are assisting a human penetration tester in reviewing raw tool output. "
-        "Respond with ONLY a single JSON object (no prose, no markdown code fences) matching "
-        'this schema: {"summary": "<2-4 sentence plain-language summary>", "findings": '
-        '[{"title": "<short title>", "severity": "<one of: info, low, medium, high, critical>", '
-        '"detail": "<1-2 sentence explanation>"}]}. Only include findings you can support '
-        "directly from the raw output below; return an empty findings list if nothing stands "
-        "out. Phrase every finding as something worth a human reviewing, never as a confirmed "
-        "vulnerability.\n\n"
-        f"Target: {record.target}\nPlugin: {record.plugin}\n\n"
-        f"Raw output:\n{record.output.get('raw_stdout', '')}"
-    )
     try:
-        response = adapter.analyze(prompt)
-    except OllamaError as exc:
+        _, result = run_analysis(store, run_id, adapter)
+    except AnalysisError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
-    result = parse_analysis_response(response)
     if not result.parsed:
         typer.echo(
             "warning: LLM response was not valid JSON; storing it as the summary text only "
@@ -349,13 +334,37 @@ def analyze(
             err=True,
         )
 
-    record.analysis = result.summary
-    record.findings = result.findings
-    store.save(record)
-
     typer.echo(result.summary)
     for finding in result.findings:
         typer.echo(f"- [{finding.severity.value}] {finding.title} — {finding.detail}")
+
+
+@web_app.command("serve")
+def web_serve(
+    host: str = typer.Option(
+        "127.0.0.1",
+        help="Bind address. Binding beyond localhost exposes the scan/target/lab "
+        "write APIs on that interface; there is no authentication in this version.",
+    ),
+    port: int = typer.Option(8420),
+    config: Path = typer.Option(DEFAULT_CONFIG),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+) -> None:
+    """Serve the PownForge web UI and API."""
+    try:
+        import uvicorn
+
+        from pownforge.web.app import create_app
+    except ImportError as exc:
+        typer.echo(
+            "error: the web UI needs extra dependencies. Install them with "
+            "`pip install -e '.[web]'` and try again.",
+            err=True,
+        )
+        raise typer.Exit(code=1) from exc
+
+    web_app_instance = create_app(config=config, workdir=workdir)
+    uvicorn.run(web_app_instance, host=host, port=port)
 
 
 if __name__ == "__main__":
