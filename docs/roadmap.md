@@ -231,6 +231,7 @@ SDKパッケージ化・入力出力の型スキーマ(`options`/`normalize()`�
 | ~~2~~ | ~~HTMLレポート出力~~(Phase 6) | ✅ **完了**。新規`reporting/html.py`(Markdown→HTML変換ライブラリは使わず直接HTML化、severity配色はWeb UIの`.severity-*.badge`と共通)。`pownforge report generate --format html`・`GET /runs/{id}/report?format=html`から生成可能 |
 | ~~3~~ | ~~Plugin SDKの正式化~~(Phase 10) | ✅ **完了**(部分)。`Plugin`ABCに`expected_kind`/`kind_hint`/`require_kind()`を追加し、6プラグイン全てが前提とする`Target.kind`を宣言・検証するよう統一(以前は`SqlmapPlugin`のみ手書きで検証)。`tests/plugin_contract.py`で全プラグイン共通のABC契約を一括テスト。`PluginMetadata`のフル形式・`options`/`normalize()`の型スキーマ化までは引き続き未実装 |
 | ~~1~~ | ~~複数runをまたぐ物語調ウォークスルー機能~~ | ✅ **完了**。`core/walkthrough.py`(`select_runs`/`generate_walkthrough`)を新設し、`pownforge analyze`と同じ`OllamaAdapter`で複数run分の構造化サマリー(生のraw_stdoutは渡さない)から接続ナラティブを生成。`analyze`と異なりどのRunRecordも書き換えない読み取り専用設計。CLI(`pownforge walkthrough generate`)・Web API(`POST /api/walkthroughs`)・Web UI(`/walkthrough/new`)・Emacs(`pownforge-walkthrough-generate`)の4経路全てに実装し、実機(ローカルOllama `qwen3:14b`)で非破壊性を含め動作確認済み |
+| ~~2~~ | ~~ウォークスルーへのAI「次の一手」提案(Suggestion)~~ | ✅ **完了**。`Finding`とは別モデルの`Suggestion`(`title`/`plugin`/`rationale`のみ、statusも永続化も無し)を追加。プロンプトを`pownforge analyze`と同じJSON1個+パース失敗時フォールバック方式に変更し、ナラティブと一緒に`suggestions`をパース。Web API/Web UIは構造化データとして`suggestions`を返し、Web UIは専用の「AIの提案」セクションとして描画。実機(finding付きのnetwork→web run 2件)でローカルOllamaが実際のfindingを踏まえた提案を生成することを確認済み |
 
 これでPhase 2〜10は全て完了/部分完了。M6(Kubernetes Lab)は`KubernetesPlugin`
 により部分完了(専用ラボ構成は未着手)、Phase 5のAPI専用プラグイン(curl/httpx)・

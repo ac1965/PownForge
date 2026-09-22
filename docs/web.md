@@ -74,7 +74,7 @@ pownforge web serve  # 同一オリジンでAPIとSPAの両方を配信
 | `GET /api/runs/{run_id}/verify` | 保存済みoutputからstdout/stderrのSHA-256を再計算し、証跡のハッシュと一致するか確認 |
 | `GET /api/audit` | `ScopePolicy`が拒否したスキャン実行の試みを一覧表示 |
 | `GET /api/audit/{violation_id}` | 拒否された試みの詳細（JSON） |
-| `POST /api/walkthroughs` | 複数runをまたぐ物語調ウォークスルーをローカルLLMで生成。`{"run_ids": [...]}`または`{"target": "..."}`のどちらか一方 + 任意`model`/`format`を渡す。応答は`{"markdown": ...}`または`{"html": ...}`。読み取り専用(どのrunも書き換えない)。両方/どちらも無い場合400、LLM失敗時502。詳細は[docs/walkthrough-report.md](walkthrough-report.md) |
+| `POST /api/walkthroughs` | 複数runをまたぐ物語調ウォークスルーをローカルLLMで生成。`{"run_ids": [...]}`または`{"target": "..."}`のどちらか一方 + 任意`model`/`format`を渡す。応答は`{"markdown": ..., "suggestions": [...]}`または`{"html": ..., "suggestions": [...]}`(`suggestions`は`{"suggestion_id","title","plugin","rationale"}`のAI提案一覧、`Finding`とは別モデルで永続化されない)。読み取り専用(どのrunも書き換えない)。両方/どちらも無い場合400、LLM失敗時502。詳細は[docs/walkthrough-report.md](walkthrough-report.md) |
 
 ## WebSocketメッセージ形式
 

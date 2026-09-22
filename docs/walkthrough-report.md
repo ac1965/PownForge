@@ -22,6 +22,28 @@
 - 生成されたナラティブは常に「AI生成・要確認」という注記付きで表示され、
   各runの詳細セクション(findingの検証状態を含む)とセットで提示されます
 
+## AIの提案(Suggestion)
+
+ナラティブに加えて、「次に試すべきこと」をAIが構造化された提案として
+出します。`Finding`とは完全に別のモデル(`core/models.py::Suggestion`:
+`title`/`plugin`/`rationale`のみ、`status`なし)で、検証ワークフローの
+対象ではなく、**どのRunRecordにも永続化されません**(walkthrough自体が
+生成する度に使い捨てで作られる一時的な出力)。
+
+「AIに直接スキャンを任せない」という原則は変わりません。提案の`plugin`は
+AIの自由記述であり(レジストリとの突き合わせは行いません)、実際に
+そのプラグインを実行するかどうかは常に人間が改めて`pownforge scan <plugin>`
+を呼ぶ必要があります。提案はレポート上・Web UI上どちらも
+「これらはAIによる提案です。実行するかどうかは人間が判断してください。」
+という注記付きで表示されます。
+
+LLMへのプロンプトは`{"narrative": "...", "suggestions": [{"title": "...",
+"plugin": "...", "rationale": "..."}]}`という単一のJSONオブジェクトを
+要求します(`pownforge analyze`と同じ「JSON1個を要求し、パース失敗時は
+全文をnarrativeとして扱いsuggestionsは空にする」フォールバック方式)。
+モデルがJSON指示に従わない場合でも、応答全文が引き続きナラティブとして
+表示されるためレポート自体は壊れません。
+
 ## 使い方
 
 ### CLI
@@ -47,15 +69,18 @@ POST /api/walkthroughs
 {"target": "<name>", "model": "qwen3:14b", "format": "markdown"}
 ```
 
-応答は`{"markdown": "..."}`または`{"html": "..."}`。run_ids/targetが両方/
-どちらも無い場合は400、LLM呼び出し失敗時は502。
+応答は`{"markdown": "...", "suggestions": [...]}`または
+`{"html": "...", "suggestions": [...]}`(`suggestions`はMarkdown/HTML本文にも
+含まれるが、Web UIが専用セクションとして描画できるよう構造化データとしても
+返す)。run_ids/targetが両方/どちらも無い場合は400、LLM呼び出し失敗時は502。
 
 ### Web UI
 
 `Walkthrough`ページ(`/walkthrough/new`)。runの一覧からチェックボックスで
 含めるrunを選ぶか(1件もチェックしなければ)targetのドロップダウンから選び、
-model/formatを指定して生成します。HTML形式はiframeでプレビューでき、
-ダウンロードボタンでファイルとして保存できます。
+model/formatを指定して生成します。「AIの提案」は独立したセクションとして
+一覧表示され(markdown/htmlの本文をパースし直す必要は無い)、HTML形式は
+iframeでプレビューでき、ダウンロードボタンでファイルとして保存できます。
 
 ### Emacs
 
@@ -73,3 +98,10 @@ model/formatを指定して生成します。HTML形式はiframeでプレビュ�
 生成、iframeプレビュー確認)・Emacs(実バイナリ経由でrun id 2件を対話的に
 選択し、生成→ファイルオープンまで確認)の4経路すべてで実際に動作することを
 確認した。
+
+AIの提案についても、実際に`network`(findingsなし)→`web`(ffufが`/admin`を
+発見、`medium`/`needs-review`のfinding)という2runを用意しローカルOllamaで
+生成したところ、実際にその finding を踏まえた具体的な提案(要約:
+「/adminエンドポイントへの認証が無いことを手動で確認すべき」)がJSONとして
+正しくパースされ、CLI生成のHTML・Web UIの専用セクション双方に表示される
+ことを確認した。

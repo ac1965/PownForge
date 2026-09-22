@@ -30,7 +30,13 @@ CLI (Typer)
   プロンプトには各runのtarget/plugin/findings(severity/status/source)だけを
   渡し、生のraw_stdoutは渡しません。生成されたナラティブは常に
   「AI生成・要確認」の注記付きで、各runの詳細セクション(検証状態を含む)と
-  セットで表示されます。
+  セットで表示されます。ナラティブに加えて、walkthroughは`Suggestion`
+  (`title`/`plugin`/`rationale`のみ、`Finding`とは別モデルで`status`も
+  永続化も持たない)という「次に試すべきこと」の構造化提案も生成します。
+  「AIに直接スキャンを任せない」原則はここでも変わらず、提案の`plugin`は
+  AIの自由記述(レジストリと突き合わせない)で、実行するには人間が改めて
+  `pownforge scan <plugin>`を呼ぶ必要があります(「結果から推論し支援する
+  ことは制約としない」という整理: 推論・提案は許容、実行権限の委譲は不可)。
 - **スコープはコードで強制する**: `pownforge scan` は `config/targets.yaml` に
   登録された対象名でしか実行できません。任意のホスト名・URLを直接引数に取りません。
   `pownforge lab add` も最終的に同じ `ScopePolicy.add_target()` を通ります。
