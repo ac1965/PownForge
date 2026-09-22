@@ -54,12 +54,32 @@ def test_select_runs_by_target_sorts_chronologically(tmp_path: Path) -> None:
     assert [r.run_id for r in selected] == [earlier.run_id, later.run_id]
 
 
+def test_select_runs_by_targets_spans_multiple_targets_chronologically(tmp_path: Path) -> None:
+    store = EvidenceStore(tmp_path / "runs")
+    on_a = _make_record(store, "host-a", "network", "2026-01-01T00:00:00Z")
+    pivot = _make_record(
+        store, "host-b", "manual", "2026-01-02T00:00:00Z", via_target="host-a", engagement="eng1"
+    )
+    _make_record(store, "host-c", "network", "2026-01-01T00:00:00Z")  # not in the engagement
+
+    selected = select_runs(store, None, None, targets=["host-a", "host-b"])
+    assert [r.run_id for r in selected] == [on_a.run_id, pivot.run_id]
+
+
 def test_select_runs_requires_exactly_one_of_run_ids_or_target(tmp_path: Path) -> None:
     store = EvidenceStore(tmp_path / "runs")
     with pytest.raises(WalkthroughError):
         select_runs(store, None, None)
     with pytest.raises(WalkthroughError):
         select_runs(store, ["abc"], "lab")
+    with pytest.raises(WalkthroughError):
+        select_runs(store, None, "lab", targets=["lab", "other"])
+
+
+def test_select_runs_raises_when_engagement_targets_have_no_runs(tmp_path: Path) -> None:
+    store = EvidenceStore(tmp_path / "runs")
+    with pytest.raises(WalkthroughError):
+        select_runs(store, None, None, targets=["no-such-target"])
 
 
 def test_select_runs_raises_for_unknown_run_id(tmp_path: Path) -> None:
@@ -206,6 +226,24 @@ def test_generate_walkthrough_honors_explicit_english_language(
     generate_walkthrough(store, OllamaAdapter(), [a.run_id], None, language=Language.EN)
     assert "entirely in English" in seen_prompt["prompt"]
     assert "Japanese" not in seen_prompt["prompt"]
+
+
+def test_generate_walkthrough_describes_pivot_steps_in_the_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = EvidenceStore(tmp_path / "runs")
+    _make_record(store, "host-a", "network", "2026-01-01T00:00:00Z")
+    _make_record(store, "host-b", "manual", "2026-01-02T00:00:00Z", via_target="host-a", engagement="eng1")
+
+    seen_prompt = {}
+
+    def fake_analyze(self, prompt: str) -> str:
+        seen_prompt["prompt"] = prompt
+        return "narrative"
+
+    monkeypatch.setattr(OllamaAdapter, "analyze", fake_analyze)
+    generate_walkthrough(store, OllamaAdapter(), None, None, targets=["host-a", "host-b"])
+    assert "reached via target=host-a, engagement=eng1" in seen_prompt["prompt"]
 
 
 def test_generate_walkthrough_wraps_ollama_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -46,6 +46,26 @@ def test_render_markdown_includes_meta_narrative_and_runs() -> None:
     assert "_具体的な提案はありませんでした。_" in output
 
 
+def test_render_markdown_shows_via_target_for_pivot_runs() -> None:
+    records = [
+        _record("host-a", "network", "2026-01-01T00:00:00Z"),
+        _record("host-b", "manual", "2026-01-02T00:00:00Z", via_target="host-a", engagement="eng1"),
+    ]
+    output = render_markdown(_walkthrough(records=records))
+    assert "- **Reached via:** `host-a` (engagement: `eng1`)" in output
+    # the first (non-pivot) run must not gain a spurious "Reached via" line
+    assert output.count("Reached via") == 1
+
+
+def test_render_html_shows_via_target_for_pivot_runs() -> None:
+    records = [
+        _record("host-a", "network", "2026-01-01T00:00:00Z"),
+        _record("host-b", "manual", "2026-01-02T00:00:00Z", via_target="host-a", engagement="eng1"),
+    ]
+    output = render_html(_walkthrough(records=records))
+    assert "<dt>Reached via</dt><dd>host-a (engagement: eng1)</dd>" in output
+
+
 def test_render_markdown_lists_multiple_targets() -> None:
     records = [
         _record("lab-a", "network", "2026-01-01T00:00:00Z"),

@@ -269,6 +269,8 @@ pownforge analyze <run-id>
 | `pownforge init` | 作業ディレクトリ(`.pownforge/`)と空のスコープファイルを作成 |
 | `pownforge target list` | 登録済み対象の一覧 |
 | `pownforge target add <name> --address <addr> [--kind host\|url] [--type network\|web\|api\|kubernetes\|container] [--environment local-lab\|staging\|production] [--allowed-plugins a,b] [--notes <text>]` | 対象を登録。`type`は分類用の任意項目(スキャン許可判定には使わない)。`--environment production`は`--notes`(認可/契約の参照)が必須、無いと登録は拒否される |
+| `pownforge engagement list` | 登録済みEngagementの一覧 |
+| `pownforge engagement add <name> --targets a,b[,c...] [--notes <text>]` | 既存Targetをグループ化したEngagementを登録。横展開の記録・ウォークスルーでのみ使う。詳細は[§11](#11-target-modelとスコープ制御) |
 | `pownforge plugin list` | 利用可能なプラグインと外部ツールの有無 |
 | `pownforge plugin info <name>` | プラグインの詳細(`expected kind`は`host\|url\|any`のうちそのプラグインが前提とするaddress形式) |
 | `pownforge scan recon --target <name> [--option sources=... --option exclude_sources=...] [--live]` | reconプラグイン(subfinder、受動的サブドメイン列挙)を実行。対象へトラフィックは送らない |
@@ -281,12 +283,12 @@ pownforge analyze <run-id>
 | `pownforge scan vulncheck --target <name> --option script=<許可されたNSEスクリプト名> [--option port=...] [--live]` | vulncheckプラグイン(nmapの許可リスト済み`vuln safe`スクリプト1本による既知CVE検証)を実行 |
 | `pownforge result list` | 実行結果の一覧 |
 | `pownforge result show <run-id>` | 実行結果の詳細(JSON) |
-| `pownforge result import --target <name> --command <text> --output <text> [--tool ... --tool-version ... --returncode ...]` | 人間が別ツールで実施した工程の証跡を記録(PownForgeは`--command`を実行しない)。詳細は[§12](#12-証跡とレポート) |
+| `pownforge result import --target <name> --command <text> --output <text> [--tool ... --tool-version ... --returncode ... --engagement <name> --via <target>]` | 人間が別ツールで実施した工程の証跡を記録(PownForgeは`--command`を実行しない)。`--engagement`/`--via`は横展開の記録用(両方同時に指定、詳細は[§11](#11-target-modelとスコープ制御))。詳細は[§12](#12-証跡とレポート) |
 | `pownforge result add-finding <run-id> --title <text> [--severity ... --detail ...]` | 人間が観測したfinding(`source: "manual"`)をrunに追加。既定`needs-review` |
 | `pownforge result review <run-id> <finding-id> <needs-review\|confirmed\|false-positive>` | findingの検証状態を更新 |
 | `pownforge report generate <run-id> [--format markdown\|html]` | レポートを`.pownforge/reports/<run-id>.{md,html}`に生成 |
 | `pownforge analyze <run-id> [--model ...] [--language ja\|en]` | LLMによる分析草案を出力。`--model`/`--language`省略時は`pownforge config`の保存値を使う |
-| `pownforge walkthrough generate <run-id>... \| --target <name> [--model ...] [--language ja\|en] [--format markdown\|html]` | 複数runをまたぐ物語調ウォークスルーを生成。読み取り専用(詳細は[§10](#10-aiによる分析ウォークスルー提案)) |
+| `pownforge walkthrough generate <run-id>... \| --target <name> \| --engagement <name> [--model ...] [--language ja\|en] [--format markdown\|html]` | 複数runをまたぐ物語調ウォークスルーを生成。読み取り専用(詳細は[§10](#10-aiによる分析ウォークスルー提案))。`--engagement`はEngagement全メンバーのrunをまとめて選択(詳細は[§11](#11-target-modelとスコープ制御)) |
 | `pownforge config show` / `pownforge config set [--model <name>] [--language ja\|en]` | `analyze`/`walkthrough generate`が使う既定モデル・出力言語を表示/更新(詳細は[§10](#10-aiによる分析ウォークスルー提案)) |
 | `pownforge lab add <name> --image <image> [--kind host\|url] [--port <n>] [--scheme http\|https] [--env k=v ...] [--allowed-plugins a,b] [--no-register] [--network <name>]` | 隔離ネットワーク上に攻撃対象ホストを起動 |
 | `pownforge lab list [--network <name>]` | 稼働中/停止中のラボホスト一覧 |
@@ -1001,6 +1003,72 @@ class Target(BaseModel):
 タイプの対象は`address`にコンテナイメージの参照を格納します
 ([§6](#6-プラグイン)参照)。
 
+### Engagementと横展開の記録
+
+`ScopePolicy`は本来「1対象=1認可」のモデルです。横展開(対象Aで得た
+アクセスを使って対象Bへ移動する)は、この単位を超えた「2対象間の関係」を
+扱うため、`Engagement`という別の認可単位を追加しています。
+
+```python
+class Engagement(BaseModel):
+    name: str
+    targets: list[str]   # 既存のTarget名の集合(すべて事前登録済みである必要がある)
+    notes: str | None
+```
+
+```bash
+pownforge target add jump-host --address 10.0.0.1 --kind host --allowed-plugins network,manual
+pownforge target add internal-db --address 10.0.0.2 --kind host --allowed-plugins manual
+pownforge engagement add pentest-2026 --targets jump-host,internal-db --notes "契約書#2026-014"
+
+# jump-hostへの通常スキャンはこれまでどおり
+pownforge scan network --target jump-host
+
+# jump-hostから得た資格情報でinternal-dbへ横展開した、という記録
+pownforge result import --target internal-db --engagement pentest-2026 --via jump-host \
+  --command "psexec.py admin@10.0.0.2" --output "$(cat session.log)" --tool psexec.py
+
+# engagementの全対象を時系列でまとめたウォークスルー
+pownforge walkthrough generate --engagement pentest-2026 --model qwen3:14b
+```
+
+**Engagementが与える権限はこれだけ**: `pownforge result import --engagement
+... --via ...`([§10](#10-aiによる分析ウォークスルー提案)参照)が、
+`--target`と`--via`が両方とも同じEngagementのメンバーであることを検証
+できるようになる、それだけです。`--via`に指定した対象がEngagementの
+メンバーでない場合、`ScopePolicy.authorize_pivot()`が拒否し
+`.pownforge/violations/`に記録されます。`pownforge walkthrough generate
+--engagement <name>`もEngagementのメンバー全員のrunを時系列でまとめて
+選択できるようにするだけです。
+
+**これまでの安全設計から変わらない点**:
+
+- `ScanRunner`(実際にサブプロセスを起動する経路)は一切変更していません。
+  Engagementはブックキーピング層でしかなく、それ単体では何の実行権限も
+  与えません
+- Engagementのメンバーであることは、個々の対象の`allowed_plugins`を
+  バイパスしません。`internal-db`をスキャンするには、`internal-db`自体に
+  必要なプラグインが許可されている必要があります
+- **PownForgeが対象Aを踏み台にして対象Bへ実際にネットワーク到達する
+  (プロキシ/ピボット)機能はここには含まれません**。あくまで、人間が別
+  ツールで実施した横展開の結果を、正しい認可関係の下で記録するだけです
+- `environment=production`の対象がEngagementに含まれる場合、
+  Engagement自体にも`notes`が必須です(Target単体の既存ルールと同じ
+  強制を、Engagement登録時にも適用)
+
+`RunRecord`には`via_target`(踏み台にした対象名)と`engagement`
+(所属Engagement名)が追加されており、いずれも横展開の記録以外では
+`null`のままです。レポート/ウォークスルーは`via_target`が設定されている
+runに「Reached via: ...」という行を追加で表示します。
+
+**実機検証**: `jump-host`(127.0.0.1)へ実際のnmapスキャンを実行し、
+Engagement外の対象への`result import --via`が拒否されること、Engagement
+メンバー間の横展開記録が成功すること、`pownforge walkthrough generate
+--engagement ...`(ローカルOllama, qwen3:14b)が実際に「ジャンプホストを
+スキャン→内部DBへ横展開→SYSTEM権限取得(未確認)」という経緯どおりの
+ナラティブを生成し、レポートに「Reached via: jump-host」が表示される
+ことを確認済み。
+
 ## 12. 証跡とレポート
 
 `EvidenceStore`が実行証跡(コマンド・タイムスタンプ・SHA-256ハッシュ)を
@@ -1130,7 +1198,11 @@ import`/`add-finding`による人間が別ツールで実施した工程(既知C
 考え方を、PownForge自身が実行するのではなく記録・ウォークスルーに接続する
 形で取り込んだもの)、vulncheckプラグインによる単一対象への既知CVE検証
 (同章の考え方を、nmapの`vuln`+`safe`スクリプトに限定した許可リスト方式で
-PownForge自身が安全に実行できる範囲に絞って取り込んだもの)。
+PownForge自身が安全に実行できる範囲に絞って取り込んだもの)、
+`Engagement`モデルによる横展開の記録(同書"The Lateral Pass"章の考え方を、
+PownForgeが実際にホスト間を移動するのではなく、既に個別に認可された
+複数対象間の関係を正しく認可した上で記録・ウォークスルー化する形で
+取り込んだもの)。
 
 **既知の未実装項目**:
 

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from pownforge.core.models import Target, TargetEnvironment, TargetKind, TargetType
+from pownforge.core.models import Engagement, Target, TargetEnvironment, TargetKind, TargetType
 from pownforge.core.policy import PolicyError, ScopePolicy
 
 
@@ -115,3 +115,87 @@ def test_save_and_load_roundtrip_preserves_type_and_environment(tmp_path: Path) 
     resolved = reloaded.resolve("kind-lab")
     assert resolved.type == TargetType.KUBERNETES
     assert resolved.environment == TargetEnvironment.LOCAL_LAB
+
+
+def _policy_with_two_targets(**overrides) -> ScopePolicy:
+    policy = ScopePolicy(targets={})
+    policy.add_target(Target(name="host-a", kind=TargetKind.HOST, address="10.0.0.1"))
+    policy.add_target(Target(name="host-b", kind=TargetKind.HOST, address="10.0.0.2"))
+    return policy
+
+
+def test_add_engagement_requires_registered_targets() -> None:
+    policy = ScopePolicy(targets={})
+    with pytest.raises(PolicyError):
+        policy.add_engagement(Engagement(name="eng1", targets=["does-not-exist"]))
+
+
+def test_add_engagement_requires_at_least_one_target() -> None:
+    policy = _policy_with_two_targets()
+    with pytest.raises(PolicyError):
+        policy.add_engagement(Engagement(name="eng1", targets=[]))
+
+
+def test_add_duplicate_engagement_raises() -> None:
+    policy = _policy_with_two_targets()
+    policy.add_engagement(Engagement(name="eng1", targets=["host-a"]))
+    with pytest.raises(PolicyError):
+        policy.add_engagement(Engagement(name="eng1", targets=["host-b"]))
+
+
+def test_add_engagement_with_production_member_requires_notes() -> None:
+    policy = ScopePolicy(targets={})
+    policy.add_target(Target(name="host-a", kind=TargetKind.HOST, address="10.0.0.1"))
+    policy.add_target(
+        Target(
+            name="host-b",
+            kind=TargetKind.HOST,
+            address="10.0.0.2",
+            environment=TargetEnvironment.PRODUCTION,
+            notes="target-level authorization",
+        )
+    )
+    with pytest.raises(PolicyError):
+        policy.add_engagement(Engagement(name="eng1", targets=["host-a", "host-b"]))
+
+    policy.add_engagement(
+        Engagement(name="eng1", targets=["host-a", "host-b"], notes="Engagement contract #2026-014")
+    )
+    assert policy.resolve_engagement("eng1").targets == ["host-a", "host-b"]
+
+
+def test_resolve_unknown_engagement_raises() -> None:
+    policy = ScopePolicy(targets={})
+    with pytest.raises(PolicyError):
+        policy.resolve_engagement("nope")
+
+
+def test_authorize_pivot_succeeds_for_engagement_members() -> None:
+    policy = _policy_with_two_targets()
+    policy.add_engagement(Engagement(name="eng1", targets=["host-a", "host-b"]))
+    source, dest = policy.authorize_pivot("eng1", "host-a", "host-b")
+    assert source.name == "host-a"
+    assert dest.name == "host-b"
+
+
+def test_authorize_pivot_rejects_target_outside_engagement() -> None:
+    policy = _policy_with_two_targets()
+    policy.add_target(Target(name="host-c", kind=TargetKind.HOST, address="10.0.0.3"))
+    policy.add_engagement(Engagement(name="eng1", targets=["host-a", "host-b"]))
+    with pytest.raises(PolicyError):
+        policy.authorize_pivot("eng1", "host-a", "host-c")
+
+
+def test_save_and_load_roundtrip_preserves_engagements(tmp_path: Path) -> None:
+    config = tmp_path / "targets.yaml"
+    policy = _policy_with_two_targets()
+    policy.add_engagement(Engagement(name="eng1", targets=["host-a", "host-b"], notes="lab exercise"))
+    policy.save(config)
+
+    reloaded = ScopePolicy.load(config)
+    engagement = reloaded.resolve_engagement("eng1")
+    assert engagement.targets == ["host-a", "host-b"]
+    assert engagement.notes == "lab exercise"
+    source, dest = reloaded.authorize_pivot("eng1", "host-a", "host-b")
+    assert source.name == "host-a"
+    assert dest.name == "host-b"

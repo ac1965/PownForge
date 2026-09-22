@@ -119,6 +119,8 @@ make test
 - Markdown/HTMLレポート生成（エグゼクティブサマリー節つき）
 - 人間が別ツールで実施した工程の証跡取り込み（`pownforge result import`/`add-finding`。
   PownForge自身はコマンドを実行しない）
+- `Engagement`(既存Targetのグループ化)による横展開の記録（`pownforge engagement add`、
+  `result import --engagement/--via`。PownForgeが実際にホスト間を移動することはない）
 - LLM分析アダプタ（`llm` CLI経由。ローカルOllama/Claude/OpenAI等をモデル名で切替）
 - Emacs連携（`emacs/pownforge.el`）: 対象/プラグイン一覧、`--live`によるスキャンの
   ライブ表示、findingのレビュー、Org-modeへのfindings出力（[docs/handbook.md §9](docs/handbook.md#9-emacs連携)）

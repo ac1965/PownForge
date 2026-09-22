@@ -45,18 +45,27 @@ class Walkthrough:
 
 
 def select_runs(
-    store: EvidenceStore, run_ids: list[str] | None, target: str | None
+    store: EvidenceStore,
+    run_ids: list[str] | None,
+    target: str | None,
+    targets: list[str] | None = None,
 ) -> list[RunRecord]:
     """Select the runs a walkthrough should cover, in narrative order.
 
-    Exactly one of RUN_IDS/TARGET must be given. RUN_IDS are loaded in the
-    order given (the caller's chosen narrative order); TARGET selects every
-    run recorded against that target name, oldest first (the order they
-    actually happened in). Never mutates or re-saves any run."""
-    if run_ids and target:
-        raise WalkthroughError("give either run ids or --target, not both")
-    if not run_ids and not target:
-        raise WalkthroughError("give at least one run id, or --target <name>")
+    Exactly one of RUN_IDS/TARGET/TARGETS must be given. RUN_IDS are loaded
+    in the order given (the caller's chosen narrative order); TARGET
+    selects every run recorded against that single target name, oldest
+    first (the order they actually happened in); TARGETS generalizes that
+    to several target names at once (e.g. every member of an Engagement),
+    still oldest first across all of them together -- this is how a
+    walkthrough can span a lateral-movement chain (`pownforge walkthrough
+    generate --engagement <name>`, see core/policy.py::
+    ScopePolicy.authorize_pivot()). Never mutates or re-saves any run."""
+    given = [bool(run_ids), bool(target), bool(targets)]
+    if sum(given) > 1:
+        raise WalkthroughError("give exactly one of: run ids, --target, or --engagement")
+    if not any(given):
+        raise WalkthroughError("give at least one run id, --target <name>, or --engagement <name>")
 
     if run_ids:
         records: list[RunRecord] = []
@@ -67,17 +76,22 @@ def select_runs(
                 raise WalkthroughError(str(exc)) from exc
         return records
 
+    wanted = {target} if target else set(targets or [])
     records = sorted(
-        (r for r in store.list() if r.target == target),
+        (r for r in store.list() if r.target in wanted),
         key=lambda r: r.created_at,
     )
     if not records:
-        raise WalkthroughError(f"no runs recorded against target '{target}'")
+        label = f"target '{target}'" if target else f"engagement targets {sorted(wanted)}"
+        raise WalkthroughError(f"no runs recorded against {label}")
     return records
 
 
 def _describe_run(index: int, record: RunRecord) -> str:
-    lines = [f"{index}. target={record.target} plugin={record.plugin} at={record.created_at.isoformat()}"]
+    header = f"{index}. target={record.target} plugin={record.plugin} at={record.created_at.isoformat()}"
+    if record.via_target:
+        header += f" (reached via target={record.via_target}, engagement={record.engagement})"
+    lines = [header]
     if not record.findings:
         lines.append("   (no findings)")
     for finding in record.findings:
@@ -132,6 +146,7 @@ def generate_walkthrough(
     run_ids: list[str] | None,
     target: str | None,
     language: Language = Language.JA,
+    targets: list[str] | None = None,
 ) -> Walkthrough:
     """Select runs (see select_runs) and ask the local LLM for connective
     narrative prose plus "what to try next" suggestions covering them.
@@ -140,7 +155,7 @@ def generate_walkthrough(
     findings) -- a walkthrough is a new, separate artifact. Suggestions are
     advisory only (see Suggestion) and carry no execution authority: a
     human must still explicitly run `pownforge scan <plugin>`."""
-    records = select_runs(store, run_ids, target)
+    records = select_runs(store, run_ids, target, targets)
     steps = "\n".join(_describe_run(i, r) for i, r in enumerate(records, start=1))
     prompt = _PROMPT_TEMPLATE.format(steps=steps, language_instruction=language_instruction(language))
     try:

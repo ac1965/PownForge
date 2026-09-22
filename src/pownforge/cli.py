@@ -12,7 +12,15 @@ from pownforge.core.analysis import AnalysisError, run_analysis
 from pownforge.core.findings import FindingNotFoundError, add_finding, review_finding
 from pownforge.core.lab import LAB_NETWORK, LabError, LabManager, resolve_lab_target_address
 from pownforge.core.manual_evidence import import_manual_run
-from pownforge.core.models import FindingStatus, Severity, Target, TargetEnvironment, TargetKind, TargetType
+from pownforge.core.models import (
+    Engagement,
+    FindingStatus,
+    Severity,
+    Target,
+    TargetEnvironment,
+    TargetKind,
+    TargetType,
+)
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.core.registry import default_registry
 from pownforge.core.runner import RunnerError, ScanRunner
@@ -27,6 +35,10 @@ from pownforge.reporting import walkthrough as walkthrough_report
 
 app = typer.Typer(help="PownForge: a modular security assessment CLI for authorized engagements.")
 target_app = typer.Typer(help="Manage the registered, authorized scan targets.")
+engagement_app = typer.Typer(
+    help="Manage Engagements: named groups of already-registered targets that may "
+    "reference each other (e.g. a pivot/lateral-movement step)."
+)
 plugin_app = typer.Typer(help="Inspect available plugins.")
 scan_app = typer.Typer(help="Run a plugin against a registered target.")
 result_app = typer.Typer(help="Inspect past scan runs.")
@@ -39,6 +51,7 @@ evidence_app = typer.Typer(help="Verify stored evidence integrity.")
 config_app = typer.Typer(help="View/update local AI assistant preferences (model, language).")
 
 app.add_typer(target_app, name="target")
+app.add_typer(engagement_app, name="engagement")
 app.add_typer(plugin_app, name="plugin")
 app.add_typer(scan_app, name="scan")
 app.add_typer(result_app, name="result")
@@ -136,6 +149,47 @@ def target_add(
         raise typer.Exit(code=1) from exc
     policy.save(config)
     typer.echo(f"registered target '{name}' -> {address}")
+
+
+@engagement_app.command("list")
+def engagement_list(config: Path = typer.Option(DEFAULT_CONFIG)) -> None:
+    """List registered engagements."""
+    policy = _policy(config)
+    engagements = policy.list_engagements()
+    if not engagements:
+        typer.echo("no engagements registered; use `pownforge engagement add`")
+        raise typer.Exit()
+    for engagement in engagements:
+        typer.echo(f"{engagement.name}\ttargets={', '.join(engagement.targets)}")
+
+
+@engagement_app.command("add")
+def engagement_add(
+    name: str,
+    targets: str = typer.Option(
+        ..., "--targets", help="Comma-separated names of already-registered targets to group."
+    ),
+    notes: str = typer.Option(
+        "", help="Free-text notes, e.g. authorization/engagement reference (required if any member is production)."
+    ),
+    config: Path = typer.Option(DEFAULT_CONFIG),
+) -> None:
+    """Register a new Engagement grouping existing targets.
+
+    Membership alone grants no execution rights on its own -- it only lets
+    `pownforge result import --engagement ... --via ...` and `pownforge
+    walkthrough generate --engagement ...` reference the members together.
+    """
+    policy = _policy(config)
+    target_names = [t.strip() for t in targets.split(",") if t.strip()]
+    engagement = Engagement(name=name, targets=target_names, notes=notes or None)
+    try:
+        policy.add_engagement(engagement)
+    except PolicyError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    policy.save(config)
+    typer.echo(f"registered engagement '{name}' with targets: {', '.join(target_names)}")
 
 
 @plugin_app.command("list")
@@ -371,13 +425,22 @@ def result_import(
     tool: Optional[str] = typer.Option(None, "--tool", help="Name of the external tool used, e.g. 'msfconsole'."),
     tool_version: Optional[str] = typer.Option(None, "--tool-version"),
     returncode: int = typer.Option(0, "--returncode"),
+    engagement: Optional[str] = typer.Option(
+        None,
+        "--engagement",
+        help="Record this as a pivot step: TARGET was reached via --via, as part of this Engagement. "
+        "Requires --via.",
+    ),
+    via: Optional[str] = typer.Option(
+        None, "--via", help="The target TARGET was reached from/via. Requires --engagement."
+    ),
     config: Path = typer.Option(DEFAULT_CONFIG),
     workdir: Path = typer.Option(DEFAULT_WORKDIR),
 ) -> None:
     """Record evidence for a step performed manually with an external tool
     (e.g. Metasploit) against a registered target -- PownForge does not run
     COMMAND itself. The target must allow the 'manual' plugin name (or have
-    an empty allowed_plugins list). See docs/handbook.md §10."""
+    an empty allowed_plugins list). See docs/handbook.md §10/§11."""
     policy = _policy(config)
     store = _store(workdir)
     try:
@@ -391,6 +454,8 @@ def result_import(
             tool_version=tool_version,
             returncode=returncode,
             audit=_audit(workdir),
+            engagement=engagement,
+            via_target=via,
         )
     except PolicyError as exc:
         typer.echo(f"error: {exc}", err=True)
@@ -519,6 +584,12 @@ def walkthrough_generate(
     target: Optional[str] = typer.Option(
         None, "--target", help="Include every run recorded against this target, oldest first."
     ),
+    engagement: Optional[str] = typer.Option(
+        None,
+        "--engagement",
+        help="Include every run recorded against any member of this Engagement, oldest first "
+        "(spans a lateral-movement chain). Requires --config to resolve the Engagement's members.",
+    ),
     model: Optional[str] = typer.Option(
         None,
         "--model",
@@ -532,6 +603,7 @@ def walkthrough_generate(
     format: ReportFormat = typer.Option(ReportFormat.MARKDOWN, "--format", help="markdown or html"),
     workdir: Path = typer.Option(DEFAULT_WORKDIR),
     settings: Path = typer.Option(DEFAULT_SETTINGS, "--settings"),
+    config: Path = typer.Option(DEFAULT_CONFIG, help="Only read when --engagement is given."),
 ) -> None:
     """Generate a narrative walkthrough connecting multiple runs, via the local LLM.
 
@@ -540,9 +612,21 @@ def walkthrough_generate(
     store = _store(workdir)
     app_settings = load_settings(settings)
     adapter = OllamaAdapter(model=model or app_settings.model)
+    engagement_targets: list[str] | None = None
+    if engagement:
+        try:
+            engagement_targets = _policy(config).resolve_engagement(engagement).targets
+        except PolicyError as exc:
+            typer.echo(f"error: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
     try:
         walkthrough = generate_walkthrough(
-            store, adapter, run_ids or None, target, language=language or app_settings.language
+            store,
+            adapter,
+            run_ids or None,
+            target,
+            language=language or app_settings.language,
+            targets=engagement_targets,
         )
     except WalkthroughError as exc:
         typer.echo(f"error: {exc}", err=True)

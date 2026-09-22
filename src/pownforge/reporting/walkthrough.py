@@ -101,9 +101,10 @@ def render_markdown(walkthrough: Walkthrough) -> str:
             f"- **Return code:** {record.evidence.returncode}",
             f"- **Command:** `{' '.join(record.evidence.command)}`",
             f"- **Tool version:** {record.evidence.tool_version or '_unknown_'}",
-            "",
-            "### Findings",
         ]
+        if record.via_target:
+            lines.append(f"- **Reached via:** `{record.via_target}` (engagement: `{record.engagement}`)")
+        lines += ["", "### Findings"]
         if record.findings:
             for status, heading in _STATUS_SECTIONS:
                 findings = _sorted_findings(record, status)
@@ -214,8 +215,12 @@ def render_html(walkthrough: Walkthrough) -> str:
             f"<dt>Return code</dt><dd>{_esc(record.evidence.returncode)}</dd>",
             f"<dt>Command</dt><dd>{_esc(' '.join(record.evidence.command))}</dd>",
             f"<dt>Tool version</dt><dd>{_esc(record.evidence.tool_version or '(unknown)')}</dd>",
-            "</dl>",
         ]
+        if record.via_target:
+            parts.append(
+                f"<dt>Reached via</dt><dd>{_esc(record.via_target)} (engagement: {_esc(record.engagement)})</dd>"
+            )
+        parts.append("</dl>")
         if record.findings:
             for status, heading in _STATUS_SECTIONS:
                 findings = _sorted_findings(record, status)

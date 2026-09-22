@@ -49,6 +49,19 @@ class Target(BaseModel):
     environment: TargetEnvironment = TargetEnvironment.LOCAL_LAB
 
 
+class Engagement(BaseModel):
+    """A named group of already-registered Targets that are mutually
+    authorized to be referenced together, e.g. "target A was used to reach
+    target B" (a pivot/lateral-movement step). Membership alone grants no
+    execution rights -- each member Target still needs its own
+    `allowed_plugins` to be scanned, and PownForge never executes a pivot
+    itself. See ScopePolicy.authorize_pivot() and docs/handbook.md §11."""
+
+    name: str
+    targets: list[str] = Field(default_factory=list)
+    notes: str | None = None
+
+
 class PluginMeta(BaseModel):
     name: str
     version: str
@@ -126,6 +139,13 @@ class RunRecord(BaseModel):
     output: dict[str, Any] = Field(default_factory=dict)
     findings: list[Finding] = Field(default_factory=list)
     analysis: str | None = None
+    # Set only for a manually-imported run recorded as a pivot step (see
+    # ScopePolicy.authorize_pivot()): the name of the Target this run's
+    # `target` was reached via/from, and the Engagement both belong to.
+    # None for every ordinary scan/manual run that isn't part of a
+    # lateral-movement chain.
+    via_target: str | None = None
+    engagement: str | None = None
 
 
 class PolicyViolation(BaseModel):

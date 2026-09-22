@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from pownforge.core.manual_evidence import MANUAL_PLUGIN_NAME, import_manual_run
-from pownforge.core.models import Target, TargetKind
+from pownforge.core.models import Engagement, Target, TargetKind
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.evidence.audit import AuditStore
 from pownforge.evidence.store import EvidenceStore
@@ -15,6 +15,15 @@ def _policy_with_target(**overrides) -> ScopePolicy:
     defaults = dict(name="lab", kind=TargetKind.HOST, address="127.0.0.1", allowed_plugins=[])
     defaults.update(overrides)
     return ScopePolicy(targets={defaults["name"]: Target(**defaults)})
+
+
+def _policy_with_engagement() -> ScopePolicy:
+    policy = ScopePolicy(targets={})
+    policy.add_target(Target(name="host-a", kind=TargetKind.HOST, address="10.0.0.1"))
+    policy.add_target(Target(name="host-b", kind=TargetKind.HOST, address="10.0.0.2"))
+    policy.add_target(Target(name="host-c", kind=TargetKind.HOST, address="10.0.0.3"))
+    policy.add_engagement(Engagement(name="eng1", targets=["host-a", "host-b"]))
+    return policy
 
 
 def test_import_manual_run_persists_evidence_and_output(tmp_path: Path) -> None:
@@ -103,3 +112,61 @@ def test_import_manual_run_rejects_unregistered_target(tmp_path: Path) -> None:
 
     with pytest.raises(PolicyError):
         import_manual_run(policy, store, "does-not-exist", command="whoami", output="www-data")
+
+
+def test_import_manual_run_records_pivot_when_engagement_members(tmp_path: Path) -> None:
+    policy = _policy_with_engagement()
+    store = EvidenceStore(tmp_path / "runs")
+
+    record = import_manual_run(
+        policy,
+        store,
+        "host-b",
+        command="psexec.py admin@10.0.0.2",
+        output="[*] Opening SVCManager on 10.0.0.2.....",
+        engagement="eng1",
+        via_target="host-a",
+    )
+
+    assert record.target == "host-b"
+    assert record.via_target == "host-a"
+    assert record.engagement == "eng1"
+
+    reloaded = store.load(record.run_id)
+    assert reloaded.via_target == "host-a"
+
+
+def test_import_manual_run_rejects_pivot_to_target_outside_engagement(tmp_path: Path) -> None:
+    policy = _policy_with_engagement()
+    store = EvidenceStore(tmp_path / "runs")
+
+    with pytest.raises(PolicyError):
+        import_manual_run(
+            policy,
+            store,
+            "host-c",
+            command="psexec.py admin@10.0.0.3",
+            output="...",
+            engagement="eng1",
+            via_target="host-a",
+        )
+
+
+def test_import_manual_run_requires_engagement_and_via_together(tmp_path: Path) -> None:
+    policy = _policy_with_engagement()
+    store = EvidenceStore(tmp_path / "runs")
+
+    with pytest.raises(PolicyError):
+        import_manual_run(policy, store, "host-b", command="whoami", output="www-data", engagement="eng1")
+
+    with pytest.raises(PolicyError):
+        import_manual_run(policy, store, "host-b", command="whoami", output="www-data", via_target="host-a")
+
+
+def test_import_manual_run_without_engagement_leaves_via_target_none(tmp_path: Path) -> None:
+    policy = _policy_with_target()
+    store = EvidenceStore(tmp_path / "runs")
+
+    record = import_manual_run(policy, store, "lab", command="whoami", output="www-data")
+    assert record.via_target is None
+    assert record.engagement is None
