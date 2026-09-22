@@ -103,6 +103,21 @@ class Finding(BaseModel):
     status: FindingStatus = FindingStatus.NEEDS_REVIEW
 
 
+class Suggestion(BaseModel):
+    """An AI-generated "what to try next" recommendation produced by
+    `pownforge walkthrough generate` (core/walkthrough.py). Deliberately not
+    a Finding: it isn't a vulnerability candidate to confirm/reject, has no
+    status/review workflow, and is never persisted (a walkthrough never
+    writes to any RunRecord). It carries no execution authority either —
+    running the suggested plugin still requires a human to explicitly call
+    `pownforge scan <plugin>`."""
+
+    suggestion_id: str = Field(default_factory=lambda: uuid.uuid4().hex[:8])
+    title: str
+    plugin: str | None = None
+    rationale: str = ""
+
+
 class RunRecord(BaseModel):
     run_id: str = Field(default_factory=lambda: uuid.uuid4().hex[:12])
     target: str

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pownforge.core.models import Evidence, Finding, RunRecord
+from pownforge.core.models import Evidence, Finding, RunRecord, Suggestion
 from pownforge.core.walkthrough import Walkthrough
 from pownforge.reporting.walkthrough import render_html, render_markdown
 
@@ -27,7 +27,8 @@ def _walkthrough(**overrides) -> Walkthrough:
         _record("lab", "nuclei", "2026-01-02T00:00:00Z"),
     ]
     narrative = overrides.pop("narrative", "First a network scan found an open port, then nuclei found nothing.")
-    return Walkthrough(records=records, narrative=narrative)
+    suggestions = overrides.pop("suggestions", [])
+    return Walkthrough(records=records, narrative=narrative, suggestions=suggestions)
 
 
 def test_render_markdown_includes_meta_narrative_and_runs() -> None:
@@ -41,6 +42,8 @@ def test_render_markdown_includes_meta_narrative_and_runs() -> None:
     assert "## Run 2: lab / nuclei" in output
     assert "Open port" in output
     assert "_No findings recorded for this run._" in output
+    assert "## AIの提案(要確認)" in output
+    assert "_具体的な提案はありませんでした。_" in output
 
 
 def test_render_markdown_lists_multiple_targets() -> None:
@@ -87,3 +90,32 @@ def test_render_html_includes_severity_badges() -> None:
     output = render_html(_walkthrough())
     assert '<span class="badge">low</span>' in output
     assert 'class="narrative"' in output
+    assert "具体的な提案はありませんでした" in output
+
+
+def test_render_markdown_lists_suggestions_with_and_without_plugin() -> None:
+    suggestions = [
+        Suggestion(title="Try sqlmap", plugin="sqlmap", rationale="id param looks injectable"),
+        Suggestion(title="Review auth flow", plugin=None, rationale="no tool-specific angle"),
+    ]
+    output = render_markdown(_walkthrough(suggestions=suggestions))
+    assert "## AIの提案(要確認)" in output
+    assert "**Try sqlmap** (`plugin: sqlmap`) — id param looks injectable" in output
+    assert "**Review auth flow** — no tool-specific angle" in output
+    assert "_具体的な提案はありませんでした。_" not in output
+
+
+def test_render_html_lists_suggestions_with_plugin_badge_and_escapes_fields() -> None:
+    suggestions = [
+        Suggestion(
+            title="<script>alert(1)</script>",
+            plugin="sqlmap",
+            rationale="<b>bold</b> rationale",
+        )
+    ]
+    output = render_html(_walkthrough(suggestions=suggestions))
+    assert 'class="suggestion"' in output
+    assert '<span class="plugin-badge">sqlmap</span>' in output
+    assert "<script>alert(1)</script>" not in output
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in output
+    assert "&lt;b&gt;bold&lt;/b&gt;" in output

@@ -26,6 +26,8 @@ _NARRATIVE_NOTICE = (
     "参照してください。"
 )
 
+_SUGGESTIONS_NOTICE = "これらはAIによる提案です。実行するかどうかは人間が判断してください。"
+
 
 def _targets(records: list[RunRecord]) -> list[str]:
     seen: list[str] = []
@@ -55,7 +57,18 @@ def render_markdown(walkthrough: Walkthrough) -> str:
         f"_{_NARRATIVE_NOTICE}_",
         "",
         walkthrough.narrative,
+        "",
+        "## AIの提案(要確認)",
+        "",
+        f"_{_SUGGESTIONS_NOTICE}_",
+        "",
     ]
+    if walkthrough.suggestions:
+        for suggestion in walkthrough.suggestions:
+            plugin_note = f" (`plugin: {suggestion.plugin}`)" if suggestion.plugin else ""
+            lines.append(f"- **{suggestion.title}**{plugin_note} — {suggestion.rationale}")
+    else:
+        lines.append("_具体的な提案はありませんでした。_")
 
     for i, record in enumerate(records, start=1):
         lines += [
@@ -95,6 +108,11 @@ h1 { font-size: 1.5rem; }
 h2 { font-size: 1.2rem; margin-top: 2rem; border-bottom: 1px solid #ddd; padding-bottom: .25rem; }
 h3 { font-size: 1rem; }
 .narrative { background: #f9f7f0; border-left: 3px solid #d9c98a; padding: .75rem 1rem; }
+.suggestion { background: #eef5fb; border-left: 3px solid #4a90d9; padding: .5rem .75rem;
+              margin: 0 0 .5rem 0; }
+.suggestion .plugin-badge { display: inline-block; font-size: .7rem; font-family: ui-monospace,
+              SFMono-Regular, Menlo, monospace; background: #dce8f5; color: #1a4971;
+              padding: .05rem .35rem; border-radius: 3px; margin-left: .4rem; }
 dl { display: grid; grid-template-columns: 9rem 1fr; gap: .25rem .75rem; margin: 0; }
 dt { font-weight: bold; }
 dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
@@ -134,7 +152,22 @@ def render_html(walkthrough: Walkthrough) -> str:
         "<h2>ナラティブ(AI生成・要確認)</h2>",
         f"<p><em>{_esc(_NARRATIVE_NOTICE)}</em></p>",
         f'<div class="narrative">{_esc(walkthrough.narrative)}</div>',
+        "<h2>AIの提案(要確認)</h2>",
+        f"<p><em>{_esc(_SUGGESTIONS_NOTICE)}</em></p>",
     ]
+    if walkthrough.suggestions:
+        for suggestion in walkthrough.suggestions:
+            plugin_badge = (
+                f'<span class="plugin-badge">{_esc(suggestion.plugin)}</span>'
+                if suggestion.plugin
+                else ""
+            )
+            parts.append(
+                f'<div class="suggestion"><strong>{_esc(suggestion.title)}</strong>{plugin_badge}'
+                f" — {_esc(suggestion.rationale)}</div>"
+            )
+    else:
+        parts.append("<p><em>具体的な提案はありませんでした。</em></p>")
 
     for i, record in enumerate(records, start=1):
         parts += [

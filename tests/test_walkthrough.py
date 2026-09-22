@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -98,6 +99,7 @@ def test_generate_walkthrough_does_not_modify_any_run(tmp_path: Path, monkeypatc
 
     assert walkthrough.records[0].run_id == a.run_id
     assert "network scan found an open port" in walkthrough.narrative
+    assert walkthrough.suggestions == []  # plain-text response -> graceful fallback
     assert "Open port 3000" in seen_prompt["prompt"]
     assert "target=lab plugin=network" in seen_prompt["prompt"]
     assert "target=lab plugin=nuclei" in seen_prompt["prompt"]
@@ -105,6 +107,69 @@ def test_generate_walkthrough_does_not_modify_any_run(tmp_path: Path, monkeypatc
     # Read-only: the stored run files must be byte-for-byte unchanged.
     assert path_a.read_text() == before_a
     assert path_b.read_text() == before_b
+
+
+def test_generate_walkthrough_parses_narrative_and_suggestions_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = EvidenceStore(tmp_path / "runs")
+    a = _make_record(store, "lab", "web", "2026-01-01T00:00:00Z")
+
+    response = json.dumps(
+        {
+            "narrative": "We fuzzed the app and found an exposed id parameter.",
+            "suggestions": [
+                {
+                    "title": "Try sqlmap against the id parameter",
+                    "plugin": "sqlmap",
+                    "rationale": "The id parameter looks unvalidated and untested for injection.",
+                },
+                {"title": "no plugin here", "plugin": None, "rationale": "generic advice"},
+            ],
+        }
+    )
+    monkeypatch.setattr(OllamaAdapter, "analyze", lambda self, prompt: response)
+
+    walkthrough = generate_walkthrough(store, OllamaAdapter(), [a.run_id], None)
+
+    assert walkthrough.narrative == "We fuzzed the app and found an exposed id parameter."
+    assert len(walkthrough.suggestions) == 2
+    assert walkthrough.suggestions[0].title == "Try sqlmap against the id parameter"
+    assert walkthrough.suggestions[0].plugin == "sqlmap"
+    assert walkthrough.suggestions[1].plugin is None
+
+
+def test_generate_walkthrough_skips_suggestions_without_a_title(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = EvidenceStore(tmp_path / "runs")
+    a = _make_record(store, "lab", "web", "2026-01-01T00:00:00Z")
+
+    response = json.dumps(
+        {
+            "narrative": "narrative text",
+            "suggestions": [{"title": "", "rationale": "no title, should be dropped"}, "not-a-dict"],
+        }
+    )
+    monkeypatch.setattr(OllamaAdapter, "analyze", lambda self, prompt: response)
+
+    walkthrough = generate_walkthrough(store, OllamaAdapter(), [a.run_id], None)
+    assert walkthrough.suggestions == []
+
+
+def test_generate_walkthrough_falls_back_to_plain_text_when_not_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = EvidenceStore(tmp_path / "runs")
+    a = _make_record(store, "lab", "web", "2026-01-01T00:00:00Z")
+
+    monkeypatch.setattr(
+        OllamaAdapter, "analyze", lambda self, prompt: "the model just ignored the JSON instructions"
+    )
+
+    walkthrough = generate_walkthrough(store, OllamaAdapter(), [a.run_id], None)
+    assert walkthrough.narrative == "the model just ignored the JSON instructions"
+    assert walkthrough.suggestions == []
 
 
 def test_generate_walkthrough_wraps_ollama_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
