@@ -34,6 +34,13 @@ CLI (Typer)
   分離）に一本化しています。証跡の保存形式やファイルパスは `evidence/` が一元管理し、
   プラグインが独自形式で永続化することはありません（中間出力を一時ファイルに書いても
   `normalize` 内で読み込み次第削除します）。
+- **フロントエンドは薄いラッパーに留める**: CLI・Web UI(`src/pownforge/web/`)・
+  Emacs連携(`emacs/pownforge.el`)はいずれも見た目が違うだけで、スコープ検証・
+  プラグイン実行・証跡保存のロジックを個別に再実装しません。Web UIは
+  `ScopePolicy`/`ScanRunner`をFastAPI経由で呼ぶだけ、Emacs連携は`pownforge`
+  実行バイナリをサブプロセスとして呼ぶだけです。ライブ進捗も、根は
+  `ScanRunner.run()`の`on_line`コールバック1つ(Web UIはWebSocketへ、
+  CLI/Emacsは`--live`で標準出力へ中継)を両方が共有しています。
 
 ## プラグインインターフェース
 
@@ -82,6 +89,7 @@ class Target(BaseModel):
 `address`にkubeconfigのcontext名を格納します(詳細は
 [docs/kubernetes.md](kubernetes.md))。
 
-## 今後の拡張
+## Emacs連携
 
-- Emacs連携（`pownforge.el`）
+`emacs/pownforge.el`は`pownforge`実行バイナリをサブプロセスとして呼び出す
+Elisp front-endです。詳細は[docs/emacs.md](emacs.md)を参照。

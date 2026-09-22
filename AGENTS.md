@@ -71,7 +71,7 @@ make test
   - `type` は `feat`（機能追加）/ `fix`（不具合修正）/ `docs`（ドキュメント）/
     `chore`（雑務・設定変更）/ `refactor`（挙動を変えないコード整理）などから選ぶ
   - `scope` はディレクトリ名や機能名を使う（例: `scripts`, `docker`, `kind`, `manifests`,
-    `agents`, `core`, `plugins`, `cli`, `evidence`, `web`, `api`, `frontend` など）
+    `agents`, `core`, `plugins`, `cli`, `evidence`, `web`, `api`, `frontend`, `emacs` など）
 - 本文（任意）は `- ` の箇条書きで変更点を列挙する。詳細な経緯や検証結果を
   書く場合もこの形式に合わせる
 - 破壊的変更や既存の証跡フォーマットに影響する変更は、本文の箇条書きにその旨を明記する
@@ -95,7 +95,10 @@ make test
   Dashboard/Targets/Lab/Runs/Run detail/Audit/New Scan/Scan liveの各画面と、
   target追加・削除、lab起動・削除、スキャン実行(ライブ進捗)、Analyze実行、
   finding検証、evidence検証をひととおりカバーする
+- `emacs/pownforge.el`: `pownforge`実行バイナリをサブプロセスとして呼ぶだけの
+  Elisp front-end（`emacs/tests/`にERTテスト、実行はスタブCLI経由）
 - `docs/lab.md`: ラボネットワーク機能（`pownforge lab`）の使い方
 - `docs/web.md`: Web UI/APIの使い方
+- `docs/emacs.md`: Emacs連携（`emacs/pownforge.el`）の使い方
 - `docs/walkthrough.md`: 実機（OWASP Juice Shop等）での検証記録
 - `.pownforge/`: 実行時の状態（runs, reports, violations）。gitignore対象

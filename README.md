@@ -108,5 +108,7 @@ make test
 - 実行証跡（コマンド・タイムスタンプ・SHA-256ハッシュ）の保存
 - Markdownレポート生成
 - ローカルLLM（Ollama）分析アダプタ
+- Emacs連携（`emacs/pownforge.el`）: 対象/プラグイン一覧、`--live`によるスキャンの
+  ライブ表示、findingのレビュー、Org-modeへのfindings出力（[docs/emacs.md](docs/emacs.md)）
 
 高度な結果正規化（重大度判定・脆弱性分類の自動化など）は今後のフェーズで拡張します。

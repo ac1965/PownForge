@@ -7,10 +7,10 @@
 | `pownforge target add <name> --address <addr> [--kind host\|url] [--type network\|web\|api\|kubernetes] [--environment local-lab\|staging\|production] [--allowed-plugins a,b] [--notes <text>]` | 対象を登録。`type`は分類用の任意項目（スキャン許可判定には使わない）。`--environment production`は`--notes`（認可/契約の参照）が必須、無いと登録は拒否される |
 | `pownforge plugin list` | 利用可能なプラグインと外部ツールの有無 |
 | `pownforge plugin info <name>` | プラグインの詳細 |
-| `pownforge scan network --target <name> [--option k=v ...]` | networkプラグイン（nmap）を実行 |
-| `pownforge scan web --target <name> --option wordlist=<path>` | webプラグイン（ffuf）を実行 |
-| `pownforge scan nuclei --target <name> [--option tags=... --option severity=... --option templates=...]` | nucleiプラグイン（テンプレートベースの脆弱性検出）を実行。検出結果はそのままfinding（`source: "tool"`、既定`needs-review`）として記録 |
-| `pownforge scan kubernetes --target <name> [--option namespaces=... --option severity=...]` | kubernetesプラグイン（`trivy k8s`によるクラスタの誤設定/RBAC/イメージ脆弱性検出）を実行。対象の`address`はhost/URLではなくkubeconfigのcontext名を指定する。検出結果もnucleiと同様finding（`source: "tool"`）として記録 |
+| `pownforge scan network --target <name> [--option k=v ...] [--live]` | networkプラグイン（nmap）を実行 |
+| `pownforge scan web --target <name> --option wordlist=<path> [--live]` | webプラグイン（ffuf）を実行 |
+| `pownforge scan nuclei --target <name> [--option tags=... --option severity=... --option templates=...] [--live]` | nucleiプラグイン（テンプレートベースの脆弱性検出）を実行。検出結果はそのままfinding（`source: "tool"`、既定`needs-review`）として記録 |
+| `pownforge scan kubernetes --target <name> [--option namespaces=... --option severity=...] [--live]` | kubernetesプラグイン（`trivy k8s`によるクラスタの誤設定/RBAC/イメージ脆弱性検出）を実行。対象の`address`はhost/URLではなくkubeconfigのcontext名を指定する。検出結果もnucleiと同様finding（`source: "tool"`）として記録 |
 | `pownforge result list` | 実行結果の一覧 |
 | `pownforge result show <run-id>` | 実行結果の詳細（JSON） |
 | `pownforge result review <run-id> <finding-id> <needs-review\|confirmed\|false-positive>` | findingの検証状態を更新 |
@@ -38,3 +38,9 @@
 ディスク破損など）を検出するためのものです。そのファイルを編集できる権限を
 持つ人は証跡のハッシュ自体も書き換えられるため、悪意ある改ざんに対する証明には
 なりません（詳細はAGENTS.mdを参照）。
+
+`--live`はツールのstdoutを1行ずつ`| `付きでその場に表示するだけで、保存される
+証跡・findingの内容は`--live`の有無に関わらず同一です（Web UIのWebSocket
+ライブ進捗と同じ`ScanRunner`の`on_line`コールバックを使っているだけ）。
+Emacs連携（`emacs/pownforge.el`、[docs/emacs.md](emacs.md)）はこの`--live`出力を
+非同期プロセスのバッファへライブテールする形で利用しています。

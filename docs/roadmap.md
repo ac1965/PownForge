@@ -13,12 +13,13 @@
 | **M4** | Web/API Plugin | 🟡 部分完了 | `WebPlugin`(ffuf)/`NucleiPlugin`(nuclei)。sqlmap/API専用プラグインは未着手 |
 | **M5** | Ollama Analysis | ✅ 完了 | 当初設計とほぼ一致 |
 | **M6** | Kubernetes Lab | 🟡 部分完了 | `KubernetesPlugin`(`trivy k8s`)で誤設定/RBAC/イメージ脆弱性検出は実装済み。専用のk8sラボ構成(kube-bench等)は未着手 |
-| **M7** | Emacs Integration + SDK | ❌ 未着手 | Emacs連携は未着手。SDKは`Plugin` ABCのみ |
+| **M7** | Emacs Integration + SDK | 🟡 部分完了 | `emacs/pownforge.el`でEmacs連携は実装済み(後述)。SDKは`Plugin` ABCのみ |
 
 **当初計画に無かった追加実装**: Web UI(FastAPIバックエンド + React SPA、
 ライブ進捗WebSocket、`pownforge lab`による攻撃対象コンテナの動的管理)。
 この2つはロードマップ策定後にユーザー要望で追加され、M7の「操作インターフェース」を
-Emacsではなく先にWeb UIで実現した形になっている。
+Emacsより先にWeb UIで実現した形になっている。Emacs連携自体も後日
+(`emacs/pownforge.el`)追加した。
 
 ---
 
@@ -160,12 +161,30 @@ K8s設定不備を含む)を検出し、CLI/Web UI双方での表示を確認済
 [docs/kubernetes.md](kubernetes.md))。kube-bench連携・専用k8sラボ構成
 (`pownforge lab`からのクラスタ起動)は未着手。
 
-### Phase 9: Emacs Integration — ❌ 未着手(方針転換)
+### Phase 9: Emacs Integration — ✅ 完了
 
-`pownforge.el`・Org-mode連携ともに未着手。代わりに、ユーザーの別要望により
-**Web UI(FastAPI + React)** を先に実装した。「見える化」というPhase 9の目的自体は
-Web UIがある程度代替しているが、Emacs/Org-modeからの操作という当初案そのものは
-未実装のまま。
+`emacs/pownforge.el`として実装。`pownforge`実行バイナリをサブプロセスとして
+呼ぶだけの薄いラッパーで、スコープ検証・実行ロジックはCLI/Web UIと完全に共通
+(再実装しない)。
+
+- 対象/プラグイン一覧を`tabulated-list-mode`で表示(`pownforge-target-list`/
+  `pownforge-plugin-list`)
+- `pownforge-scan`: target/pluginを`completing-read`で選択、`pownforge scan
+  ... --live`を非同期実行しツール出力をバッファへ逐次表示。`--live`は今回
+  CLI側に追加したオプションで、既存の`ScanRunner.run(on_line=...)`
+  (Web UIのWebSocketライブ進捗が使っているのと同じコールバック)をCLIからも
+  使えるようにしただけ
+- `pownforge-result-show`: findingをseverity降順で表示し、その場で
+  `pownforge result review`によるステータス変更が可能
+- `pownforge-findings-to-org`/`pownforge-review-finding-in-org-at-point`:
+  Org-mode連携。findingをOrg見出し(severity→priority、status→TODO
+  キーワード)として挿入し、見出し上からのレビューが実データ
+  (`pownforge result review`)を書き換える
+
+`pownforge.el`・Org-mode連携ともに実装済み。テストは`emacs/tests/`のERT
+(`make emacs-test`、スタブCLI経由で16件)、実機では実際の`pownforge`
+バイナリ+`nmap`によるライブスキャン・結果表示・Org変換を確認済み
+(詳細は[docs/emacs.md](emacs.md))。
 
 ### Phase 10: Plugin SDK・運用高度化 — 🟡 部分完了
 
@@ -190,7 +209,7 @@ Web UIがある程度代替しているが、Emacs/Org-modeからの操作とい
 | ~~1~~ | ~~Web/APIプラグインの拡充~~(nuclei) | ✅ **完了**。`NucleiPlugin`を追加(`pownforge scan nuclei`)。JSONL出力を構造化し、テンプレート単位の検出をそのまま`Finding`として記録する`_findings`規約を`Plugin.normalize()`に追加(既存プラグインは無変更で影響なし)。sqlmapは安全上の設計判断が必要なため引き続き未着手 |
 | ~~2~~ | ~~Kubernetesプラグイン~~(Phase 8) | ✅ **完了**。`trivy k8s`を使う`KubernetesPlugin`を追加(`pownforge scan kubernetes`)。`Target.address`にkubeconfigのcontext名を格納する方式とし、Target modelのschema拡張(type/environment)は別項目として後追いした。既存の`_findings`規約をそのまま再利用し、実機`kind`クラスタで検証済み |
 | ~~3~~ | ~~Target modelのtype/environment拡張~~ | ✅ **完了**。`type`(network/web/api/kubernetes、分類用のみ)と`environment`(local-lab/staging/production)を`Target`に追加。`environment=production`は`notes`(認可/契約の参照)必須を`ScopePolicy.add_target()`でコード強制。CLI(`--type`/`--environment`)・Web API(Targetモデルにそのまま含まれる)・Web UI(Targetsページのフォーム/一覧)いずれからも設定・確認可能 |
-| 4 | **Emacs連携(Phase 9)** | 明示的な依頼があるまで着手しない |
+| ~~4~~ | ~~Emacs連携~~(Phase 9) | ✅ **完了**。`emacs/pownforge.el`を追加。`pownforge`実行バイナリをサブプロセスとして呼ぶだけの薄いラッパーで、対象/プラグイン一覧・`--live`によるライブスキャン・finding review・Org-mode連携(findings→Orgアウトライン、見出しからのreview)をカバー。副産物としてCLIに`--live`オプションを追加し、Web UIのWebSocketライブ進捗と同じ`ScanRunner.run(on_line=...)`をCLIからも使えるようにした |
 
-M7(Emacs)は当初計画のまま残っており、着手時期は未定です。M6(Kubernetes Lab)は
-`KubernetesPlugin`により部分完了(専用ラボ構成は未着手)。
+sqlmapは安全上の設計判断が必要なため引き続き未着手(次に着手候補があるとすれば
+ここ)。M6(Kubernetes Lab)は`KubernetesPlugin`により部分完了(専用ラボ構成は未着手)。
