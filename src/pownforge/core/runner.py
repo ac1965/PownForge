@@ -11,6 +11,7 @@ from pownforge.core.registry import PluginRegistry
 from pownforge.evidence.audit import AuditStore
 from pownforge.evidence.hashing import sha256_text
 from pownforge.evidence.store import EvidenceStore
+from pownforge.plugins.base import Plugin
 
 OnLine = Callable[[str], None]
 
@@ -25,6 +26,20 @@ def _drain(stream, sink: list[str], on_line: OnLine | None) -> None:
         if on_line is not None:
             on_line(line.rstrip("\n"))
     stream.close()
+
+
+def _tool_version(plugin: Plugin) -> str | None:
+    version_command = plugin.version_command()
+    if version_command is None:
+        return None
+    try:
+        result = subprocess.run(version_command, capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    output = (result.stdout or result.stderr or "").strip()
+    if not output:
+        return None
+    return output.splitlines()[0]
 
 
 class ScanRunner:
@@ -62,6 +77,8 @@ class ScanRunner:
                 f"was not found on PATH. Install it, or run via the docker runtime image "
                 f"(see docs/lab.md) which already includes it."
             )
+
+        tool_version = _tool_version(plugin)
 
         command = plugin.build_command(target, options)
         started_at = datetime.now(timezone.utc)
@@ -103,6 +120,7 @@ class ScanRunner:
             returncode=proc.returncode,
             stdout_sha256=sha256_text(stdout_text),
             stderr_sha256=sha256_text(stderr_text),
+            tool_version=tool_version,
         )
         record = RunRecord(
             target=target_name,

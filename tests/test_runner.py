@@ -42,10 +42,31 @@ def test_runner_executes_and_persists(tmp_path: Path) -> None:
 
     assert record.evidence.returncode == 0
     assert "127.0.0.1" in record.output["raw_stdout"]
+    assert record.evidence.tool_version is None  # EchoPlugin doesn't override version_command
 
     store = EvidenceStore(tmp_path / "runs")
     reloaded = store.load(record.run_id)
     assert reloaded.run_id == record.run_id
+
+
+class VersionedEchoPlugin(EchoPlugin):
+    name = "versioned-echo"
+
+    def version_command(self) -> list[str] | None:
+        return ["echo", "FakeTool version 9.9.9"]
+
+
+def test_runner_records_tool_version_when_plugin_supports_it(tmp_path: Path) -> None:
+    policy = ScopePolicy(targets={})
+    policy.add_target(Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1"))
+    registry = PluginRegistry()
+    registry.register(VersionedEchoPlugin())
+    store = EvidenceStore(tmp_path / "runs")
+    runner = ScanRunner(policy=policy, registry=registry, store=store)
+
+    record = runner.run("lab", "versioned-echo", {})
+
+    assert record.evidence.tool_version == "FakeTool version 9.9.9"
 
 
 def test_runner_rejects_unregistered_target(tmp_path: Path) -> None:

@@ -30,3 +30,11 @@ class Plugin(ABC):
     @abstractmethod
     def normalize(self, target: Target, raw_stdout: str, raw_stderr: str) -> dict[str, Any]:
         """Turn raw tool output into a normalized, JSON-serializable result."""
+
+    def version_command(self) -> list[str] | None:
+        """Argv to query the required tool's version (e.g. ["nmap", "--version"]).
+
+        Returns None if the plugin doesn't support version reporting. Like
+        build_command, this only returns argv — ScanRunner is the one that
+        actually runs it, so plugins never call subprocess themselves."""
+        return None

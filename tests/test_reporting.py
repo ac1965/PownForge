@@ -5,14 +5,16 @@ from pownforge.reporting.markdown import render
 
 
 def _record(**overrides) -> RunRecord:
-    evidence = Evidence(
-        command=["nmap", "127.0.0.1"],
-        started_at="2026-01-01T00:00:00Z",
-        finished_at="2026-01-01T00:00:01Z",
-        returncode=0,
-        stdout_sha256="abc",
-        stderr_sha256="def",
-    )
+    evidence_fields = {
+        "command": ["nmap", "127.0.0.1"],
+        "started_at": "2026-01-01T00:00:00Z",
+        "finished_at": "2026-01-01T00:00:01Z",
+        "returncode": 0,
+        "stdout_sha256": "abc",
+        "stderr_sha256": "def",
+    }
+    evidence_fields.update(overrides.pop("evidence_overrides", {}))
+    evidence = Evidence(**evidence_fields)
     defaults = dict(target="lab", plugin="network", evidence=evidence, output={"raw_stdout": "hi"})
     defaults.update(overrides)
     return RunRecord(**defaults)
@@ -22,6 +24,12 @@ def test_render_without_findings_or_analysis_shows_placeholders() -> None:
     output = render(_record())
     assert "_No findings recorded yet._" in output
     assert "`pownforge analyze` を実行すると" in output
+    assert "**Tool version:** _unknown_" in output
+
+
+def test_render_shows_tool_version_when_recorded() -> None:
+    output = render(_record(evidence_overrides={"tool_version": "Nmap version 7.991"}))
+    assert "**Tool version:** Nmap version 7.991" in output
 
 
 def test_render_with_findings_lists_them() -> None:

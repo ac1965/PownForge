@@ -23,6 +23,9 @@ class WebPlugin(Plugin):
     def check(self) -> bool:
         return shutil.which(self.required_tool) is not None
 
+    def version_command(self) -> list[str] | None:
+        return ["ffuf", "-V"]
+
     def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
         if not self.check():
             raise PluginError(f"'{self.required_tool}' is not installed or not on PATH")

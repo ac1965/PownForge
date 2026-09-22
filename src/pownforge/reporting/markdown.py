@@ -34,6 +34,7 @@ def render(record: RunRecord) -> str:
         f"- **Created:** {record.created_at.isoformat()}",
         f"- **Return code:** {record.evidence.returncode}",
         f"- **Command:** `{' '.join(record.evidence.command)}`",
+        f"- **Tool version:** {record.evidence.tool_version or '_unknown_'}",
         f"- **stdout sha256:** `{record.evidence.stdout_sha256}`",
         f"- **stderr sha256:** `{record.evidence.stderr_sha256}`",
         "",

@@ -34,6 +34,12 @@ class Evidence(BaseModel):
     returncode: int
     stdout_sha256: str
     stderr_sha256: str
+    # Best-effort output of the plugin's version_command() (e.g. "Nmap
+    # version 7.991 ( https://nmap.org )"), captured at scan time so a
+    # finding's absence/presence can later be checked against which tool
+    # version actually ran. None when the plugin doesn't report a version
+    # command, the tool is missing, or the version query itself failed.
+    tool_version: str | None = None
 
 
 class Severity(str, Enum):

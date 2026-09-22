@@ -87,3 +87,11 @@ def test_web_plugin_requires_wordlist(monkeypatch: pytest.MonkeyPatch) -> None:
     target = Target(name="lab-web", kind=TargetKind.URL, address="http://lab-web:3000")
     with pytest.raises(PluginError):
         plugin.build_command(target, {})
+
+
+def test_network_plugin_version_command() -> None:
+    assert NetworkPlugin().version_command() == ["nmap", "--version"]
+
+
+def test_web_plugin_version_command() -> None:
+    assert WebPlugin().version_command() == ["ffuf", "-V"]
