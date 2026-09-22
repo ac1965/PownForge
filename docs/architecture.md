@@ -41,6 +41,9 @@ CLI (Typer)
 - `normalize(target, raw_stdout, raw_stderr) -> dict`: 生出力をJSON化可能な形式に変換
   （`NetworkPlugin`/`WebPlugin` は現在、nmapのXML/ffufのJSON出力を構造化データに
   変換済み。詳細は [docs/walkthrough.md](walkthrough.md) の実機検証を参照）
+- `version_command() -> list[str] | None`: ツールのバージョン確認コマンド
+  （省略可、既定は`None`）。`build_command`と同様にargvを返すだけで、
+  実行するのは`ScanRunner`。返した場合は`Evidence.tool_version`に記録される
 
 ## 今後の拡張
 
