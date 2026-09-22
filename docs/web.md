@@ -4,11 +4,11 @@
 `EvidenceStore`)をそのまま使うFastAPIバックエンドを起動できます。スキャンの
 ライブ進捗はWebSocketでストリーミングされます。
 
-> **現在の状況:** バックエンドAPIとフロントエンド(`webui/`, React + Vite)の
-> 閲覧系画面(Dashboard/Targets/Lab/Runs/Run detail、Run detailからの
-> Analyze実行を含む)は実装・動作確認済みです。target登録・lab起動・新規
-> スキャンのフォームはまだ画面に無く、それらはAPI経由（`curl`や`/docs`の
-> Swagger UI）で行ってください。
+> **現在の状況:** バックエンドAPIとフロントエンド(`webui/`, React + Vite)は
+> どちらも実装・動作確認済みです。画面(Dashboard/Targets/Lab/Runs/Run
+> detail/Audit/New Scan/Scan live)からtarget追加・削除、labホスト起動・
+> 削除、新規スキャン実行(ライブ進捗)、Analyze実行、finding検証、
+> evidence検証まで一通り操作できます。
 
 ## セットアップ
 

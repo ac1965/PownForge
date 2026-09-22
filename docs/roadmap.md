@@ -167,10 +167,10 @@ Web UIがある程度代替しているが、Emacs/Org-modeからの操作とい
 | ~~1~~ | ~~Finding.status(needs-review/confirmed/false-positive)の導入~~ | ✅ **完了**。`finding_id`/`status`をFindingに追加し、`pownforge result review`・Web UI(Run detailの確認ボタン)・`PATCH /api/runs/{id}/findings/{id}`から状態遷移可能に。レポートも検証状態別に見出しを分けて出力するよう変更 |
 | ~~2~~ | ~~ポリシー違反の証跡化~~(拒否された実行試行の記録) | ✅ **完了**。`ScanRunner`が`PolicyError`を`AuditStore`に記録。`pownforge audit list/show`・`GET /api/audit`・Web UIのAuditページ/Dashboardパネルから確認可能 |
 | ~~3~~ | ~~`pownforge evidence verify`~~ | ✅ **完了**。CLI/Web API/Web UIから、保存済み`output`と証跡ハッシュの一致を確認できる |
-| 1 | **Web UIの書き込み系画面(Slice 3)**: Target追加・Lab起動・NewScan+ライブ進捗 | 既に設計・バックエンドは完了しており、フロントエンドのフォーム追加のみ |
-| 2 | **tool_versionの記録** | nmap/ffufのバージョンを証跡に残す。トリアージ時に「どのバージョンで検出/未検出だったか」が分かるようにする |
-| 3 | **Web/APIプラグインの拡充**(nuclei等) | Phase 5の主要ツールが未着手 |
-| 7 | **Target modelのtype/environment拡張** | Kubernetes/実案件プラグインに着手するタイミングで一緒に設計(既存判断を維持) |
-| 8 | **Kubernetesプラグイン(Phase 8)、Emacs連携(Phase 9)** | 明示的な依頼があるまで着手しない |
+| ~~4~~ | ~~Web UIの書き込み系画面(Slice 3)~~: Target追加・Lab起動・NewScan+ライブ進捗 | ✅ **完了**。Targets/Labページに追加・削除フォーム、New Scan(target/plugin/options選択)→Scan live(WebSocketライブテール)→Run detailへの自動遷移まで実装。実機(Docker)でtarget追加→lab起動(alpine)→対象自動登録→スキャン実行→ライブ出力→Run detail遷移を確認済み |
+| 1 | **tool_versionの記録** | nmap/ffufのバージョンを証跡に残す。トリアージ時に「どのバージョンで検出/未検出だったか」が分かるようにする |
+| 2 | **Web/APIプラグインの拡充**(nuclei等) | Phase 5の主要ツールが未着手 |
+| 3 | **Target modelのtype/environment拡張** | Kubernetes/実案件プラグインに着手するタイミングで一緒に設計(既存判断を維持) |
+| 4 | **Kubernetesプラグイン(Phase 8)、Emacs連携(Phase 9)** | 明示的な依頼があるまで着手しない |
 
 M6(Kubernetes)・M7(Emacs)は当初計画のまま残っており、着手時期は未定です。

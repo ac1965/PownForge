@@ -76,10 +76,10 @@ pownforge analyze <run-id>
 ## Web UI / API
 
 `pip install -e ".[web]"` の上で `pownforge web serve` を実行すると、CLIと
-同じコアをそのまま使うFastAPIバックエンドが起動し、スキャンのライブ進捗を
-WebSocketで確認できます。React製フロントエンド(`webui/`)でDashboard/Targets/
-Lab/Runs/Run detail(Analyze実行含む)の閲覧ができます(target登録・lab起動・
-新規スキャンのフォームは未実装で、それらはAPI経由で行います)。詳細は
+同じコアをそのまま使うFastAPIバックエンドが起動します。React製フロントエンド
+(`webui/`)からtargetの追加・削除、labホストの起動・削除、新規スキャンの実行
+(WebSocketによるライブ進捗表示)、AI分析、finding検証、evidence検証まで、
+ひととおりの操作がブラウザだけで完結します。詳細は
 [docs/web.md](docs/web.md) を参照してください。
 
 ## アーキテクチャ
