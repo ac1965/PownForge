@@ -10,7 +10,7 @@
 | **M1** | CLI + Target + Plugin Registry | ✅ 完了 | Typer CLI、`ScopePolicy`、`PluginRegistry` |
 | **M2** | Network Plugin + Result Store | ✅ 完了 | `NetworkPlugin`(nmap)、`EvidenceStore` |
 | **M3** | Evidence + Markdown Report | 🟡 部分完了 | 保存構造・検証コマンドが当初案と異なる（後述） |
-| **M4** | Web/API Plugin | 🟡 部分完了 | `WebPlugin`(ffuf)/`NucleiPlugin`(nuclei)。sqlmap/API専用プラグインは未着手 |
+| **M4** | Web/API Plugin | 🟡 部分完了 | `WebPlugin`(ffuf)/`NucleiPlugin`(nuclei)/`SqlmapPlugin`(sqlmap)。API専用プラグインは未着手 |
 | **M5** | Ollama Analysis | ✅ 完了 | 当初設計とほぼ一致 |
 | **M6** | Kubernetes Lab | 🟡 部分完了 | `KubernetesPlugin`(`trivy k8s`)で誤設定/RBAC/イメージ脆弱性検出は実装済み。専用のk8sラボ構成(kube-bench等)は未着手 |
 | **M7** | Emacs Integration + SDK | 🟡 部分完了 | `emacs/pownforge.el`でEmacs連携は実装済み(後述)。SDKは`Plugin` ABCのみ |
@@ -110,9 +110,10 @@ class Target(BaseModel):
 | nuclei | ✅ 実装済み(`NucleiPlugin`)。テンプレート単位の検出結果をそのまま
   `Finding`(`source="tool"`、既定`needs-review`)として記録する、当初案の
   検証ワークフローに最も近いプラグイン |
-| sqlmap | ❌ 未実装(SQLインジェクションを能動的に試行するツールのため、
-  ffuf/nucleiより安全上の検討が必要。着手時は既定を最も保守的なオプション
-  にする、対象の同意確認を厚くする等の設計判断が要る) |
+| sqlmap | ✅ 実装済み(`SqlmapPlugin`)。`--risk`/`--level`/`--dump`は自由に使えるが、
+  OS/レジストリ/ファイル操作・シェル・設定ファイル読み込みに相当するオプションは
+  常に拒否する安全設計(詳細は[docs/sqlmap.md](sqlmap.md))。検出手法ごとに
+  `Finding`(`source="tool"`、severity`critical`)として記録 |
 | curl/httpx(API確認) | ❌ 未実装(`httpx`は依存関係にあるが未使用) |
 
 当初案の「Tool Output → Parser → Candidate Finding → Manual Verification →
@@ -210,6 +211,8 @@ K8s設定不備を含む)を検出し、CLI/Web UI双方での表示を確認済
 | ~~2~~ | ~~Kubernetesプラグイン~~(Phase 8) | ✅ **完了**。`trivy k8s`を使う`KubernetesPlugin`を追加(`pownforge scan kubernetes`)。`Target.address`にkubeconfigのcontext名を格納する方式とし、Target modelのschema拡張(type/environment)は別項目として後追いした。既存の`_findings`規約をそのまま再利用し、実機`kind`クラスタで検証済み |
 | ~~3~~ | ~~Target modelのtype/environment拡張~~ | ✅ **完了**。`type`(network/web/api/kubernetes、分類用のみ)と`environment`(local-lab/staging/production)を`Target`に追加。`environment=production`は`notes`(認可/契約の参照)必須を`ScopePolicy.add_target()`でコード強制。CLI(`--type`/`--environment`)・Web API(Targetモデルにそのまま含まれる)・Web UI(Targetsページのフォーム/一覧)いずれからも設定・確認可能 |
 | ~~4~~ | ~~Emacs連携~~(Phase 9) | ✅ **完了**。`emacs/pownforge.el`を追加。`pownforge`実行バイナリをサブプロセスとして呼ぶだけの薄いラッパーで、対象/プラグイン一覧・`--live`によるライブスキャン・finding review・Org-mode連携(findings→Orgアウトライン、見出しからのreview)をカバー。副産物としてCLIに`--live`オプションを追加し、Web UIのWebSocketライブ進捗と同じ`ScanRunner.run(on_line=...)`をCLIからも使えるようにした |
+| ~~5~~ | ~~sqlmapプラグイン~~(Phase 5) | ✅ **完了**。`SqlmapPlugin`を追加(`pownforge scan sqlmap`)。安全設計は「`--risk`/`--level`/`--dump`は自由に使える(既定は最も保守的なrisk 1/level 1)、OS/レジストリ/ファイル操作・シェル・設定ファイル読み込みに相当するオプションは常に拒否」という方針で確定(ユーザーと協議のうえ決定)。既存の`_findings`規約を再利用し、意図的に脆弱なローカルアプリ+実機`sqlmap`で検証済み |
 
-sqlmapは安全上の設計判断が必要なため引き続き未着手(次に着手候補があるとすれば
-ここ)。M6(Kubernetes Lab)は`KubernetesPlugin`により部分完了(専用ラボ構成は未着手)。
+これでPhase 2〜10は全て完了/部分完了。M6(Kubernetes Lab)は`KubernetesPlugin`
+により部分完了(専用ラボ構成は未着手)、Phase 5のAPI専用プラグイン(curl/httpx)・
+Phase 10のcontainer/identityプラグインなど、各Phaseの未実装細目は上記の詳細を参照。

@@ -29,6 +29,13 @@ CLI (Typer)
   `Target.environment`が`production`の対象は`notes`(認可/契約の参照)が
   必須で、無い場合`ScopePolicy.add_target()`自体が`PolicyError`を送出します
   (CLI/Web API/Web UIいずれの登録経路でも同じチェックを通る)。
+  `SqlmapPlugin`はさらに一段階、プラグイン固有の強制を持ちます:
+  `--risk`/`--level`(検出ペイロードの積極度)には上限を設けない一方、
+  OS/レジストリ/ファイル操作やインタラクティブシェルに相当するオプション
+  (`os-shell`, `file-write`, `tamper`, `c` 等)は`build_command()`が
+  常に`PluginError`で拒否します。これはSQLi検出の範囲を超えて対象ホスト・
+  その先のネットワークへスコープが逸脱するのを防ぐためで、risk/levelの値には
+  依存しません(詳細は[docs/sqlmap.md](sqlmap.md))。
 - **コマンド組み立てと実行を分離する**: プラグインは `build_command`/`normalize` の
   みを担当し、実際に外部プロセスを起動するのは `ScanRunner`（`LabManager` も同様の
   分離）に一本化しています。証跡の保存形式やファイルパスは `evidence/` が一元管理し、
@@ -62,7 +69,8 @@ CLI (Typer)
 
 `normalize()`が返す辞書に`"_findings"`キー（`{"title", "severity", "detail"}`の
 リスト）を含めると、`ScanRunner`がそれを取り出して`Finding`（`source="tool"`）に
-変換し`RunRecord.findings`へ格納します（`NucleiPlugin`/`KubernetesPlugin`が使用）。
+変換し`RunRecord.findings`へ格納します（`NucleiPlugin`/`KubernetesPlugin`/
+`SqlmapPlugin`が使用）。
 このキーを使わないプラグイン（`NetworkPlugin`/`WebPlugin`）には影響しません。ツール側の
 severity表記が`Severity` enumに合わない場合は`info`にフォールバックし、
 finding自体は破棄しません（`core/finding_utils.py::coerce_finding`、

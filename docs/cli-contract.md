@@ -11,6 +11,7 @@
 | `pownforge scan web --target <name> --option wordlist=<path> [--live]` | webプラグイン（ffuf）を実行 |
 | `pownforge scan nuclei --target <name> [--option tags=... --option severity=... --option templates=...] [--live]` | nucleiプラグイン（テンプレートベースの脆弱性検出）を実行。検出結果はそのままfinding（`source: "tool"`、既定`needs-review`）として記録 |
 | `pownforge scan kubernetes --target <name> [--option namespaces=... --option severity=...] [--live]` | kubernetesプラグイン（`trivy k8s`によるクラスタの誤設定/RBAC/イメージ脆弱性検出）を実行。対象の`address`はhost/URLではなくkubeconfigのcontext名を指定する。検出結果もnucleiと同様finding（`source: "tool"`）として記録 |
+| `pownforge scan sqlmap --target <name> [--option risk=... --option level=... --option dump=true ...] [--live]` | sqlmapプラグイン（SQLインジェクション検出/抽出）を実行。対象の`address`はインジェクション対象パラメータを含むURL（`--kind url`）。`--risk`/`--level`に上限は無いが、OS/レジストリ/ファイル操作・シェル・設定ファイル読み込みに相当するオプション（`os-shell`, `file-write`, `tamper`, `c` 等）は常に拒否される（詳細は[docs/sqlmap.md](sqlmap.md)）。検出結果はfinding（`source: "tool"`、severity `critical`）として記録 |
 | `pownforge result list` | 実行結果の一覧 |
 | `pownforge result show <run-id>` | 実行結果の詳細（JSON） |
 | `pownforge result review <run-id> <finding-id> <needs-review\|confirmed\|false-positive>` | findingの検証状態を更新 |
