@@ -300,6 +300,11 @@ pownforge analyze <run-id>
 | `pownforge playbook list [--playbooks-dir <dir>]` | 利用可能なPlaybookの一覧 |
 | `pownforge playbook show <name> [--playbooks-dir <dir>]` | Playbookのステップ内容を表示 |
 | `pownforge playbook run <name> --target <target> [--playbooks-dir <dir>]` | Playbookの全ステップを対象に順次実行。1ステップ失敗しても後続は継続、`when`条件を満たさないステップはSKIPPEDとして報告(詳細は[§8](#8-playbook-複数プラグインの連続実行)) |
+| `pownforge attack-session create <name> [--description <text>] [--engagement <name>]` | 空のAttackSessionを作成(何も実行しない) |
+| `pownforge attack-session add-stage <name> <run-id> [--label <text>]` | 既存のrun-idをAttackSessionの次のステージとして追加 |
+| `pownforge attack-session list` | AttackSessionの一覧 |
+| `pownforge attack-session show <name>` | AttackSessionのステージを順に表示 |
+| `pownforge attack-session report <name> [--format markdown\|html]` | AttackSessionを経路レポートとして`<workdir>/reports/`に出力(詳細は[§12](#12-証跡とレポート)) |
 | `pownforge audit list` | `ScopePolicy`が拒否したスキャン実行の試みを一覧表示 |
 | `pownforge audit show <violation-id>` | 拒否された試みの詳細(JSON) |
 | `pownforge evidence verify <run-id>` | 保存済みoutputからハッシュを再計算し、証跡と一致するか確認 |
@@ -1501,6 +1506,50 @@ import`自体が何も実行しない、という制約はこれまでどおり)
 レポート側にも`Kill chain phase: initial-access`/
 `Kill chain phase: privilege-escalation`が正しく表示されることを確認済み。
 
+#### `AttackSession`: 複数runを名前付きの経路としてまとめる
+
+`pownforge walkthrough generate <run-id>...`は、その場限りで複数runを
+まとめてAIナラティブを生成するコマンドです。`AttackSession`は、これを
+**名前付きで永続化**したものです。「discoveryのrun→手動exploitのrun→
+手動privescのrun」という経路を、人間が選んだ順番・人間が書いたラベル
+付きで保存し、何度でも参照・レポート化できます。
+
+```bash
+pownforge attack-session create op-2026-lab --description "Lab engagement walkthrough"
+
+pownforge attack-session add-stage op-2026-lab <run-id-1> --label "Discovered SSH/HTTP"
+pownforge attack-session add-stage op-2026-lab <run-id-2> --label "Initial foothold via Shellshock"
+pownforge attack-session add-stage op-2026-lab <run-id-3> --label "Escalated to root"
+
+pownforge attack-session show op-2026-lab
+pownforge attack-session report op-2026-lab --format html
+```
+
+**これも`Engagement`/`result import`と同じ「記録・追跡専用」の枠組みです**。
+`attack-session add-stage`は指定した`run-id`が`EvidenceStore`に既に
+存在することを確認するだけで、新しいrunを作ったり何かを実行したりは
+一切しません(`core/attack_session.py::AttackSessionStore`は
+`EvidenceStore`/`AuditStore`と同じ「1レコード1JSONファイル」構成)。
+`AttackSession`のstageは、既存のPlaybook(実行前に書く計画)とは対照的に、
+**実行後に人間が選んで物語として組み立てる**ものです。
+
+`--target`/`--run-ids`する既存の`walkthrough generate`と何が違うかと
+言うと、`walkthrough`はAIが接続ナラティブを生成する使い捨ての出力です。
+`AttackSession`は、`config/targets.yaml`のtarget登録や`Engagement`のように
+**保存された名前付きオブジェクト**で、ラベル付きの経路として何度でも
+`show`/`report`できます。両者は併用できます(`AttackSession`の
+stage一覧から`run-id`を集めて`walkthrough generate`に渡す、という使い方も
+可能)。
+
+**実機検証**: 実際の`network`スキャン→`result import --phase
+initial-access`→`result import --phase privilege-escalation`という
+3つのrunを作成し、`attack-session create`→`add-stage`を3回実行して
+経路を組み立てた。`attack-session show`で経路とフェーズ・ラベルが
+正しく一覧表示され、`attack-session report --format html/markdown`
+双方でstageごとの詳細(コマンド・フェーズ・findings)が正しく出力
+されることを確認した。存在しないrun-idを指定した場合に拒否されること、
+同名セッションの重複作成が拒否されることも確認済み。
+
 各レポート(単一run向けの`report generate`、複数runを横断する
 `walkthrough generate`のいずれも)冒頭には**エグゼクティブサマリー**節が
 あり、`reporting/summary.py::summarize()`が既存のFindingを集計して
@@ -1569,7 +1618,11 @@ PownForgeが実際にホスト間を移動するのではなく、既に個別�
 `ScanRunner`経由で順に流すだけ)、`result import`への`KillChainPhase`
 タグ付け(discovery〜impactの全フェーズをレポート・ウォークスルー上で
 分類できるようにしたもの。PownForge自身が実行するのは引き続き
-discovery/vuln-confirm相当のみで、exploit以降は今までどおり記録専用)。
+discovery/vuln-confirm相当のみで、exploit以降は今までどおり記録専用)、
+`AttackSession`による複数run経路の名前付き永続化(`walkthrough
+generate`をその場限りの出力から、ラベル付きで保存・再参照できる経路に
+発展させたもの。`add-stage`は既存run-idの存在確認のみで、実行・生成は
+一切しない)。
 
 **既知の未実装項目**:
 

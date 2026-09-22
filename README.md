@@ -135,6 +135,10 @@ make test-all     # pytest + webuiビルド + Emacs ERT(npm/Emacsが入ってい
   実行順・条件(`when`: 直前までのstepのfinding severityによる分岐)は
   人間が事前に書いたYAMLで決まり、実行時にAIが次の一手を決めることはない。
   詳細は[docs/handbook.md §8](docs/handbook.md#8-playbook-複数プラグインの連続実行)）
+- `AttackSession`による複数run経路の名前付き永続化（`pownforge attack-session
+  create/add-stage/show/report`。既存run-idの存在確認のみで、実行・生成は
+  一切しない。`walkthrough generate`の使い捨て出力を、ラベル付きで保存・
+  再参照できる経路に発展させたもの）
 - LLM分析アダプタ（`llm` CLI経由。ローカルOllama/Claude/OpenAI等をモデル名で切替）
 - Emacs連携（`emacs/pownforge.el`）: 対象/プラグイン一覧、`--live`によるスキャン・
   Playbookのライブ表示、findingのレビュー、Org-modeへのfindings出力
