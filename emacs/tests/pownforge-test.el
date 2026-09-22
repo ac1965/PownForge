@@ -176,6 +176,37 @@
              (should (string-match-p "line two" (buffer-string)))))
        (when (buffer-live-p buf) (kill-buffer buf))))))
 
+;;; Walkthrough (multi-run narrative)
+
+(ert-deftest pownforge-test-walkthrough-generate-with-explicit-run-ids ()
+  (pownforge-test-with-fake-cli
+   (let ((answers (list "run001" "" "html"))
+         calls
+         opened-path)
+     (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) (pop answers)))
+               ((symbol-function 'pownforge--run-to-string)
+                (lambda (args) (push args calls) "wrote /tmp/fake-walkthrough.md"))
+               ((symbol-function 'find-file) (lambda (path) (setq opened-path path))))
+       (pownforge-walkthrough-generate))
+     ;; run-id loop collected "run001" then stopped on the blank answer, so
+     ;; the target prompt must never have fired (it would have consumed
+     ;; "html" as the target, leaving the format prompt starved).
+     (should (equal (car calls) '("walkthrough" "generate" "run001" "--format" "html")))
+     (should (equal opened-path "/tmp/fake-walkthrough.md")))))
+
+(ert-deftest pownforge-test-walkthrough-generate-with-target ()
+  (pownforge-test-with-fake-cli
+   (let ((answers (list "" "lab-web" "markdown"))
+         calls)
+     (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) (pop answers)))
+               ((symbol-function 'pownforge--run-to-string)
+                (lambda (args) (push args calls) "wrote /tmp/fake-walkthrough.md"))
+               ((symbol-function 'find-file) #'ignore))
+       (pownforge-walkthrough-generate))
+     ;; blank run-id answer immediately stops the loop, so the target prompt
+     ;; must fire next.
+     (should (equal (car calls) '("walkthrough" "generate" "--target" "lab-web" "--format" "markdown"))))))
+
 (provide 'pownforge-test)
 
 ;;; pownforge-test.el ends here

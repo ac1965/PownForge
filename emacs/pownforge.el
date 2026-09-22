@@ -23,6 +23,9 @@
 ;;     `result-show' renders findings with `pownforge-review-finding-at-point'
 ;;     bound locally to update a finding's review status in place.
 ;;   `pownforge-report-generate' -- generate and open a run's Markdown report.
+;;   `pownforge-walkthrough-generate' -- generate a narrative walkthrough
+;;     spanning several runs (or every run against a target), via the local
+;;     LLM. Read-only: never touches a run's stored findings/analysis.
 ;;   `pownforge-audit-list' -- browse rejected scan attempts (ScopePolicy
 ;;     denials).
 ;;   `pownforge-findings-to-org' -- insert a run's findings as an Org
@@ -493,6 +496,40 @@ Findings are listed severity-first; press `r' on one to review it
                                     (pownforge--run '("result" "list") '(:workdir))))
                            nil t)))
   (let* ((out (pownforge--run (list "report" "generate" run-id) '(:workdir)))
+         (path (when (string-match "wrote \\(.+\\)$" out) (match-string 1 out))))
+    (unless path
+      (user-error "could not determine report path from: %s" out))
+    (find-file (string-trim path))))
+
+;;;###autoload
+(defun pownforge-walkthrough-generate ()
+  "Generate a narrative walkthrough spanning multiple runs and open it.
+Prompts repeatedly for run ids to include, in that order (blank to stop);
+if none are given, prompts for a target instead (every run recorded
+against it, oldest first). Read-only: unlike `pownforge-report-generate'
+this never touches any run's stored findings/analysis -- see
+`pownforge result review'/Org integration for that."
+  (interactive)
+  (let* ((run-choices (mapcar (lambda (r) (plist-get r :run-id))
+                               (pownforge-parse-result-list
+                                (pownforge--run '("result" "list") '(:workdir)))))
+         (run-ids (cl-loop for id = (completing-read
+                                     "Add run id (blank to finish): " run-choices)
+                            while (not (string-empty-p id))
+                            collect id))
+         (target (when (null run-ids)
+                   (completing-read
+                    "Target (every run recorded against it, oldest first): "
+                    (mapcar (lambda (r) (plist-get r :name))
+                            (pownforge-parse-target-list
+                             (pownforge--run '("target" "list") '(:config))))
+                    nil t)))
+         (chosen-format (completing-read "Format: " '("markdown" "html") nil t "markdown"))
+         (args (append (list "walkthrough" "generate") run-ids
+                        (when target (list "--target" target))
+                        (list "--format" chosen-format)
+                        (pownforge--global-args '(:workdir))))
+         (out (pownforge--run-to-string args))
          (path (when (string-match "wrote \\(.+\\)$" out) (match-string 1 out))))
     (unless path
       (user-error "could not determine report path from: %s" out))

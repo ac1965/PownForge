@@ -45,6 +45,9 @@ JSON
   "report generate")
     echo "wrote /tmp/fake-pownforge-report-$3.md"
     ;;
+  "walkthrough generate")
+    echo "wrote /tmp/fake-pownforge-walkthrough.md"
+    ;;
   "audit list")
     printf 'v1\t2026-09-22T09:00:00+00:00\tunregistered-host\tnetwork\ttarget '"'"'unregistered-host'"'"' is not registered\n'
     ;;
