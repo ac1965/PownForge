@@ -801,6 +801,23 @@ flowchart LR
 明記されます。`severity`は固定enumで検証し、想定外の値は`info`に
 フォールバックします。
 
+対象runの`plugin`が`web`/`nuclei`/`sqlmap`(Webアプリを相手にするプラグイン)
+のときだけ、プロンプトにOWASP Top 10ライクなチェックリスト(Broken Access
+Control/Injection/Security Misconfiguration等10項目、`core/analysis.py::
+_OWASP_CHECKLIST`)を追加で渡します。あくまで「raw出力を評価する際に
+考慮すべき観点のカテゴリ一覧」を渡すだけで、evidenceの基準自体は変えません
+(raw出力に実際に現れていないものをfindingとして報告してはいけない、という
+指示は従来どおり)。`network`/`kubernetes`/`container`/`recon`のような
+Webアプリを対象にしないプラグインには付与されません
+(`The Hacker Playbook 2`の"The Throw"章――手動Web診断で見るべき観点の
+リスト――に着想を得ています)。
+
+**実機検証**: ローカルOllama(`qwen3:14b`)に対し、`/api/debug`が
+スタックトレース付きの500エラーを返しNode/Express旧バージョンを露出する
+合成ffuf出力を渡したところ、実際に「セキュリティミス構成」「古くなった
+コンポーネント」というOWASPカテゴリに沿った分類でfindingが生成されることを
+確認済み。
+
 ### `pownforge walkthrough generate`(複数runの物語調ウォークスルー)
 
 「まず`network`でポート発見→`web`でエンドポイント発見→`nuclei`で脆弱性
@@ -1016,7 +1033,9 @@ findingsが正しく記録・表示されることを確認してから完了と
 Emacs連携、複数runをまたぐ物語調ウォークスルー機能とAIの提案(Suggestion)、
 recon(`subfinder`)による受動的サブドメイン列挙(`The Hacker Playbook 2`の
 "Before the Snap"章に着想を得た偵察フェーズの補強)、レポートのエグゼクティブ
-サマリー節(同書"Post-Game Analysis"章に着想を得た報告書の全体像提示)。
+サマリー節(同書"Post-Game Analysis"章に着想を得た報告書の全体像提示)、
+Webアプリ系プラグインの`pownforge analyze`へのOWASP Top 10チェックリスト
+(同書"The Throw"章に着想を得た手動診断観点の補強)。
 
 **既知の未実装項目**:
 

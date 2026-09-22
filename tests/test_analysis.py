@@ -97,3 +97,38 @@ def test_run_analysis_honors_explicit_english_language(tmp_path: Path) -> None:
     run_analysis(store, seeded.run_id, adapter, language=Language.EN)  # type: ignore[arg-type]
     assert "entirely in English" in adapter.seen_prompt
     assert "Japanese" not in adapter.seen_prompt
+
+
+def _seed_record_with_plugin(store: EvidenceStore, plugin: str) -> RunRecord:
+    evidence = Evidence(
+        command=[plugin, "127.0.0.1"],
+        started_at="2026-01-01T00:00:00Z",
+        finished_at="2026-01-01T00:00:01Z",
+        returncode=0,
+        stdout_sha256="abc",
+        stderr_sha256="def",
+    )
+    record = RunRecord(target="lab", plugin=plugin, evidence=evidence, output={"raw_stdout": "hi"})
+    store.save(record)
+    return record
+
+
+@pytest.mark.parametrize("plugin", ["web", "nuclei", "sqlmap"])
+def test_run_analysis_includes_owasp_checklist_for_web_plugins(tmp_path: Path, plugin: str) -> None:
+    store = EvidenceStore(tmp_path / "runs")
+    seeded = _seed_record_with_plugin(store, plugin)
+    adapter = CapturingAdapter(json.dumps({"summary": "ok", "findings": []}))
+
+    run_analysis(store, seeded.run_id, adapter)  # type: ignore[arg-type]
+    assert "OWASP Top 10-style categories" in adapter.seen_prompt
+    assert "Broken Access Control" in adapter.seen_prompt
+
+
+@pytest.mark.parametrize("plugin", ["network", "kubernetes", "container", "recon"])
+def test_run_analysis_omits_owasp_checklist_for_non_web_plugins(tmp_path: Path, plugin: str) -> None:
+    store = EvidenceStore(tmp_path / "runs")
+    seeded = _seed_record_with_plugin(store, plugin)
+    adapter = CapturingAdapter(json.dumps({"summary": "ok", "findings": []}))
+
+    run_analysis(store, seeded.run_id, adapter)  # type: ignore[arg-type]
+    assert "OWASP" not in adapter.seen_prompt

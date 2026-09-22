@@ -13,9 +13,32 @@ _PROMPT_TEMPLATE = (
     '"detail": "<1-2 sentence explanation>"}}]}}. Only include findings you can support '
     "directly from the raw output below; return an empty findings list if nothing stands "
     "out. Phrase every finding as something worth a human reviewing, never as a confirmed "
-    "vulnerability. {language_instruction}\n\n"
+    "vulnerability. {language_instruction}\n"
+    "{checklist_section}\n"
     "Target: {target}\nPlugin: {plugin}\n\n"
     "Raw output:\n{raw_stdout}"
+)
+
+# Plugins whose raw output is a web application response/probe, where an
+# OWASP-style checklist gives the LLM a concrete list of categories to weigh
+# the output against -- it never widens what counts as evidence, just names
+# the kinds of issues worth checking for. See docs/handbook.md #10.
+_WEB_PLUGINS = frozenset({"web", "nuclei", "sqlmap"})
+
+_OWASP_CHECKLIST = (
+    "\nWhen reviewing web-application output, weigh it against these OWASP "
+    "Top 10-style categories -- report a finding only when the raw output "
+    "below actually evidences it, never speculatively:\n"
+    "- Broken Access Control (missing authorization checks, IDOR-style object references)\n"
+    "- Cryptographic Failures (cleartext transport, weak/expired TLS)\n"
+    "- Injection (SQL, command, template, or reflected/stored XSS in a response)\n"
+    "- Insecure Design (no rate limiting, predictable resource identifiers)\n"
+    "- Security Misconfiguration (verbose stack traces, default credentials, exposed admin/debug endpoints)\n"
+    "- Vulnerable and Outdated Components (server/framework banners naming a known-old version)\n"
+    "- Identification and Authentication Failures (weak session handling, no lockout on repeated attempts)\n"
+    "- Software and Data Integrity Failures (unsigned update or deserialization paths)\n"
+    "- Security Logging and Monitoring Failures (behavior implying errors go unlogged/unmonitored)\n"
+    "- Server-Side Request Forgery (an endpoint that fetches an attacker-supplied URL)\n"
 )
 
 
@@ -44,6 +67,7 @@ def run_analysis(
         plugin=record.plugin,
         raw_stdout=record.output.get("raw_stdout", ""),
         language_instruction=language_instruction(language),
+        checklist_section=_OWASP_CHECKLIST if record.plugin in _WEB_PLUGINS else "",
     )
     try:
         response = adapter.analyze(prompt)
