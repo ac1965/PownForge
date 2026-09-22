@@ -100,7 +100,9 @@ make test
 
 - CLI基盤（Typer）
 - 対象管理・スコープ検証（`core/policy.py`）
-- プラグインレジストリと `network`（nmap）/ `web`（ffuf）。nmap XML / ffuf JSON出力を構造化データに正規化済み
+- プラグインレジストリと `network`（nmap）/ `web`（ffuf）/ `nuclei`（テンプレートベース脆弱性検出）/
+  `kubernetes`（`trivy k8s`によるクラスタ誤設定・RBAC・イメージ脆弱性検出）。各ツールの出力は
+  構造化データに正規化し、nuclei/kubernetesは検出結果をfinding（`source: "tool"`）としても記録
 - 隔離Dockerネットワーク上への攻撃対象ホストの動的追加（`pownforge lab`）
 - Web API + ライブ進捗WebSocket（`pownforge web serve`、optional extra `[web]`）+ React製の閲覧用SPA（`webui/`）
 - 実行証跡（コマンド・タイムスタンプ・SHA-256ハッシュ）の保存

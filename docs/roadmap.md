@@ -12,7 +12,7 @@
 | **M3** | Evidence + Markdown Report | 🟡 部分完了 | 保存構造・検証コマンドが当初案と異なる（後述） |
 | **M4** | Web/API Plugin | 🟡 部分完了 | `WebPlugin`(ffuf)/`NucleiPlugin`(nuclei)。sqlmap/API専用プラグインは未着手 |
 | **M5** | Ollama Analysis | ✅ 完了 | 当初設計とほぼ一致 |
-| **M6** | Kubernetes Lab | ❌ 未着手 | |
+| **M6** | Kubernetes Lab | 🟡 部分完了 | `KubernetesPlugin`(`trivy k8s`)で誤設定/RBAC/イメージ脆弱性検出は実装済み。専用のk8sラボ構成(kube-bench等)は未着手 |
 | **M7** | Emacs Integration + SDK | ❌ 未着手 | Emacs連携は未着手。SDKは`Plugin` ABCのみ |
 
 **当初計画に無かった追加実装**: Web UI(FastAPIバックエンド + React SPA、
@@ -145,9 +145,15 @@ CLI(`pownforge analyze <run-id> [--model ...]`)とも実装が一致。「要約
 `source="ai"`かつ常にレポート上で明示する設計により実質的に守られている。
 このフェーズが当初案に最も近い形で実現できている。
 
-### Phase 8: Kubernetes Security Lab — ❌ 未着手
+### Phase 8: Kubernetes Security Lab — 🟡 部分完了
 
-kube-bench/Trivy連携、k8sラボ構成、いずれも未着手。
+`trivy k8s`によるクラスタの誤設定/RBAC/イメージ脆弱性/シークレット検出を
+`KubernetesPlugin`(`pownforge scan kubernetes`)として実装済み。`Target.address`に
+kubeconfigのcontext名を格納する方式とし、`Target`/`TargetKind`スキーマの拡張は
+見送った(既存判断を維持)。実機の`kind`クラスタで258件のfinding(実在CVE・
+K8s設定不備を含む)を検出し、CLI/Web UI双方での表示を確認済み(詳細は
+[docs/kubernetes.md](kubernetes.md))。kube-bench連携・専用k8sラボ構成
+(`pownforge lab`からのクラスタ起動)は未着手。
 
 ### Phase 9: Emacs Integration — ❌ 未着手(方針転換)
 
@@ -177,7 +183,9 @@ Web UIがある程度代替しているが、Emacs/Org-modeからの操作とい
 | ~~4~~ | ~~Web UIの書き込み系画面(Slice 3)~~: Target追加・Lab起動・NewScan+ライブ進捗 | ✅ **完了**。Targets/Labページに追加・削除フォーム、New Scan(target/plugin/options選択)→Scan live(WebSocketライブテール)→Run detailへの自動遷移まで実装。実機(Docker)でtarget追加→lab起動(alpine)→対象自動登録→スキャン実行→ライブ出力→Run detail遷移を確認済み |
 | ~~5~~ | ~~tool_versionの記録~~ | ✅ **完了**。`Plugin.version_command()`をScanRunnerが実行し`Evidence.tool_version`に保存。CLI/Web API/Web UIから確認可能 |
 | ~~1~~ | ~~Web/APIプラグインの拡充~~(nuclei) | ✅ **完了**。`NucleiPlugin`を追加(`pownforge scan nuclei`)。JSONL出力を構造化し、テンプレート単位の検出をそのまま`Finding`として記録する`_findings`規約を`Plugin.normalize()`に追加(既存プラグインは無変更で影響なし)。sqlmapは安全上の設計判断が必要なため引き続き未着手 |
-| 2 | **Target modelのtype/environment拡張** | Kubernetes/実案件プラグインに着手するタイミングで一緒に設計(既存判断を維持) |
-| 3 | **Kubernetesプラグイン(Phase 8)、Emacs連携(Phase 9)** | 明示的な依頼があるまで着手しない |
+| ~~2~~ | ~~Kubernetesプラグイン~~(Phase 8) | ✅ **完了**。`trivy k8s`を使う`KubernetesPlugin`を追加(`pownforge scan kubernetes`)。`Target.address`にkubeconfigのcontext名を格納する方式とし、Target modelのschema拡張は見送った。既存の`_findings`規約をそのまま再利用し、実機`kind`クラスタで検証済み |
+| 3 | **Target modelのtype/environment拡張** | 実案件プラグイン(Phase 4)に着手するタイミングで一緒に設計(既存判断を維持) |
+| 4 | **Emacs連携(Phase 9)** | 明示的な依頼があるまで着手しない |
 
-M6(Kubernetes)・M7(Emacs)は当初計画のまま残っており、着手時期は未定です。
+M7(Emacs)は当初計画のまま残っており、着手時期は未定です。M6(Kubernetes Lab)は
+`KubernetesPlugin`により部分完了(専用ラボ構成は未着手)。

@@ -80,7 +80,7 @@ make test
 
 - `src/pownforge/cli.py`: Typerエントリポイント
 - `src/pownforge/core/`: モデル・スコープポリシー・実行エンジン・プラグインレジストリ・ラボネットワーク管理（`lab.py`）
-- `src/pownforge/plugins/`: 個別ツール（nmap, ffuf, nuclei 等）のプラグイン実装
+- `src/pownforge/plugins/`: 個別ツール（nmap, ffuf, nuclei, trivy(kubernetes) 等）のプラグイン実装
 - `src/pownforge/core/finding_utils.py`: LLM応答/プラグインの`_findings`規約から
   `Finding`を組み立てる共通ロジック（severityが不正な場合は`info`にフォールバック）
 - `src/pownforge/evidence/`: 実行証跡（コマンド・タイムスタンプ・ハッシュ）の保存と

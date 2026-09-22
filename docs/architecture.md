@@ -52,8 +52,8 @@ CLI (Typer)
 
 `normalize()`が返す辞書に`"_findings"`キー（`{"title", "severity", "detail"}`の
 リスト）を含めると、`ScanRunner`がそれを取り出して`Finding`（`source="tool"`）に
-変換し`RunRecord.findings`へ格納します（`NucleiPlugin`が使用）。このキーを
-使わないプラグイン（`NetworkPlugin`/`WebPlugin`）には影響しません。ツール側の
+変換し`RunRecord.findings`へ格納します（`NucleiPlugin`/`KubernetesPlugin`が使用）。
+このキーを使わないプラグイン（`NetworkPlugin`/`WebPlugin`）には影響しません。ツール側の
 severity表記が`Severity` enumに合わない場合は`info`にフォールバックし、
 finding自体は破棄しません（`core/finding_utils.py::coerce_finding`、
 `pownforge analyze`のJSON解析と共通のロジックを使っています）。
@@ -61,5 +61,4 @@ finding自体は破棄しません（`core/finding_utils.py::coerce_finding`、
 ## 今後の拡張
 
 - Target modelの`type`/`environment`拡張（web/api/k8s/実案件の区別が必要になった時点で）
-- Kubernetes/クラウド構成診断プラグイン
 - Emacs連携（`pownforge.el`）
