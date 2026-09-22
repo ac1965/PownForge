@@ -11,7 +11,8 @@
 | `pownforge scan web --target <name> --option wordlist=<path>` | webプラグイン（ffuf）を実行 |
 | `pownforge result list` | 実行結果の一覧 |
 | `pownforge result show <run-id>` | 実行結果の詳細（JSON） |
-| `pownforge report generate <run-id>` | Markdownレポートを `.pownforge/reports/` に生成 |
+| `pownforge result review <run-id> <finding-id> <needs-review\|confirmed\|false-positive>` | findingの検証状態を更新 |
+| `pownforge report generate <run-id>` | Markdownレポートを `.pownforge/reports/` に生成（findingsは検証状態別に見出しを分けて出力） |
 | `pownforge analyze <run-id>` | ローカルLLMによる分析草案を出力 |
 | `pownforge lab add <name> --image <image> [--kind host\|url] [--port <n>] [--scheme http\|https] [--env k=v ...] [--allowed-plugins a,b] [--no-register] [--network <name>]` | 隔離ネットワーク上に攻撃対象ホストを起動し、既定でスコープにも登録（`--kind url` は `--port` 必須） |
 | `pownforge lab list [--network <name>]` | 稼働中/停止中のラボホスト一覧 |

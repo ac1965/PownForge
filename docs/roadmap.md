@@ -88,7 +88,7 @@ class Target(BaseModel):
 「SHA-256は完全な改ざん防止ではない」という当初の設計上の注意は、実装にもそのまま
 当てはまる(同一権限のユーザーが証跡とハッシュを両方書き換えられる)。
 
-### Phase 5: Web/API Security Plugin — 🟡 部分完了、重要な設計要素が未実装
+### Phase 5: Web/API Security Plugin — 🟡 部分完了(検証ワークフローは追加済み)
 
 | ツール | 状況 |
 | --- | --- |
@@ -97,13 +97,14 @@ class Target(BaseModel):
 | sqlmap | ❌ 未実装 |
 | curl/httpx(API確認) | ❌ 未実装(`httpx`は依存関係にあるが未使用) |
 
-**最大のギャップ**: 当初案の「Tool Output → Parser → Candidate Finding →
-Manual Verification → Confirmed/False Positive/Needs Review」という検証ワークフローが
-無い。実装した`Finding`モデルは`title/severity/detail/source`のみで、
-`finding_id`・`evidence_refs`(証跡への参照)・`status`(needs-review等)が無い。
-`source: "ai"|"manual"`という区別（AI推定は確定した脆弱性として扱わない）は
-当初案の思想を部分的にカバーしているが、「人間が確認してconfirmed/false-positiveに
-遷移させる」という状態遷移そのものは実装されていない。
+当初案の「Tool Output → Parser → Candidate Finding → Manual Verification →
+Confirmed/False Positive/Needs Review」という検証ワークフローは
+**実装済み**。`Finding`に`finding_id`(自動採番)と`status`
+(`needs-review`|`confirmed`|`false-positive`、既定は常に`needs-review`)を追加し、
+`pownforge result review <run-id> <finding-id> <status>` / Web UI(Run detail画面の
+確認ボタン) / `PATCH /api/runs/{id}/findings/{id}` のいずれからも状態遷移できる。
+`evidence_refs`(findingから証跡ファイルへの直接参照)は未実装(現状は1実行1ファイルの
+`RunRecord`にfindingsが内包されているため、参照が無くても同じJSON内で辿れる)。
 
 ### Phase 6: Reporting Engine — 🟡 部分完了
 
@@ -118,8 +119,10 @@ Manual Verification → Confirmed/False Positive/Needs Review」という検証�
 当初案の9セクション(概要・対象範囲・実施日時・使用ツールバージョン・診断結果・
 検証済み事項・未検証事項・推奨対応・証跡一覧)に対し、実装は
 Target/Plugin/Created/Return code/Command/ハッシュ/Findings/AI分析/Raw outputという
-より簡素な技術ダンプに近い構成。「検証済み事項」と「未検証事項」を分けて書く、
-という思想はPhase 5のFinding.status不在と同様、まだ反映できていない。
+より簡素な技術ダンプに近い構成。ただし「検証済み事項」と「未検証事項」を分けて書く、
+という思想は、Finding.statusの導入によりFindingsセクション内で
+「確認済み/要確認/誤検知として却下」の見出し分けとして反映済み。使用ツール
+バージョン・推奨対応・証跡一覧といった残りのセクションは未実装のまま。
 
 ### Phase 7: Ollama AI Analysis — ✅ ほぼ計画通り
 
@@ -156,12 +159,12 @@ Web UIがある程度代替しているが、Emacs/Org-modeからの操作とい
 
 | 優先度 | 項目 | 理由 |
 | --- | --- | --- |
-| 1 | **Finding.status(needs-review/confirmed/false-positive)の導入** | Phase 5/6の核心的なギャップ。これが無いと、AIが見つけたfindingsが「確認待ち」のまま埋もれる。Web UIの閲覧画面にも直結する |
-| 2 | **ポリシー違反の証跡化**(拒否された実行試行の記録) | Phase 2の完了条件で唯一未達。セキュリティツールとして「誰が何を試みて拒否されたか」を残せないのは監査上のギャップ |
-| 3 | **`pownforge evidence verify`** | ハッシュを保存しているのに検証手段が無い状態を解消 |
-| 4 | **Web UIの書き込み系画面(Slice 3)**: Target追加・Lab起動・NewScan+ライブ進捗 | 既に設計・バックエンドは完了しており、フロントエンドのフォーム追加のみ |
-| 5 | **tool_versionの記録** | nmap/ffufのバージョンを証跡に残す。トリアージ時に「どのバージョンで検出/未検出だったか」が分かるようにする |
-| 6 | **Web/APIプラグインの拡充**(nuclei等) | Phase 5の主要ツールが未着手 |
+| ~~1~~ | ~~Finding.status(needs-review/confirmed/false-positive)の導入~~ | ✅ **完了**。`finding_id`/`status`をFindingに追加し、`pownforge result review`・Web UI(Run detailの確認ボタン)・`PATCH /api/runs/{id}/findings/{id}`から状態遷移可能に。レポートも検証状態別に見出しを分けて出力するよう変更 |
+| 1 | **ポリシー違反の証跡化**(拒否された実行試行の記録) | Phase 2の完了条件で唯一未達。セキュリティツールとして「誰が何を試みて拒否されたか」を残せないのは監査上のギャップ |
+| 2 | **`pownforge evidence verify`** | ハッシュを保存しているのに検証手段が無い状態を解消 |
+| 3 | **Web UIの書き込み系画面(Slice 3)**: Target追加・Lab起動・NewScan+ライブ進捗 | 既に設計・バックエンドは完了しており、フロントエンドのフォーム追加のみ |
+| 4 | **tool_versionの記録** | nmap/ffufのバージョンを証跡に残す。トリアージ時に「どのバージョンで検出/未検出だったか」が分かるようにする |
+| 5 | **Web/APIプラグインの拡充**(nuclei等) | Phase 5の主要ツールが未着手 |
 | 7 | **Target modelのtype/environment拡張** | Kubernetes/実案件プラグインに着手するタイミングで一緒に設計(既存判断を維持) |
 | 8 | **Kubernetesプラグイン(Phase 8)、Emacs連携(Phase 9)** | 明示的な依頼があるまで着手しない |
 
