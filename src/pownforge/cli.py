@@ -9,9 +9,10 @@ import typer
 
 from pownforge.ai.ollama import OllamaAdapter
 from pownforge.core.analysis import AnalysisError, run_analysis
-from pownforge.core.findings import FindingNotFoundError, review_finding
+from pownforge.core.findings import FindingNotFoundError, add_finding, review_finding
 from pownforge.core.lab import LAB_NETWORK, LabError, LabManager, resolve_lab_target_address
-from pownforge.core.models import FindingStatus, Target, TargetEnvironment, TargetKind, TargetType
+from pownforge.core.manual_evidence import import_manual_run
+from pownforge.core.models import FindingStatus, Severity, Target, TargetEnvironment, TargetKind, TargetType
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.core.registry import default_registry
 from pownforge.core.runner import RunnerError, ScanRunner
@@ -338,6 +339,63 @@ def result_show(run_id: str, workdir: Path = typer.Option(DEFAULT_WORKDIR)) -> N
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(record.model_dump_json(indent=2))
+
+
+@result_app.command("import")
+def result_import(
+    target: str = typer.Option(
+        ..., "--target", help="Registered target this was performed against."
+    ),
+    command: str = typer.Option(
+        ..., "--command", help="What was run (e.g. an msfconsole invocation). Recorded as evidence, never executed."
+    ),
+    output: str = typer.Option(..., "--output", help="Paste of the external tool's output/session transcript."),
+    tool: Optional[str] = typer.Option(None, "--tool", help="Name of the external tool used, e.g. 'msfconsole'."),
+    tool_version: Optional[str] = typer.Option(None, "--tool-version"),
+    returncode: int = typer.Option(0, "--returncode"),
+    config: Path = typer.Option(DEFAULT_CONFIG),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+) -> None:
+    """Record evidence for a step performed manually with an external tool
+    (e.g. Metasploit) against a registered target -- PownForge does not run
+    COMMAND itself. The target must allow the 'manual' plugin name (or have
+    an empty allowed_plugins list). See docs/handbook.md §10."""
+    policy = _policy(config)
+    store = _store(workdir)
+    try:
+        record = import_manual_run(
+            policy,
+            store,
+            target,
+            command,
+            output,
+            tool=tool,
+            tool_version=tool_version,
+            returncode=returncode,
+            audit=_audit(workdir),
+        )
+    except PolicyError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"run {record.run_id} recorded (target={record.target}, plugin=manual)")
+
+
+@result_app.command("add-finding")
+def result_add_finding(
+    run_id: str,
+    title: str = typer.Option(..., "--title"),
+    severity: Severity = typer.Option(Severity.INFO, "--severity"),
+    detail: str = typer.Option("", "--detail"),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+) -> None:
+    """Attach a human-observed finding (source="manual") to an existing run."""
+    store = _store(workdir)
+    try:
+        _, finding = add_finding(store, run_id, title, severity, detail)
+    except FindingNotFoundError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"finding '{finding.finding_id}' added to run '{run_id}' (status=needs-review)")
 
 
 @result_app.command("review")

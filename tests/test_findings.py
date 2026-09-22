@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from pownforge.core.findings import FindingNotFoundError, review_finding
-from pownforge.core.models import Evidence, Finding, FindingStatus, RunRecord
+from pownforge.core.findings import FindingNotFoundError, add_finding, review_finding
+from pownforge.core.models import Evidence, Finding, FindingStatus, RunRecord, Severity
 from pownforge.evidence.store import EvidenceStore
 
 
@@ -58,3 +58,26 @@ def test_review_unknown_finding_raises(tmp_path: Path) -> None:
     seeded = _seed_record(store)
     with pytest.raises(FindingNotFoundError):
         review_finding(store, seeded.run_id, "no-such-id", FindingStatus.CONFIRMED)
+
+
+def test_add_finding_appends_manual_finding_starting_needs_review(tmp_path: Path) -> None:
+    store = EvidenceStore(tmp_path / "runs")
+    seeded = _seed_record(store)
+
+    updated, finding = add_finding(
+        store, seeded.run_id, "Got a shell as www-data", severity=Severity.CRITICAL, detail="via CVE-2014-6271"
+    )
+
+    assert finding.source == "manual"
+    assert finding.status == FindingStatus.NEEDS_REVIEW
+    assert finding.severity == Severity.CRITICAL
+    assert len(updated.findings) == 2  # kept the existing tool-derived finding too
+
+    reloaded = store.load(seeded.run_id)
+    assert any(f.title == "Got a shell as www-data" and f.source == "manual" for f in reloaded.findings)
+
+
+def test_add_finding_unknown_run_raises(tmp_path: Path) -> None:
+    store = EvidenceStore(tmp_path / "runs")
+    with pytest.raises(FindingNotFoundError):
+        add_finding(store, "does-not-exist", "title")

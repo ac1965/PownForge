@@ -280,6 +280,8 @@ pownforge analyze <run-id>
 | `pownforge scan container --target <name> [--option severity=... --option ignore-unfixed=true --option scanners=...] [--live]` | containerプラグイン(`trivy image`)を実行。対象の`address`はコンテナイメージの参照 |
 | `pownforge result list` | 実行結果の一覧 |
 | `pownforge result show <run-id>` | 実行結果の詳細(JSON) |
+| `pownforge result import --target <name> --command <text> --output <text> [--tool ... --tool-version ... --returncode ...]` | 人間が別ツールで実施した工程の証跡を記録(PownForgeは`--command`を実行しない)。詳細は[§12](#12-証跡とレポート) |
+| `pownforge result add-finding <run-id> --title <text> [--severity ... --detail ...]` | 人間が観測したfinding(`source: "manual"`)をrunに追加。既定`needs-review` |
 | `pownforge result review <run-id> <finding-id> <needs-review\|confirmed\|false-positive>` | findingの検証状態を更新 |
 | `pownforge report generate <run-id> [--format markdown\|html]` | レポートを`.pownforge/reports/<run-id>.{md,html}`に生成 |
 | `pownforge analyze <run-id> [--model ...] [--language ja\|en]` | LLMによる分析草案を出力。`--model`/`--language`省略時は`pownforge config`の保存値を使う |
@@ -988,6 +990,55 @@ detail画面の確認ボタン) / `PATCH /api/runs/{id}/findings/{id}`のいず�
 severity配色のスタンドアロンページ)で生成できます。詳細は
 [§5](#5-cliコマンドリファレンス)を参照してください。
 
+### 手動で実施した工程の証跡取り込み(`result import`)
+
+実際のペネトレーションテストでは、PownForgeのプラグインでは扱わない工程
+(Metasploit等の別ツールで行う既知CVEの実悪用や、その先の作業)が発生
+します。`pownforge result import`は、そうした**人間が別ツールで実際に
+行った操作**を、通常のスキャンと同じ`ScopePolicy`認可・`EvidenceStore`・
+ハッシュ検証のパイプラインに乗せて記録するためのコマンドです。
+
+```bash
+pownforge result import --target lab-web \
+  --command "msfconsole -x 'use exploit/multi/http/apache_mod_cgi_bash_env_exec; run'" \
+  --output "$(cat session.log)" \
+  --tool msfconsole --tool-version "Metasploit Framework 6.4"
+
+pownforge result add-finding <run-id> --title "Shellshock RCEでシェル取得" \
+  --severity critical --detail "CVE-2014-6271"
+```
+
+**PownForge自身は`--command`を一切実行しません**。あくまで「何を実行し、
+何が出力されたか」を記録するだけで、`evidence verify`による事後のハッシュ
+検証も他のプラグインと同じように機能します。`--command`は
+`core/secrets.py::mask_command()`でクレデンシャルらしきフラグの値を
+マスクした上で保存されます。
+
+対象が`manual`を明示的に受け付けるには、`allowed_plugins`に`manual`を
+含めるか、`allowed_plugins`を空(=すべて許可)にしておく必要があります
+(他のプラグインと同じ認可ルール)。拒否された場合は他のプラグインと同様
+`.pownforge/violations/`に記録されます。
+
+`Finding.source`には元々`"manual"`(人間が記録)という値が用意されていま
+したが、それを実際に作るCLIコマンドがありませんでした。
+`pownforge result add-finding`はその欠けていた経路を埋めるもので、
+既存の`review`と同様に、既定の状態は`needs-review`です(記録した本人でも、
+明示的な`pownforge result review ... confirmed`を経ないと確認済みには
+なりません)。
+
+`pownforge walkthrough generate --target <name>`は`plugin`名を区別しない
+ため、`manual`のrunも他のプラグインのrunと時系列でまとめてナラティブに
+含まれます。「スキャンで見つけて→手動で実悪用した」という一連の流れを、
+ウォークスルーが語れるようになります。
+
+**実機検証**: 実際に`pownforge scan network`(nmap)を実行したrunと、
+Shellshock(CVE-2014-6271)をmsfconsoleで実悪用したという想定の`result
+import`によるrunを同一targetに対して作成し、`pownforge walkthrough
+generate --target ... --model qwen3:14b`(ローカルOllama)で実際に
+ナラティブを生成。「ネットワークスキャンでは見つからなかったため手動
+テストに移行し、Shellshockの可能性が判明したが未確認」という、実際の
+経緯どおりの物語が生成されることを確認済み。
+
 各レポート(単一run向けの`report generate`、複数runを横断する
 `walkthrough generate`のいずれも)冒頭には**エグゼクティブサマリー**節が
 あり、`reporting/summary.py::summarize()`が既存のFindingを集計して
@@ -1035,7 +1086,11 @@ recon(`subfinder`)による受動的サブドメイン列挙(`The Hacker Playboo
 "Before the Snap"章に着想を得た偵察フェーズの補強)、レポートのエグゼクティブ
 サマリー節(同書"Post-Game Analysis"章に着想を得た報告書の全体像提示)、
 Webアプリ系プラグインの`pownforge analyze`へのOWASP Top 10チェックリスト
-(同書"The Throw"章に着想を得た手動診断観点の補強)。
+(同書"The Throw"章に着想を得た手動診断観点の補強)、`pownforge result
+import`/`add-finding`による人間が別ツールで実施した工程(既知CVEの実悪用等)
+の証跡取り込み(同書"The Drive"章の「検出だけでなく実際に悪用する」という
+考え方を、PownForge自身が実行するのではなく記録・ウォークスルーに接続する
+形で取り込んだもの)。
 
 **既知の未実装項目**:
 
