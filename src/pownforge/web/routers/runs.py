@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from pownforge.ai.ollama import OllamaAdapter
 from pownforge.core.analysis import AnalysisError, run_analysis
-from pownforge.core.models import RunRecord
+from pownforge.core.findings import FindingNotFoundError, review_finding
+from pownforge.core.models import FindingStatus, RunRecord
 from pownforge.evidence.store import EvidenceStore
 from pownforge.reporting.markdown import render
 from pownforge.web.deps import get_store
@@ -46,3 +48,20 @@ def analyze_run(
     except AnalysisError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return record
+
+
+class FindingReview(BaseModel):
+    status: FindingStatus
+
+
+@router.patch("/runs/{run_id}/findings/{finding_id}", response_model=RunRecord)
+def review_run_finding(
+    run_id: str,
+    finding_id: str,
+    body: FindingReview,
+    store: EvidenceStore = Depends(get_store),
+) -> RunRecord:
+    try:
+        return review_finding(store, run_id, finding_id, body.status)
+    except FindingNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc

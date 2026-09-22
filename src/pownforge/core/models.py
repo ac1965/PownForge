@@ -44,13 +44,25 @@ class Severity(str, Enum):
     CRITICAL = "critical"
 
 
+class FindingStatus(str, Enum):
+    NEEDS_REVIEW = "needs-review"
+    CONFIRMED = "confirmed"
+    FALSE_POSITIVE = "false-positive"
+
+
 class Finding(BaseModel):
+    finding_id: str = Field(default_factory=lambda: uuid.uuid4().hex[:8])
     title: str
     severity: Severity = Severity.INFO
     detail: str = ""
     # "ai": produced by `pownforge analyze` from unverified LLM output — never
     # a confirmed vulnerability. "manual": entered/reviewed by a human.
     source: str = "manual"
+    # Every finding starts unverified, regardless of source: a tool (or an
+    # LLM) saying "vulnerable" is a candidate, not a confirmed result. Only a
+    # human review (`pownforge result review`) moves it to confirmed or
+    # false-positive.
+    status: FindingStatus = FindingStatus.NEEDS_REVIEW
 
 
 class RunRecord(BaseModel):

@@ -32,8 +32,13 @@ def test_render_with_findings_lists_them() -> None:
         ]
     )
     output = render(record)
-    assert "**[medium]** (AI推定・要確認) Open port 3000 — ppp?" in output
-    assert "**[low]** (manual) Manual note — checked by hand" in output
+    assert "**[medium]** (AI推定, `" in output
+    assert "Open port 3000 — ppp?" in output
+    assert "**[low]** (manual, `" in output
+    assert "Manual note — checked by hand" in output
+    # both default to needs-review, so they land in the same section
+    assert "### 要確認" in output
+    assert "### 確認済み" not in output
 
 
 def test_render_orders_findings_by_severity_desc() -> None:
@@ -46,6 +51,23 @@ def test_render_orders_findings_by_severity_desc() -> None:
     )
     output = render(record)
     assert output.index("critical one") < output.index("low one") < output.index("info one")
+
+
+def test_render_groups_findings_by_status() -> None:
+    record = _record(
+        findings=[
+            Finding(title="confirmed one", status="confirmed"),
+            Finding(title="pending one", status="needs-review"),
+            Finding(title="dismissed one", status="false-positive"),
+        ]
+    )
+    output = render(record)
+    assert output.index("### 確認済み") < output.index("confirmed one")
+    assert output.index("### 要確認") < output.index("pending one")
+    assert output.index("### 誤検知として却下") < output.index("dismissed one")
+    assert output.index("### 確認済み") < output.index("### 要確認") < output.index(
+        "### 誤検知として却下"
+    )
 
 
 def test_render_with_analysis_shows_text_not_placeholder() -> None:

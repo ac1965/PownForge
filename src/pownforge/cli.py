@@ -8,8 +8,9 @@ import typer
 
 from pownforge.ai.ollama import OllamaAdapter
 from pownforge.core.analysis import AnalysisError, run_analysis
+from pownforge.core.findings import FindingNotFoundError, review_finding
 from pownforge.core.lab import LAB_NETWORK, LabError, LabManager, resolve_lab_target_address
-from pownforge.core.models import Target, TargetKind
+from pownforge.core.models import FindingStatus, Target, TargetKind
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.core.registry import default_registry
 from pownforge.core.runner import RunnerError, ScanRunner
@@ -185,6 +186,23 @@ def result_show(run_id: str, workdir: Path = typer.Option(DEFAULT_WORKDIR)) -> N
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(record.model_dump_json(indent=2))
+
+
+@result_app.command("review")
+def result_review(
+    run_id: str,
+    finding_id: str,
+    status: FindingStatus,
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+) -> None:
+    """Mark a finding as confirmed / false-positive / needs-review."""
+    store = _store(workdir)
+    try:
+        review_finding(store, run_id, finding_id, status)
+    except FindingNotFoundError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"finding '{finding_id}' on run '{run_id}' -> {status.value}")
 
 
 @report_app.command("generate")
