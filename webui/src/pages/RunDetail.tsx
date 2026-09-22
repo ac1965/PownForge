@@ -24,6 +24,15 @@ const STATUS_LABELS: Record<FindingStatus, string> = {
   "false-positive": "誤検知にする",
 };
 
+const SOURCE_LABELS: Record<string, string> = {
+  ai: "AI推定",
+  tool: "ツール検出",
+};
+
+function sourceLabel(source: string): string {
+  return SOURCE_LABELS[source] ?? "manual";
+}
+
 function sortBySeverity(findings: Finding[]): Finding[] {
   return [...findings].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
 }
@@ -130,7 +139,7 @@ export default function RunDetail() {
                 {findings.map((f) => (
                   <li key={f.finding_id} className={`severity-${f.severity}`}>
                     <span className="badge">{f.severity}</span>
-                    <span className="source">{f.source === "ai" ? "AI推定" : "manual"}</span>
+                    <span className="source">{sourceLabel(f.source)}</span>
                     <strong>{f.title}</strong> — {f.detail}
                     <div className="finding-actions">
                       {STATUS_SECTIONS.filter(([s]) => s !== status).map(([target]) => (
