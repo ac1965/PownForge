@@ -74,6 +74,7 @@ export interface PluginInfo {
   description: string;
   required_tool: string;
   available: boolean;
+  expected_kind: TargetKind | null;
 }
 
 export interface PolicyViolation {

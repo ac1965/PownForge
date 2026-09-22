@@ -38,6 +38,7 @@ def list_plugins(registry: PluginRegistry = Depends(get_registry)) -> list[dict[
             "description": plugin.description,
             "required_tool": plugin.required_tool,
             "available": plugin.check(),
+            "expected_kind": plugin.expected_kind.value if plugin.expected_kind else None,
         }
         for plugin in registry.list()
     ]

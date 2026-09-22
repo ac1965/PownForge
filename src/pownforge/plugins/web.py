@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from pownforge.core.models import Target
+from pownforge.core.models import Target, TargetKind
 from pownforge.plugins.base import Plugin, PluginError
 
 
@@ -16,6 +16,7 @@ class WebPlugin(Plugin):
     version = "0.1.0"
     description = "Content and endpoint discovery via ffuf."
     required_tool = "ffuf"
+    expected_kind = TargetKind.URL
 
     def __init__(self) -> None:
         self._json_path: Path | None = None
@@ -29,6 +30,7 @@ class WebPlugin(Plugin):
     def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
         if not self.check():
             raise PluginError(f"'{self.required_tool}' is not installed or not on PATH")
+        self.require_kind(target)
         wordlist = options.get("wordlist")
         if not wordlist:
             raise PluginError("web plugin requires --option wordlist=<path>")

@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
-from pownforge.core.models import Target
+from pownforge.core.models import Target, TargetKind
 
 
 class PluginError(RuntimeError):
@@ -18,6 +18,18 @@ class Plugin(ABC):
     """Name of the external binary this plugin needs (e.g. "nmap"), used in
     error messages so a missing dependency names itself instead of just
     failing generically."""
+
+    expected_kind: TargetKind | None = None
+    """Declares which Target.kind this plugin's address format assumes (None
+    = no constraint, e.g. NetworkPlugin works with either host or url). Purely
+    additive metadata plus the one check every url/host-specific plugin was
+    already hand-rolling ad hoc -- see require_kind() and
+    docs/architecture.md."""
+
+    kind_hint: str | None = None
+    """Optional extra guidance appended to require_kind()'s error message,
+    for a plugin whose address format needs more than "host" or "url" to
+    explain (e.g. SqlmapPlugin's "include an injectable parameter")."""
 
     @abstractmethod
     def check(self) -> bool:
@@ -55,3 +67,15 @@ class Plugin(ABC):
         if not output:
             return None
         return output.splitlines()[0]
+
+    def require_kind(self, target: Target) -> None:
+        """Raise PluginError if TARGET.kind doesn't match expected_kind.
+        A no-op when expected_kind is None. Call this first thing in
+        build_command() -- it replaces each plugin hand-rolling its own
+        ad hoc `if target.kind != ...` check."""
+        if self.expected_kind is not None and target.kind != self.expected_kind:
+            hint = f" {self.kind_hint}" if self.kind_hint else ""
+            raise PluginError(
+                f"{self.name} plugin requires a {self.expected_kind.value} target "
+                f"(got {target.kind.value}); register with --kind {self.expected_kind.value}.{hint}"
+            )

@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from pownforge.core.models import Target
+from pownforge.core.models import Target, TargetKind
 from pownforge.plugins.base import Plugin, PluginError
 
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
@@ -19,6 +19,7 @@ class NucleiPlugin(Plugin):
     version = "0.1.0"
     description = "Template-based vulnerability detection via nuclei."
     required_tool = "nuclei"
+    expected_kind = TargetKind.URL
 
     def __init__(self) -> None:
         self._jsonl_path: Path | None = None
@@ -42,6 +43,7 @@ class NucleiPlugin(Plugin):
     def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
         if not self.check():
             raise PluginError(f"'{self.required_tool}' is not installed or not on PATH")
+        self.require_kind(target)
 
         fd, raw_path = tempfile.mkstemp(prefix="pownforge-nuclei-", suffix=".jsonl")
         os.close(fd)

@@ -87,12 +87,17 @@ export default function NewScan() {
             <option value="" disabled>
               選択してください
             </option>
-            {availablePlugins.map((p) => (
-              <option key={p.name} value={p.name} disabled={!p.available}>
-                {p.name}
-                {!p.available ? `（${p.required_tool} が見つかりません）` : ""}
-              </option>
-            ))}
+            {availablePlugins.map((p) => {
+              const kindMismatch =
+                !!selectedTarget && !!p.expected_kind && p.expected_kind !== selectedTarget.kind;
+              return (
+                <option key={p.name} value={p.name} disabled={!p.available || kindMismatch}>
+                  {p.name}
+                  {!p.available ? `（${p.required_tool} が見つかりません）` : ""}
+                  {p.available && kindMismatch ? `（--kind ${p.expected_kind} の対象が必要）` : ""}
+                </option>
+              );
+            })}
           </select>
         </label>
 

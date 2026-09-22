@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from pownforge.core.models import Target
+from pownforge.core.models import Target, TargetKind
 from pownforge.plugins._trivy import findings_from_trivy_results
 from pownforge.plugins.base import Plugin, PluginError
 
@@ -17,6 +17,8 @@ class KubernetesPlugin(Plugin):
     version = "0.1.0"
     description = "Cluster misconfiguration, RBAC, and workload vulnerability scanning via trivy k8s."
     required_tool = "trivy"
+    expected_kind = TargetKind.HOST
+    kind_hint = "address should be a kubeconfig context name, e.g. kind-pownforge-lab."
 
     def __init__(self) -> None:
         self._json_path: Path | None = None
@@ -30,6 +32,7 @@ class KubernetesPlugin(Plugin):
     def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
         if not self.check():
             raise PluginError(f"'{self.required_tool}' is not installed or not on PATH")
+        self.require_kind(target)
 
         fd, raw_path = tempfile.mkstemp(prefix="pownforge-trivy-", suffix=".json")
         os.close(fd)

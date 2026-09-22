@@ -16,6 +16,7 @@ class NetworkPlugin(Plugin):
     version = "0.1.0"
     description = "TCP/service discovery via nmap."
     required_tool = "nmap"
+    expected_kind = None  # nmap works against either a host/IP or a URL's host
 
     def __init__(self) -> None:
         self._xml_path: Path | None = None

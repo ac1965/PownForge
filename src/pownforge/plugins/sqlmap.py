@@ -76,6 +76,8 @@ class SqlmapPlugin(Plugin):
     version = "0.1.0"
     description = "SQL injection detection and extraction via sqlmap."
     required_tool = "sqlmap"
+    expected_kind = TargetKind.URL
+    kind_hint = "The address should include an injectable parameter, e.g. http://host/product?id=1."
 
     def __init__(self) -> None:
         self._output_dir: Path | None = None
@@ -89,11 +91,7 @@ class SqlmapPlugin(Plugin):
     def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
         if not self.check():
             raise PluginError(f"'{self.required_tool}' is not installed or not on PATH")
-        if target.kind != TargetKind.URL:
-            raise PluginError(
-                "sqlmap requires a url target with an injectable parameter in the "
-                "address, e.g. http://host/product?id=1 (register with --kind url)"
-            )
+        self.require_kind(target)
 
         for key in options:
             normalized = key.lstrip("-").lower()

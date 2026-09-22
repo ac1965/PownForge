@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from pownforge.core.models import Target, TargetKind
+from pownforge.core.registry import default_registry
 from pownforge.plugins.base import PluginError
 from pownforge.plugins.container import ContainerPlugin
 from pownforge.plugins.kubernetes import KubernetesPlugin
@@ -13,6 +14,7 @@ from pownforge.plugins.network import NetworkPlugin
 from pownforge.plugins.nuclei import NucleiPlugin
 from pownforge.plugins.sqlmap import SqlmapPlugin
 from pownforge.plugins.web import WebPlugin
+from plugin_contract import assert_plugin_contract
 
 NMAP_XML = """<?xml version="1.0"?>
 <nmaprun>
@@ -511,3 +513,43 @@ def test_container_plugin_raises_when_tool_missing(monkeypatch: pytest.MonkeyPat
 
 def test_container_plugin_version_command() -> None:
     assert ContainerPlugin().version_command() == ["trivy", "--version"]
+
+
+def test_all_registered_plugins_satisfy_the_base_contract() -> None:
+    for plugin in default_registry().list():
+        assert_plugin_contract(plugin)
+
+
+@pytest.mark.parametrize(
+    ("plugin_cls", "expected"),
+    [
+        (NetworkPlugin, None),
+        (WebPlugin, TargetKind.URL),
+        (NucleiPlugin, TargetKind.URL),
+        (KubernetesPlugin, TargetKind.HOST),
+        (ContainerPlugin, TargetKind.HOST),
+        (SqlmapPlugin, TargetKind.URL),
+    ],
+)
+def test_plugin_declares_expected_kind(plugin_cls: type, expected: TargetKind | None) -> None:
+    assert plugin_cls().expected_kind == expected
+
+
+@pytest.mark.parametrize(
+    ("plugin_cls", "wrong_kind"),
+    [
+        (WebPlugin, TargetKind.HOST),
+        (NucleiPlugin, TargetKind.HOST),
+        (KubernetesPlugin, TargetKind.URL),
+        (ContainerPlugin, TargetKind.URL),
+        (SqlmapPlugin, TargetKind.HOST),
+    ],
+)
+def test_plugin_rejects_mismatched_target_kind(
+    monkeypatch: pytest.MonkeyPatch, plugin_cls: type, wrong_kind: TargetKind
+) -> None:
+    plugin = plugin_cls()
+    monkeypatch.setattr(plugin_cls, "check", lambda self: True)
+    target = Target(name="x", kind=wrong_kind, address="whatever")
+    with pytest.raises(PluginError, match="requires a"):
+        plugin.build_command(target, {})
