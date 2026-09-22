@@ -87,8 +87,12 @@ make test
   `Finding`を組み立てる共通ロジック（severityが不正な場合は`info`にフォールバック）
 - `src/pownforge/evidence/`: 実行証跡（コマンド・タイムスタンプ・ハッシュ）の保存と
   ハッシュ検証(`store.py`)、ポリシー違反で拒否されたスキャン試行の記録(`audit.py`)
-- `src/pownforge/reporting/`: Markdownレポート生成
-- `src/pownforge/ai/`: ローカルLLM（Ollama経由）による分析アダプタ
+- `src/pownforge/reporting/`: レポート生成(`markdown.py`/`html.py`、
+  エグゼクティブサマリー節は`summary.py`)、複数runをまたぐウォークスルー
+  (`walkthrough.py`)、AttackSession経路レポート(`attack_session.py`)
+- `src/pownforge/ai/`: `llm` CLI経由の分析アダプタ(`ollama.py`。名前とは
+  異なり、モデル名の指定次第でローカルOllama/Claude/OpenAI等どれでも
+  使える汎用ルーター)
 - `config/targets.yaml`: 登録済みの許可対象（実データのため`.gitignore`済み、バージョン管理しない）。
   `config/targets.yaml.example`をコピーして使う
 - `config/wordlists/`: ffuf等で使う動作確認用ワードリスト
