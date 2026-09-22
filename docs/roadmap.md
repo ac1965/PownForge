@@ -82,11 +82,16 @@ class Target(BaseModel):
 - `tool_version`(nmap/ffufのバージョン記録) — ❌ 未実装
 - `command`の秘匿処理(認証情報等のマスキング) — ❌ 未実装(現状のプラグインには
   秘匿すべき引数が無いため実害は無いが、将来`identity`系プラグインを追加する際は必須)
-- `pownforge evidence verify <run-id>` — ❌ **未実装**。ハッシュは保存しているが、
-  それを検証するコマンドが無い
+- `pownforge evidence verify <run-id>` — ✅ **完了**。保存済み`output`から
+  stdout/stderrのSHA-256を再計算し、`evidence.stdout_sha256`/`stderr_sha256`と
+  比較する。CLI(`pownforge evidence verify`)・Web API
+  (`GET /api/runs/{id}/verify`)・Web UI(Run detail画面の「Verify evidence」
+  ボタン)のいずれからも実行可能
 
 「SHA-256は完全な改ざん防止ではない」という当初の設計上の注意は、実装にもそのまま
 当てはまる(同一権限のユーザーが証跡とハッシュを両方書き換えられる)。
+`evidence verify`はこの限界を前提に、偶発的・部分的な変更の検出に用途を
+限定している(CLI/Web双方の出力にその旨を明記)。
 
 ### Phase 5: Web/API Security Plugin — 🟡 部分完了(検証ワークフローは追加済み)
 
@@ -161,10 +166,10 @@ Web UIがある程度代替しているが、Emacs/Org-modeからの操作とい
 | --- | --- | --- |
 | ~~1~~ | ~~Finding.status(needs-review/confirmed/false-positive)の導入~~ | ✅ **完了**。`finding_id`/`status`をFindingに追加し、`pownforge result review`・Web UI(Run detailの確認ボタン)・`PATCH /api/runs/{id}/findings/{id}`から状態遷移可能に。レポートも検証状態別に見出しを分けて出力するよう変更 |
 | ~~2~~ | ~~ポリシー違反の証跡化~~(拒否された実行試行の記録) | ✅ **完了**。`ScanRunner`が`PolicyError`を`AuditStore`に記録。`pownforge audit list/show`・`GET /api/audit`・Web UIのAuditページ/Dashboardパネルから確認可能 |
-| 1 | **`pownforge evidence verify`** | ハッシュを保存しているのに検証手段が無い状態を解消 |
-| 2 | **Web UIの書き込み系画面(Slice 3)**: Target追加・Lab起動・NewScan+ライブ進捗 | 既に設計・バックエンドは完了しており、フロントエンドのフォーム追加のみ |
-| 3 | **tool_versionの記録** | nmap/ffufのバージョンを証跡に残す。トリアージ時に「どのバージョンで検出/未検出だったか」が分かるようにする |
-| 4 | **Web/APIプラグインの拡充**(nuclei等) | Phase 5の主要ツールが未着手 |
+| ~~3~~ | ~~`pownforge evidence verify`~~ | ✅ **完了**。CLI/Web API/Web UIから、保存済み`output`と証跡ハッシュの一致を確認できる |
+| 1 | **Web UIの書き込み系画面(Slice 3)**: Target追加・Lab起動・NewScan+ライブ進捗 | 既に設計・バックエンドは完了しており、フロントエンドのフォーム追加のみ |
+| 2 | **tool_versionの記録** | nmap/ffufのバージョンを証跡に残す。トリアージ時に「どのバージョンで検出/未検出だったか」が分かるようにする |
+| 3 | **Web/APIプラグインの拡充**(nuclei等) | Phase 5の主要ツールが未着手 |
 | 7 | **Target modelのtype/environment拡張** | Kubernetes/実案件プラグインに着手するタイミングで一緒に設計(既存判断を維持) |
 | 8 | **Kubernetesプラグイン(Phase 8)、Emacs連携(Phase 9)** | 明示的な依頼があるまで着手しない |
 

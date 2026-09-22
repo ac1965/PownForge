@@ -81,8 +81,8 @@ make test
 - `src/pownforge/cli.py`: Typerエントリポイント
 - `src/pownforge/core/`: モデル・スコープポリシー・実行エンジン・プラグインレジストリ・ラボネットワーク管理（`lab.py`）
 - `src/pownforge/plugins/`: 個別ツール（nmap, ffuf 等）のプラグイン実装
-- `src/pownforge/evidence/`: 実行証跡（コマンド・タイムスタンプ・ハッシュ）の保存
-  (`store.py`)と、ポリシー違反で拒否されたスキャン試行の記録(`audit.py`)
+- `src/pownforge/evidence/`: 実行証跡（コマンド・タイムスタンプ・ハッシュ）の保存と
+  ハッシュ検証(`store.py`)、ポリシー違反で拒否されたスキャン試行の記録(`audit.py`)
 - `src/pownforge/reporting/`: Markdownレポート生成
 - `src/pownforge/ai/`: ローカルLLM（Ollama経由）による分析アダプタ
 - `config/targets.yaml`: 登録済みの許可対象（バージョン管理する）
