@@ -14,6 +14,7 @@ from pownforge.core.models import FindingStatus, Target, TargetKind
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.core.registry import default_registry
 from pownforge.core.runner import RunnerError, ScanRunner
+from pownforge.evidence.audit import AuditStore
 from pownforge.evidence.store import EvidenceStore
 from pownforge.plugins.base import PluginError
 from pownforge.reporting import markdown
@@ -26,6 +27,7 @@ result_app = typer.Typer(help="Inspect past scan runs.")
 report_app = typer.Typer(help="Generate Markdown reports from a run.")
 lab_app = typer.Typer(help="Start/stop attack-target containers on an isolated lab network.")
 web_app = typer.Typer(help=r"Serve the web UI (needs the \[web] extra: pip install -e '.\[web]').")
+audit_app = typer.Typer(help="Inspect scan attempts that ScopePolicy rejected.")
 
 app.add_typer(target_app, name="target")
 app.add_typer(plugin_app, name="plugin")
@@ -34,6 +36,7 @@ app.add_typer(result_app, name="result")
 app.add_typer(report_app, name="report")
 app.add_typer(lab_app, name="lab")
 app.add_typer(web_app, name="web")
+app.add_typer(audit_app, name="audit")
 
 DEFAULT_CONFIG = Path(os.environ.get("POWNFORGE_CONFIG", "config/targets.yaml"))
 DEFAULT_WORKDIR = Path(os.environ.get("POWNFORGE_HOME", ".pownforge"))
@@ -45,6 +48,10 @@ def _policy(config: Path) -> ScopePolicy:
 
 def _store(workdir: Path) -> EvidenceStore:
     return EvidenceStore(workdir / "runs")
+
+
+def _audit(workdir: Path) -> AuditStore:
+    return AuditStore(workdir / "violations")
 
 
 @app.command()
@@ -131,7 +138,7 @@ def _run_scan(plugin_name: str, target: str, option: list[str], config: Path, wo
     policy = _policy(config)
     registry = default_registry()
     store = _store(workdir)
-    runner = ScanRunner(policy=policy, registry=registry, store=store)
+    runner = ScanRunner(policy=policy, registry=registry, store=store, audit=_audit(workdir))
     try:
         record = runner.run(target, plugin_name, options)
     except (PolicyError, RunnerError, PluginError) as exc:
@@ -203,6 +210,31 @@ def result_review(
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(f"finding '{finding_id}' on run '{run_id}' -> {status.value}")
+
+
+@audit_app.command("list")
+def audit_list(workdir: Path = typer.Option(DEFAULT_WORKDIR)) -> None:
+    """List rejected scan attempts, most recent first."""
+    violations = _audit(workdir).list()
+    if not violations:
+        typer.echo("no policy violations recorded")
+        raise typer.Exit()
+    for violation in violations:
+        typer.echo(
+            f"{violation.violation_id}\t{violation.occurred_at.isoformat()}\t"
+            f"{violation.target}\t{violation.plugin}\t{violation.reason}"
+        )
+
+
+@audit_app.command("show")
+def audit_show(violation_id: str, workdir: Path = typer.Option(DEFAULT_WORKDIR)) -> None:
+    """Show the full JSON record for a rejected scan attempt."""
+    try:
+        violation = _audit(workdir).load(violation_id)
+    except FileNotFoundError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(violation.model_dump_json(indent=2))
 
 
 @report_app.command("generate")

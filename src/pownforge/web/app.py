@@ -9,7 +9,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.types import Scope
 
 from pownforge.web.jobs import JobManager
-from pownforge.web.routers import lab, runs, scans, targets
+from pownforge.web.routers import audit, lab, runs, scans, targets
 
 # Built React SPA (see webui/). Overridable so a non-editable install or a
 # custom deployment layout can point elsewhere without code changes.
@@ -42,6 +42,7 @@ def create_app(config: Path, workdir: Path, frontend_dist: Path | None = None) -
     app.include_router(lab.router, prefix="/api")
     app.include_router(runs.router, prefix="/api")
     app.include_router(scans.router, prefix="/api")
+    app.include_router(audit.router, prefix="/api")
 
     dist = frontend_dist or Path(os.environ.get("POWNFORGE_WEB_DIST", str(DEFAULT_FRONTEND_DIST)))
     if dist.is_dir():

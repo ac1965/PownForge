@@ -7,6 +7,7 @@ from pownforge.core.models import Target, TargetKind
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.core.registry import PluginRegistry
 from pownforge.core.runner import ScanRunner
+from pownforge.evidence.audit import AuditStore
 from pownforge.evidence.store import EvidenceStore
 from pownforge.plugins.base import Plugin
 
@@ -51,6 +52,47 @@ def test_runner_rejects_unregistered_target(tmp_path: Path) -> None:
     runner, _ = _runner(tmp_path)
     with pytest.raises(PolicyError):
         runner.run("not-registered", "echo", {})
+
+
+def test_runner_does_not_record_audit_when_none_given(tmp_path: Path) -> None:
+    # audit is optional and defaults to off, so unit tests that don't care
+    # about auditing (like the one above) don't need to wire one up.
+    runner, _ = _runner(tmp_path)
+    with pytest.raises(PolicyError):
+        runner.run("not-registered", "echo", {})
+
+
+def test_runner_records_policy_violation_to_audit_store(tmp_path: Path) -> None:
+    policy = ScopePolicy(targets={})
+    policy.add_target(Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1", allowed_plugins=["network"]))
+    registry = PluginRegistry()
+    registry.register(EchoPlugin())
+    store = EvidenceStore(tmp_path / "runs")
+    audit = AuditStore(tmp_path / "violations")
+    runner = ScanRunner(policy=policy, registry=registry, store=store, audit=audit)
+
+    with pytest.raises(PolicyError):
+        runner.run("lab", "echo", {})
+
+    violations = audit.list()
+    assert len(violations) == 1
+    assert violations[0].target == "lab"
+    assert violations[0].plugin == "echo"
+    assert "not authorized" in violations[0].reason
+
+
+def test_runner_does_not_record_audit_on_successful_run(tmp_path: Path) -> None:
+    policy = ScopePolicy(targets={})
+    policy.add_target(Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1"))
+    registry = PluginRegistry()
+    registry.register(EchoPlugin())
+    store = EvidenceStore(tmp_path / "runs")
+    audit = AuditStore(tmp_path / "violations")
+    runner = ScanRunner(policy=policy, registry=registry, store=store, audit=audit)
+
+    runner.run("lab", "echo", {})
+
+    assert audit.list() == []
 
 
 class MultiLinePlugin(Plugin):

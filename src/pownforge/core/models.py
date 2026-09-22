@@ -74,3 +74,15 @@ class RunRecord(BaseModel):
     output: dict[str, Any] = Field(default_factory=dict)
     findings: list[Finding] = Field(default_factory=list)
     analysis: str | None = None
+
+
+class PolicyViolation(BaseModel):
+    """A scan attempt that ScopePolicy.authorize() rejected. No Evidence
+    exists for these (no command ever ran), so they're tracked separately
+    from RunRecord rather than forced into that shape."""
+
+    violation_id: str = Field(default_factory=lambda: uuid.uuid4().hex[:12])
+    occurred_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    target: str
+    plugin: str
+    reason: str

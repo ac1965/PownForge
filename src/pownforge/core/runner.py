@@ -6,8 +6,9 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from pownforge.core.models import Evidence, RunRecord, Target
-from pownforge.core.policy import ScopePolicy
+from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.core.registry import PluginRegistry
+from pownforge.evidence.audit import AuditStore
 from pownforge.evidence.hashing import sha256_text
 from pownforge.evidence.store import EvidenceStore
 
@@ -32,11 +33,13 @@ class ScanRunner:
         policy: ScopePolicy,
         registry: PluginRegistry,
         store: EvidenceStore,
+        audit: AuditStore | None = None,
         timeout: int = 300,
     ) -> None:
         self._policy = policy
         self._registry = registry
         self._store = store
+        self._audit = audit
         self._timeout = timeout
 
     def run(
@@ -46,7 +49,12 @@ class ScanRunner:
         options: dict[str, Any],
         on_line: OnLine | None = None,
     ) -> RunRecord:
-        target: Target = self._policy.authorize(target_name, plugin_name)
+        try:
+            target: Target = self._policy.authorize(target_name, plugin_name)
+        except PolicyError as exc:
+            if self._audit is not None:
+                self._audit.record(target=target_name, plugin=plugin_name, reason=str(exc))
+            raise
         plugin = self._registry.get(plugin_name)
         if not plugin.check():
             raise RunnerError(
