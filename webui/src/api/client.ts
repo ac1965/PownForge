@@ -14,6 +14,23 @@ export interface LabHost {
   status: string;
 }
 
+export interface LabHostCreate {
+  name: string;
+  image: string;
+  env: Record<string, string>;
+  kind: TargetKind;
+  port: number | null;
+  scheme: string;
+  allowed_plugins: string[];
+  auto_register: boolean;
+}
+
+export interface LabHostCreated {
+  host: LabHost;
+  target: Target | null;
+  registration_warning: string | null;
+}
+
 export interface Evidence {
   command: string[];
   started_at: string;
@@ -75,6 +92,18 @@ export interface EvidenceVerification {
   ok: boolean;
 }
 
+export interface ScanCreated {
+  job_id: string;
+  status: string;
+}
+
+export interface ScanStatus {
+  job_id: string;
+  status: string;
+  run_id: string | null;
+  error: string | null;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -98,6 +127,10 @@ export const api = {
   listPlugins: () => request<PluginInfo[]>("/plugins"),
 
   listLab: () => request<LabHost[]>("/lab"),
+  addLabHost: (body: LabHostCreate) =>
+    request<LabHostCreated>("/lab", { method: "POST", body: JSON.stringify(body) }),
+  removeLabHost: (name: string, purge: boolean) =>
+    request<void>(`/lab/${encodeURIComponent(name)}?purge=${purge}`, { method: "DELETE" }),
 
   listRuns: () => request<RunRecord[]>("/runs"),
   getRun: (runId: string) => request<RunRecord>(`/runs/${runId}`),
@@ -112,4 +145,11 @@ export const api = {
   listAudit: () => request<PolicyViolation[]>("/audit"),
 
   verifyRun: (runId: string) => request<EvidenceVerification>(`/runs/${runId}/verify`),
+
+  createScan: (target: string, plugin: string, options: Record<string, string>) =>
+    request<ScanCreated>("/scans", {
+      method: "POST",
+      body: JSON.stringify({ target, plugin, options }),
+    }),
+  getScan: (jobId: string) => request<ScanStatus>(`/scans/${jobId}`),
 };
