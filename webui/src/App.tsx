@@ -7,6 +7,8 @@ import RunDetail from "./pages/RunDetail";
 import Audit from "./pages/Audit";
 import NewScan from "./pages/NewScan";
 import ScanLive from "./pages/ScanLive";
+import Playbooks from "./pages/Playbooks";
+import PlaybookLive from "./pages/PlaybookLive";
 import Walkthrough from "./pages/Walkthrough";
 import Settings from "./pages/Settings";
 
@@ -36,6 +38,9 @@ export default function App() {
           <NavLink to="/scan/new" className={navClass}>
             New Scan
           </NavLink>
+          <NavLink to="/playbooks" className={navClass}>
+            Playbooks
+          </NavLink>
           <NavLink to="/walkthrough/new" className={navClass}>
             Walkthrough
           </NavLink>
@@ -53,6 +58,8 @@ export default function App() {
             <Route path="/audit" element={<Audit />} />
             <Route path="/scan/new" element={<NewScan />} />
             <Route path="/scans/:jobId/live" element={<ScanLive />} />
+            <Route path="/playbooks" element={<Playbooks />} />
+            <Route path="/playbooks/runs/:jobId/live" element={<PlaybookLive />} />
             <Route path="/walkthrough/new" element={<Walkthrough />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>

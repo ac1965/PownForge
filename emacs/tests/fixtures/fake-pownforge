@@ -58,6 +58,33 @@ JSON
     sleep 0.05
     echo "run abc123 completed (exit=0)"
     ;;
+  "scan live-noid")
+    # Exits 0 but never prints a "run <id> completed" line (e.g. a plugin
+    # that errored out internally without ScanRunner ever persisting a
+    # RunRecord), exercising the sentinel's no-run-id branch.
+    echo "something went sideways, no run id this time"
+    ;;
+  "playbook list")
+    printf 'web-baseline\t3 steps\tnetwork -> web -> nuclei\n'
+    ;;
+  "playbook show")
+    cat <<'TXT'
+web-baseline: network -> web -> nuclei
+  1. network (ports=80,443)
+  2. web (wordlist=config/wordlists/common.txt)
+  3. nuclei (tags=exposure,misconfig,tech)
+TXT
+    ;;
+  "playbook run")
+    echo "[1/2] running network..."
+    sleep 0.05
+    echo "[1/2] network: run aaaaaaaaaaaa completed (exit=0)"
+    sleep 0.05
+    echo "[2/2] running web..."
+    sleep 0.05
+    echo "[2/2] web: run bbbbbbbbbbbb completed (exit=0)"
+    echo "playbook 'web-baseline' finished: 2/2 steps succeeded (0 skipped, 0 failed)"
+    ;;
   *)
     echo "fake-pownforge: unhandled args: $*" >&2
     exit 2

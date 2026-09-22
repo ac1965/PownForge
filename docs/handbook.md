@@ -842,6 +842,42 @@ sqlmapステップが実際に起動されることを確認した(この環境�
 Dockerランタイムに含まれないため`FAILED`で終わるが、それはステップが
 実行を試みた証拠であり、条件判定自体は正しく機能している)。
 
+### Web UI / Emacsからの実行
+
+`pownforge playbook list/show/run`と同じ操作は、Web UI(Playbooksページ)
+・Emacs(`pownforge-playbook-list`/`pownforge-playbook-show`/
+`pownforge-playbook-run`)からも行えます。どちらも内部的には
+[§9](#9-web-ui--api)のWeb API・CLIサブプロセス経由で同じ
+`core/orchestrator.py::run_playbook()`を呼ぶだけで、認可ロジックは
+CLI/Web UI/Emacsのどこから実行しても完全に同じです。
+
+- **Web UI**: Playbooksページで対象を選んで「実行」すると、
+  `POST /api/playbooks/{name}/run`でジョブを投入し、
+  `WS /api/ws/playbooks/{job_id}`でステップ単位の進捗(開始/完了/
+  スキップ/失敗)をライブ表示します。個々のツールの生の行出力までは
+  ストリーミングしません(`scan`のライブ出力とは異なる粒度)
+- **Emacs**: `M-x pownforge-playbook-list`でタブ区切り一覧を表示
+  (`RET`でステップ表示、`r`で実行)。`M-x pownforge-playbook-run`は
+  `pownforge-scan`と同じ「サブプロセスの出力をバッファに逐次tailする」
+  方式で、`C-c C-c`で完了済みステップのいずれかのrun結果を開けます
+
+**実機検証**: 実際にJuice Shop(ホストから到達可能なポート公開構成)を
+対象に、Web UIのPlaybooksページから`web-baseline`をブラウザ経由で実行し、
+WebSocketのライブ進捗(`network`成功→`web`/`nuclei`失敗、いずれも実際の
+ツール未インストールという正直な理由)がリアルタイムに表示され、生成
+されたrunをRun detail画面で確認できることを確認した。Emacs側も同じ対象に
+対し`pownforge-playbook-run`をバッチモードで実行し、同じ結果(1/3ステップ
+成功)がライブバッファに反映され、`pownforge-parse-playbook-run-ids`で
+run idを正しく抽出できることを確認した。
+
+この検証中に、`pownforge-scan`/`pownforge-playbook-run`双方の
+プロセスセンチネルに実バグを発見した: `process-status`はシンボル
+(`exit`等)を返すのに`string-trim`(文字列限定)にそのまま渡していたため、
+run idを解決できなかった場合に`wrong-type-argument`エラーで例外を投げて
+いた(`pownforge-scan`側は元から潜在していたが、run idが常に解決できる
+ケースしかテストされておらず露見していなかった)。`process-status`の
+戻り値をそのまま`format`に渡すよう修正し、回帰テストを追加した。
+
 ## 9. Web UI / API
 
 `pownforge web serve`で、CLIと同じコア(`ScopePolicy`/`ScanRunner`/
@@ -894,9 +930,11 @@ pownforge web serve  # 同一オリジンでAPIとSPAの両方を配信
 ![Targets画面](images/web-targets.png)
 
 Dashboard/Targets/Lab/Runs/Run detail/Audit/New Scan/Scan live/
-Walkthroughの各画面から、target追加・削除、labホスト起動・削除、新規
-スキャン実行(ライブ進捗)、Analyze実行、finding検証、evidence検証、
-複数runをまたぐウォークスルー生成までひととおり操作できます。
+Playbooks/Playbook live/Walkthroughの各画面から、target追加・削除、
+labホスト起動・削除、新規スキャン実行(ライブ進捗)、Playbook実行
+(ステップ単位のライブ進捗、[§8](#8-playbook-複数プラグインの連続実行)参照)、
+Analyze実行、finding検証、evidence検証、複数runをまたぐウォークスルー
+生成までひととおり操作できます。
 
 ![Run detail画面(findings表示)](images/web-rundetail.png)
 
@@ -922,6 +960,10 @@ medium/青=low/灰=info)付きで、検証状態(確認済み/要確認/誤検�
 | `POST /api/scans` | スキャンをジョブとして投入。`{"job_id": ..., "status": "pending"}`を返す |
 | `GET /api/scans/{job_id}` | ジョブの状態をポーリング(`pending/running/done/error`) |
 | `WS /api/ws/scans/{job_id}` | スキャンのライブ出力を行単位でストリーミング |
+| `GET /api/playbooks` | 利用可能なPlaybookの一覧(`config/playbooks/*.yaml`) |
+| `GET /api/playbooks/{name}` | Playbookのステップ内容 |
+| `POST /api/playbooks/{name}/run` | Playbookをジョブとして投入。`{"job_id": ..., "status": "pending"}`を返す |
+| `WS /api/ws/playbooks/{job_id}` | Playbookの各ステップの開始/完了/スキップ/失敗をストリーミング(詳細は[§8](#8-playbook-複数プラグインの連続実行)) |
 | `GET /api/runs` | 実行結果の一覧 |
 | `GET /api/runs/{run_id}` | 実行結果の詳細(JSON) |
 | `GET /api/runs/{run_id}/report[?format=markdown\|html]` | レポート文字列を返す |
@@ -935,10 +977,23 @@ medium/青=low/灰=info)付きで、検証状態(確認済み/要確認/誤検�
 
 ### WebSocketメッセージ形式
 
+`/api/ws/scans/{job_id}`(単一プラグインのスキャン、行単位):
+
 ```json
 {"type": "line", "data": "Nmap scan report for ..."}
 {"type": "done", "run_id": "abcd1234", "returncode": 0}
 {"type": "error", "message": "'nmap' is required for the 'network' plugin but was not found on PATH..."}
+```
+
+`/api/ws/playbooks/{job_id}`(Playbook、ステップ単位。個々のツールの
+行出力はストリーミングしない):
+
+```json
+{"type": "step_start", "index": 1, "total": 3, "plugin": "network"}
+{"type": "step_done", "index": 1, "plugin": "network", "run_id": "abcd1234", "returncode": 0}
+{"type": "step_skipped", "index": 2, "plugin": "sqlmap"}
+{"type": "step_failed", "index": 3, "plugin": "nuclei", "error": "'nuclei' is required for the 'nuclei' plugin but was not found on PATH..."}
+{"type": "done", "run_ids": ["abcd1234"]}
 ```
 
 ```mermaid
@@ -1025,6 +1080,9 @@ Emacs Lispラッパーです。スコープ検証・プラグイン実行・証�
 | `pownforge-target-list` | 登録済み対象を`tabulated-list-mode`で表示。行上で`s`を押すと`pownforge-scan`へ |
 | `pownforge-plugin-list` | 利用可能プラグインと外部ツールの有無を表示 |
 | `pownforge-scan` | 対象・プラグインを`completing-read`で選択、`pownforge scan ... --live`を非同期実行してツール出力をバッファへライブ表示。完了後`C-c C-c`で結果を開く |
+| `pownforge-playbook-list` | 利用可能なPlaybookを`tabulated-list-mode`で表示。`RET`でステップ表示、`r`で`pownforge-playbook-run`へ |
+| `pownforge-playbook-show` | Playbookのステップ内容を表示 |
+| `pownforge-playbook-run` | Playbook・対象を`completing-read`で選択、`pownforge playbook run ...`を非同期実行してステップ進捗をバッファへライブ表示。完了後`C-c C-c`でいずれかのステップの結果を開く |
 | `pownforge-result-list` | 過去の実行一覧。`RET`で詳細、`o`でその実行のfindingsをOrgとして挿入 |
 | `pownforge-result-show` | 実行の詳細を表示。findingsはseverity降順。行上で`r`を押すと`pownforge result review`でステータス変更 |
 | `pownforge-report-generate` | レポートを生成しファイルを開く |

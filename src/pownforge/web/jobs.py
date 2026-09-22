@@ -6,8 +6,13 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
-from pownforge.core.policy import PolicyError
+from pownforge.core.models import Playbook
+from pownforge.core.orchestrator import run_playbook
+from pownforge.core.policy import PolicyError, ScopePolicy
+from pownforge.core.registry import PluginRegistry
 from pownforge.core.runner import RunnerError, ScanRunner
+from pownforge.evidence.audit import AuditStore
+from pownforge.evidence.store import EvidenceStore
 from pownforge.plugins.base import PluginError
 
 
@@ -17,6 +22,14 @@ class Job:
     status: str = "pending"  # pending -> running -> done | error
     run_id: str | None = None
     error: str | None = None
+    queue: "asyncio.Queue[dict[str, Any]]" = field(default_factory=asyncio.Queue)
+
+
+@dataclass
+class PlaybookJob:
+    job_id: str
+    status: str = "pending"  # pending -> running -> done
+    run_ids: list[str] = field(default_factory=list)
     queue: "asyncio.Queue[dict[str, Any]]" = field(default_factory=asyncio.Queue)
 
 
@@ -31,6 +44,7 @@ class JobManager:
     def __init__(self, max_workers: int = 2) -> None:
         self._executor = ThreadPoolExecutor(max_workers=max_workers)
         self._jobs: dict[str, Job] = {}
+        self._playbook_jobs: dict[str, PlaybookJob] = {}
 
     def submit(
         self,
@@ -68,3 +82,59 @@ class JobManager:
 
     def get(self, job_id: str) -> Job | None:
         return self._jobs.get(job_id)
+
+    def submit_playbook(
+        self,
+        playbook: Playbook,
+        target: str,
+        policy: ScopePolicy,
+        registry: PluginRegistry,
+        store: EvidenceStore,
+        audit: AuditStore | None = None,
+    ) -> str:
+        job_id = uuid.uuid4().hex[:12]
+        job = PlaybookJob(job_id=job_id)
+        self._playbook_jobs[job_id] = job
+        loop = asyncio.get_running_loop()
+
+        def on_step(index: int, total: int, step: Any) -> None:
+            loop.call_soon_threadsafe(
+                job.queue.put_nowait,
+                {"type": "step_start", "index": index, "total": total, "plugin": step.plugin},
+            )
+
+        def work() -> None:
+            job.status = "running"
+            results = run_playbook(
+                playbook, target, policy, registry, store, audit=audit, on_step=on_step
+            )
+            for index, result in enumerate(results, start=1):
+                if result.skipped:
+                    event = {"type": "step_skipped", "index": index, "plugin": result.step.plugin}
+                elif result.record is not None:
+                    job.run_ids.append(result.record.run_id)
+                    event = {
+                        "type": "step_done",
+                        "index": index,
+                        "plugin": result.step.plugin,
+                        "run_id": result.record.run_id,
+                        "returncode": result.record.evidence.returncode,
+                    }
+                else:
+                    event = {
+                        "type": "step_failed",
+                        "index": index,
+                        "plugin": result.step.plugin,
+                        "error": result.error,
+                    }
+                loop.call_soon_threadsafe(job.queue.put_nowait, event)
+            job.status = "done"
+            loop.call_soon_threadsafe(
+                job.queue.put_nowait, {"type": "done", "run_ids": list(job.run_ids)}
+            )
+
+        self._executor.submit(work)
+        return job_id
+
+    def get_playbook_job(self, job_id: str) -> PlaybookJob | None:
+        return self._playbook_jobs.get(job_id)

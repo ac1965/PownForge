@@ -86,9 +86,10 @@ pownforge analyze <run-id>
 `pip install -e ".[web]"` の上で `pownforge web serve` を実行すると、CLIと
 同じコアをそのまま使うFastAPIバックエンドが起動します。React製フロントエンド
 (`webui/`)からtargetの追加・削除、labホストの起動・削除、新規スキャンの実行
-(WebSocketによるライブ進捗表示)、AI分析、finding検証、evidence検証、
-複数runをまたぐウォークスルー生成まで、ひととおりの操作がブラウザだけで
-完結します。詳細は [docs/handbook.md §9 Web UI / API](docs/handbook.md#9-web-ui--api) を
+(WebSocketによるライブ進捗表示)、Playbook実行(ステップ単位のライブ進捗)、
+AI分析、finding検証、evidence検証、複数runをまたぐウォークスルー生成まで、
+ひととおりの操作がブラウザだけで完結します。詳細は
+[docs/handbook.md §9 Web UI / API](docs/handbook.md#9-web-ui--api) を
 参照してください。
 
 ## アーキテクチャ・全体像
@@ -133,8 +134,9 @@ make test-all     # pytest + webuiビルド + Emacs ERT(npm/Emacsが入ってい
   人間が事前に書いたYAMLで決まり、実行時にAIが次の一手を決めることはない。
   詳細は[docs/handbook.md §8](docs/handbook.md#8-playbook-複数プラグインの連続実行)）
 - LLM分析アダプタ（`llm` CLI経由。ローカルOllama/Claude/OpenAI等をモデル名で切替）
-- Emacs連携（`emacs/pownforge.el`）: 対象/プラグイン一覧、`--live`によるスキャンの
-  ライブ表示、findingのレビュー、Org-modeへのfindings出力（[docs/handbook.md §10](docs/handbook.md#10-emacs連携)）
+- Emacs連携（`emacs/pownforge.el`）: 対象/プラグイン一覧、`--live`によるスキャン・
+  Playbookのライブ表示、findingのレビュー、Org-modeへのfindings出力
+  （[docs/handbook.md §10](docs/handbook.md#10-emacs連携)）
 
 高度な結果正規化（重大度判定・脆弱性分類の自動化など）は今後のフェーズで拡張します。
 
@@ -155,5 +157,6 @@ make test-all     # pytest + webuiビルド + Emacs ERT(npm/Emacsが入ってい
 | `pownforge result import`/`add-finding`（手動証跡取り込み） | Metasploitable2 | 実スキャン→手動exploit記録→findingの追加→`evidence verify`→ウォークスルー生成までの一気通貫を確認 |
 | `Engagement`（横展開の記録） | 実nmapスキャン+手動pivot記録 | Engagement外の対象への記録が拒否されること、正規メンバー間のpivot記録とウォークスルーへの反映を確認 |
 | `pownforge lab`（攻撃対象ホストの動的追加） | `tleemcjr/metasploitable2` | **常駐しないラボイメージ向けの`docker run -i`修正**（[lab.py](src/pownforge/core/lab.py)）を実機検証で発見・修正 |
+| `Playbook`（複数プラグインの連続実行・条件分岐） | OWASP Juice Shop、CLI/Web UI/Emacsの3経路 | 線形実行・条件分岐(`when`)の両方を実際に確認。Web UIはブラウザでPlaybooks画面からWebSocketライブ進捗まで、EmacsはCLI経由のライブテールまで実機確認。**`process-status`をシンボルのまま`string-trim`に渡すEmacs側の潜在バグ（`pownforge-scan`にも存在）を発見・修正**（[pownforge.el](emacs/pownforge.el)） |
 
 見つかったバグはいずれも実機検証でのみ露見するもので（モックXML/JSONを使うユニットテストだけでは検出できなかった）、発見のたびに再現テストを追加した上で修正しています。詳細な検証記録は [docs/handbook.md §6 プラグイン](docs/handbook.md#6-プラグイン)・[§7 ラボネットワーク](docs/handbook.md#7-ラボネットワーク)・[§12 Target modelとスコープ制御](docs/handbook.md#12-target-modelとスコープ制御) を参照してください。

@@ -965,6 +965,7 @@ def web_serve(
     config: Path = typer.Option(DEFAULT_CONFIG),
     workdir: Path = typer.Option(DEFAULT_WORKDIR),
     settings: Path = typer.Option(DEFAULT_SETTINGS, "--settings"),
+    playbooks_dir: Path = typer.Option(DEFAULT_PLAYBOOKS_DIR, "--playbooks-dir"),
 ) -> None:
     """Serve the PownForge web UI and API."""
     try:
@@ -979,7 +980,9 @@ def web_serve(
         )
         raise typer.Exit(code=1) from exc
 
-    web_app_instance = create_app(config=config, workdir=workdir, settings=settings)
+    web_app_instance = create_app(
+        config=config, workdir=workdir, settings=settings, playbooks_dir=playbooks_dir
+    )
     uvicorn.run(web_app_instance, host=host, port=port)
 
 

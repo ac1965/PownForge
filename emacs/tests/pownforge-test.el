@@ -84,6 +84,26 @@
                  "abc123"))
   (should (null (pownforge-parse-run-id "error: something went wrong\n"))))
 
+(ert-deftest pownforge-test-parse-playbook-list ()
+  (let ((playbooks (pownforge-parse-playbook-list
+                     (concat "web-adaptive\t2 steps\tnuclei -> sqlmap, but only if high+\n"
+                             "web-baseline\t3 steps\tnetwork -> web -> nuclei\n"))))
+    (should (= (length playbooks) 2))
+    (should (equal (plist-get (nth 0 playbooks) :name) "web-adaptive"))
+    (should (equal (plist-get (nth 0 playbooks) :steps) "2 steps"))
+    (should (equal (plist-get (nth 1 playbooks) :description) "network -> web -> nuclei"))))
+
+(ert-deftest pownforge-test-parse-playbook-run-ids ()
+  (should (equal (pownforge-parse-playbook-run-ids
+                   (concat "[1/2] network: run aaaaaaaaaaaa completed (exit=0)\n"
+                           "[2/2] web: run bbbbbbbbbbbb completed (exit=0)\n"
+                           "playbook 'p' finished: 2/2 steps succeeded (0 skipped, 0 failed)\n"))
+                 '("aaaaaaaaaaaa" "bbbbbbbbbbbb")))
+  (should (equal (pownforge-parse-playbook-run-ids
+                   "[1/2] nuclei: run cccccccccccc completed (exit=0)\n[2/2] sqlmap: SKIPPED (condition not met)\n")
+                 '("cccccccccccc")))
+  (should (null (pownforge-parse-playbook-run-ids "error: no playbook named 'nope'\n"))))
+
 (ert-deftest pownforge-test-severity-and-status-mapping ()
   (should (= (pownforge-severity-priority "critical") ?A))
   (should (= (pownforge-severity-priority "high") ?A))
@@ -174,6 +194,55 @@
              (should (equal pownforge--scan-run-id "abc123"))
              (should (string-match-p "line one" (buffer-string)))
              (should (string-match-p "line two" (buffer-string)))))
+       (when (buffer-live-p buf) (kill-buffer buf))))))
+
+(ert-deftest pownforge-test-scan-sentinel-handles-missing-run-id-without-erroring ()
+  "Regression test: `process-status' returns a symbol, not a string; the
+sentinel's no-run-id branch used to pass it through `string-trim' and
+signal wrong-type-argument instead of annotating the buffer."
+  (pownforge-test-with-fake-cli
+   (let (buf)
+     (unwind-protect
+         (progn
+           (setq buf (pownforge-scan "irrelevant-target" "live-noid" ""))
+           (with-timeout (5 (ert-fail "scan process did not finish in time"))
+             (while (not (with-current-buffer buf (string-match-p "\\[exit\\]" (buffer-string))))
+               (accept-process-output nil 0.05)))
+           (with-current-buffer buf
+             (should (null pownforge--scan-run-id))
+             (should (string-match-p "no run id this time" (buffer-string)))))
+       (when (buffer-live-p buf) (kill-buffer buf))))))
+
+(ert-deftest pownforge-test-playbook-run-live-tails-output-and-collects-run-ids ()
+  (pownforge-test-with-fake-cli
+   (let (buf)
+     (unwind-protect
+         (progn
+           (setq buf (pownforge-playbook-run "web-baseline" "lab-web"))
+           (with-timeout (5 (ert-fail "playbook run process did not finish in time"))
+             (while (not (with-current-buffer buf
+                           (string-match-p "to open a step's result" (buffer-string))))
+               (accept-process-output nil 0.05)))
+           (with-current-buffer buf
+             (should (equal (pownforge-parse-playbook-run-ids (buffer-string))
+                            '("aaaaaaaaaaaa" "bbbbbbbbbbbb")))))
+       (when (buffer-live-p buf) (kill-buffer buf))))))
+
+(ert-deftest pownforge-test-playbook-run-open-result-prompts-when-multiple-ids ()
+  (pownforge-test-with-fake-cli
+   (let (buf opened)
+     (unwind-protect
+         (progn
+           (setq buf (pownforge-playbook-run "web-baseline" "lab-web"))
+           (with-timeout (5 (ert-fail "playbook run process did not finish in time"))
+             (while (not (with-current-buffer buf
+                           (string-match-p "to open a step's result" (buffer-string))))
+               (accept-process-output nil 0.05)))
+           (with-current-buffer buf
+             (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "bbbbbbbbbbbb"))
+                       ((symbol-function 'pownforge-result-show) (lambda (id) (setq opened id))))
+               (pownforge-playbook-run-open-result)))
+           (should (equal opened "bbbbbbbbbbbb")))
        (when (buffer-live-p buf) (kill-buffer buf))))))
 
 ;;; Walkthrough (multi-run narrative)

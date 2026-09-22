@@ -19,6 +19,11 @@
 ;;     `pownforge scan ... --live', and tail its output live in a buffer as
 ;;     it runs (the same line-by-line streaming the web UI's WebSocket view
 ;;     uses, here over a subprocess pipe instead).
+;;   `pownforge-playbook-list', `pownforge-playbook-show' -- browse
+;;     available playbooks (config/playbooks/*.yaml) and their steps.
+;;   `pownforge-playbook-run' -- pick a playbook and a target, run
+;;     `pownforge playbook run ...', and tail its per-step progress live in
+;;     a buffer the same way `pownforge-scan' does.
 ;;   `pownforge-result-list', `pownforge-result-show' -- browse past runs;
 ;;     `result-show' renders findings with `pownforge-review-finding-at-point'
 ;;     bound locally to update a finding's review status in place.
@@ -293,7 +298,10 @@ Press `s' on a row to start a scan against that target."
         (when moving (goto-char (process-mark proc)))))))
 
 (defun pownforge--scan-sentinel (proc _event)
-  "Process sentinel that resolves the run id once PROC exits."
+  "Process sentinel that resolves the run id once PROC exits.
+`process-status' returns a symbol (e.g. `exit'), not a string, so the
+no-run-id branch formats it directly rather than passing it through
+`string-trim' (which signals wrong-type-argument on a symbol)."
   (when (memq (process-status proc) '(exit signal))
     (when (buffer-live-p (process-buffer proc))
       (with-current-buffer (process-buffer proc)
@@ -304,7 +312,7 @@ Press `s' on a row to start a scan against that target."
               (progn
                 (setq pownforge--scan-run-id run-id)
                 (insert (format "\n[done] run %s (C-c C-c to open the result)\n" run-id)))
-            (insert (format "\n[%s]\n" (string-trim (process-status proc))))))))))
+            (insert (format "\n[%s]\n" (process-status proc)))))))))
 
 ;;;###autoload
 (defun pownforge-scan (target plugin options)
@@ -343,6 +351,162 @@ narrowed to that target's `allowed_plugins' when it has any."
       (set-marker (process-mark proc) (with-current-buffer buf (point-max)))
       (set-process-filter proc #'pownforge--scan-filter)
       (set-process-sentinel proc #'pownforge--scan-sentinel))
+    (pop-to-buffer buf)))
+
+;;; Playbooks
+
+(defun pownforge-parse-playbook-list (output)
+  "Parse `pownforge playbook list' textual OUTPUT into a list of plists."
+  (cl-loop for line in (split-string (string-trim output) "\n" t)
+           when (string-match-p "\t" line)
+           collect (let ((fields (split-string line "\t")))
+                     (list :name (nth 0 fields)
+                           :steps (nth 1 fields)
+                           :description (nth 2 fields)))))
+
+(defun pownforge-parse-playbook-run-ids (output)
+  "Extract every step run id from `pownforge playbook run ...' OUTPUT, in order.
+Matches each step's \"run <id> completed\" line (see cli.py's `playbook run'
+output), unlike `pownforge-parse-run-id' which only matches a line that
+*starts* with \"run \" (a plain `scan''s output)."
+  (let (ids (start 0))
+    (while (string-match "run \\([a-zA-Z0-9]+\\) completed" output start)
+      (push (match-string 1 output) ids)
+      (setq start (match-end 0)))
+    (nreverse ids)))
+
+(defvar pownforge-playbook-list-mode-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map tabulated-list-mode-map)
+    (define-key map (kbd "RET") #'pownforge-playbook-list-show)
+    (define-key map "r" #'pownforge-playbook-run)
+    map)
+  "Keymap for `pownforge-playbook-list-mode'.")
+
+(define-derived-mode pownforge-playbook-list-mode tabulated-list-mode "PownForge-Playbooks"
+  "Major mode listing available pownforge playbooks.
+\\{pownforge-playbook-list-mode-map}"
+  (setq tabulated-list-format
+        [("Name" 20 t) ("Steps" 8 t) ("Description" 50 t)])
+  (setq tabulated-list-padding 2)
+  (setq tabulated-list-entries #'pownforge--playbook-list-entries)
+  (tabulated-list-init-header))
+
+(defun pownforge--playbook-list-entries ()
+  (mapcar (lambda (p)
+            (list (plist-get p :name)
+                  (vector (plist-get p :name) (plist-get p :steps) (plist-get p :description))))
+          (pownforge-parse-playbook-list (pownforge--run '("playbook" "list") '()))))
+
+;;;###autoload
+(defun pownforge-playbook-list ()
+  "Show available pownforge playbooks in a tabulated-list buffer.
+Press RET on a row to view that playbook's steps, `r' to run it against a
+target."
+  (interactive)
+  (let ((buf (get-buffer-create "*pownforge-playbooks*")))
+    (with-current-buffer buf
+      (pownforge-playbook-list-mode)
+      (tabulated-list-print))
+    (pop-to-buffer buf)))
+
+(defun pownforge-playbook-list-show ()
+  "Show the playbook at point's steps."
+  (interactive)
+  (let ((name (tabulated-list-get-id)))
+    (unless name (user-error "No playbook on this line"))
+    (pownforge-playbook-show name)))
+
+;;;###autoload
+(defun pownforge-playbook-show (name)
+  "Show playbook NAME's steps (`pownforge playbook show NAME')."
+  (interactive
+   (list (completing-read "Playbook: "
+                           (mapcar (lambda (p) (plist-get p :name))
+                                   (pownforge-parse-playbook-list
+                                    (pownforge--run '("playbook" "list") '())))
+                           nil t)))
+  (let ((output (pownforge--run (list "playbook" "show" name) '())))
+    (with-current-buffer (get-buffer-create (format "*pownforge-playbook: %s*" name))
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert output))
+      (special-mode)
+      (pop-to-buffer (current-buffer)))))
+
+;;; Playbook run (live output)
+
+(defvar pownforge-playbook-run-mode-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map special-mode-map)
+    (define-key map (kbd "C-c C-c") #'pownforge-playbook-run-open-result)
+    map)
+  "Keymap for `pownforge-playbook-run-mode'.")
+
+(define-derived-mode pownforge-playbook-run-mode special-mode "PownForge-Playbook-Run"
+  "Major mode for a live pownforge playbook run output buffer.
+\\{pownforge-playbook-run-mode-map}")
+
+(defun pownforge-playbook-run-open-result ()
+  "Open one of this playbook run's step results.
+Prompts to pick one when the playbook produced more than one run."
+  (interactive)
+  (let ((ids (pownforge-parse-playbook-run-ids (buffer-string))))
+    (unless ids (user-error "No completed step run ids yet"))
+    (pownforge-result-show
+     (if (= (length ids) 1) (car ids) (completing-read "Run id: " ids nil t)))))
+
+(defun pownforge--playbook-run-filter (proc string)
+  "Process filter appending STRING to PROC's buffer, tailing style."
+  (when (buffer-live-p (process-buffer proc))
+    (with-current-buffer (process-buffer proc)
+      (let ((inhibit-read-only t)
+            (moving (= (point) (process-mark proc))))
+        (save-excursion
+          (goto-char (process-mark proc))
+          (insert string)
+          (set-marker (process-mark proc) (point)))
+        (when moving (goto-char (process-mark proc)))))))
+
+(defun pownforge--playbook-run-sentinel (proc _event)
+  "Process sentinel that annotates the buffer once PROC exits.
+`process-status' returns a symbol (e.g. `exit'), not a string, so this
+formats it directly rather than passing it through `string-trim'."
+  (when (memq (process-status proc) '(exit signal))
+    (when (buffer-live-p (process-buffer proc))
+      (with-current-buffer (process-buffer proc)
+        (let ((inhibit-read-only t))
+          (goto-char (point-max))
+          (insert (format "\n[%s] (C-c C-c to open a step's result)\n"
+                          (process-status proc))))))))
+
+;;;###autoload
+(defun pownforge-playbook-run (name target)
+  "Run playbook NAME against TARGET, live-tailing output.
+Interactively, NAME and TARGET are read via `completing-read'."
+  (interactive
+   (list (completing-read "Playbook: "
+                           (mapcar (lambda (p) (plist-get p :name))
+                                   (pownforge-parse-playbook-list
+                                    (pownforge--run '("playbook" "list") '())))
+                           nil t)
+         (completing-read "Target: "
+                           (mapcar (lambda (r) (plist-get r :name))
+                                   (pownforge-parse-target-list
+                                    (pownforge--run '("target" "list") '(:config))))
+                           nil t)))
+  (let* ((args (append (list "playbook" "run" name "--target" target)
+                        (pownforge--global-args '(:config :workdir))))
+         (buf (generate-new-buffer (format "*pownforge-playbook-run: %s/%s*" name target))))
+    (with-current-buffer buf
+      (pownforge-playbook-run-mode)
+      (let ((inhibit-read-only t))
+        (insert (format "$ %s %s\n\n" pownforge-executable (string-join args " ")))))
+    (let ((proc (apply #'start-process (format "pownforge-playbook-run-%s" name) buf
+                        pownforge-executable args)))
+      (set-marker (process-mark proc) (with-current-buffer buf (point-max)))
+      (set-process-filter proc #'pownforge--playbook-run-filter)
+      (set-process-sentinel proc #'pownforge--playbook-run-sentinel))
     (pop-to-buffer buf)))
 
 ;;; Results (list + detail)

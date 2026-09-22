@@ -110,6 +110,28 @@ export interface ScanStatus {
   error: string | null;
 }
 
+export interface PlaybookStepCondition {
+  after_step: number;
+  min_severity: Severity;
+}
+
+export interface PlaybookStep {
+  plugin: string;
+  options: Record<string, string>;
+  when: PlaybookStepCondition | null;
+}
+
+export interface Playbook {
+  name: string;
+  description: string;
+  steps: PlaybookStep[];
+}
+
+export interface PlaybookRunCreated {
+  job_id: string;
+  status: string;
+}
+
 export type Language = "ja" | "en";
 
 export interface AppSettings {
@@ -189,6 +211,14 @@ export const api = {
 
   createWalkthrough: (body: WalkthroughRequest) =>
     request<WalkthroughResult>("/walkthroughs", { method: "POST", body: JSON.stringify(body) }),
+
+  listPlaybooks: () => request<Playbook[]>("/playbooks"),
+  getPlaybook: (name: string) => request<Playbook>(`/playbooks/${encodeURIComponent(name)}`),
+  runPlaybook: (name: string, target: string) =>
+    request<PlaybookRunCreated>(`/playbooks/${encodeURIComponent(name)}/run`, {
+      method: "POST",
+      body: JSON.stringify({ target }),
+    }),
 
   getSettings: () => request<AppSettings>("/settings"),
   updateSettings: (body: AppSettings) =>

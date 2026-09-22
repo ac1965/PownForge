@@ -209,7 +209,8 @@ pre {
   margin-bottom: 0.4rem;
 }
 
-.option-row input {
+.option-row input,
+.option-row select {
   flex: 1;
   padding: 0.4rem;
 }
@@ -217,4 +218,11 @@ pre {
 .live-output {
   max-height: 60vh;
   overflow-y: auto;
+}
+
+.card {
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 1rem;
+  margin-bottom: 1rem;
 }
