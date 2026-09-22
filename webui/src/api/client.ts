@@ -1,4 +1,6 @@
 export type TargetKind = "host" | "url";
+export type TargetType = "network" | "web" | "api" | "kubernetes";
+export type TargetEnvironment = "local-lab" | "staging" | "production";
 
 export interface Target {
   name: string;
@@ -6,6 +8,8 @@ export interface Target {
   address: string;
   allowed_plugins: string[];
   notes: string | null;
+  type: TargetType | null;
+  environment: TargetEnvironment;
 }
 
 export interface LabHost {

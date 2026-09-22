@@ -1,11 +1,13 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, Target, TargetKind } from "../api/client";
+import { api, Target, TargetEnvironment, TargetKind, TargetType } from "../api/client";
 
 const emptyForm = {
   name: "",
   kind: "host" as TargetKind,
   address: "",
+  type: "" as TargetType | "",
+  environment: "local-lab" as TargetEnvironment,
   allowedPlugins: "",
   notes: "",
 };
@@ -31,6 +33,8 @@ export default function Targets() {
         name: form.name,
         kind: form.kind,
         address: form.address,
+        type: form.type || null,
+        environment: form.environment,
         allowed_plugins: form.allowedPlugins
           .split(",")
           .map((p) => p.trim())
@@ -63,6 +67,8 @@ export default function Targets() {
             <th>name</th>
             <th>kind</th>
             <th>address</th>
+            <th>type</th>
+            <th>environment</th>
             <th>allowed plugins</th>
             <th>notes</th>
             <th></th>
@@ -74,6 +80,8 @@ export default function Targets() {
               <td>{t.name}</td>
               <td>{t.kind}</td>
               <td>{t.address}</td>
+              <td>{t.type ?? "-"}</td>
+              <td>{t.environment}</td>
               <td>{t.allowed_plugins.join(", ") || "any"}</td>
               <td>{t.notes ?? ""}</td>
               <td>
@@ -115,6 +123,30 @@ export default function Targets() {
           />
         </label>
         <label>
+          type (任意、分類用)
+          <select
+            value={form.type}
+            onChange={(e) => setForm({ ...form, type: e.target.value as TargetType | "" })}
+          >
+            <option value="">-</option>
+            <option value="network">network</option>
+            <option value="web">web</option>
+            <option value="api">api</option>
+            <option value="kubernetes">kubernetes</option>
+          </select>
+        </label>
+        <label>
+          environment
+          <select
+            value={form.environment}
+            onChange={(e) => setForm({ ...form, environment: e.target.value as TargetEnvironment })}
+          >
+            <option value="local-lab">local-lab</option>
+            <option value="staging">staging</option>
+            <option value="production">production</option>
+          </select>
+        </label>
+        <label>
           allowed plugins (comma区切り、空=all)
           <input
             placeholder="network,web"
@@ -123,8 +155,12 @@ export default function Targets() {
           />
         </label>
         <label>
-          notes
-          <input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+          notes{form.environment === "production" ? "（productionは必須：認可/契約の参照）" : ""}
+          <input
+            required={form.environment === "production"}
+            value={form.notes}
+            onChange={(e) => setForm({ ...form, notes: e.target.value })}
+          />
         </label>
         <button type="submit" disabled={submitting}>
           {submitting ? "追加中..." : "追加"}
