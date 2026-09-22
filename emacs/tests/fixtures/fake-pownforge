@@ -85,6 +85,25 @@ TXT
     echo "[2/2] web: run bbbbbbbbbbbb completed (exit=0)"
     echo "playbook 'web-baseline' finished: 2/2 steps succeeded (0 skipped, 0 failed)"
     ;;
+  "attack-session list")
+    printf 'op-1\t1 stages\tinitial foothold via Shellshock\n'
+    ;;
+  "attack-session show")
+    cat <<TXT
+op-1: initial foothold via Shellshock
+engagement: eng-1
+  1. run001: lab-web / nuclei [exploit] — initial recon
+TXT
+    ;;
+  "attack-session create")
+    echo "created attack session '$3'"
+    ;;
+  "attack-session add-stage")
+    echo "added stage 1 ($4) to attack session '$3'"
+    ;;
+  "attack-session report")
+    echo "wrote /tmp/fake-pownforge-attack-session-$3.md"
+    ;;
   *)
     echo "fake-pownforge: unhandled args: $*" >&2
     exit 2

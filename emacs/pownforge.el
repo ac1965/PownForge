@@ -24,6 +24,13 @@
 ;;   `pownforge-playbook-run' -- pick a playbook and a target, run
 ;;     `pownforge playbook run ...', and tail its per-step progress live in
 ;;     a buffer the same way `pownforge-scan' does.
+;;   `pownforge-attack-session-list', `pownforge-attack-session-show' --
+;;     browse named, human-curated paths of already-recorded runs.
+;;   `pownforge-attack-session-create', `pownforge-attack-session-add-stage' --
+;;     create a session and append an existing run id to it. Never executes
+;;     anything: only records a reference to a run that already happened.
+;;   `pownforge-attack-session-report' -- render a session's stages (in
+;;     order) into a Markdown report and open it.
 ;;   `pownforge-result-list', `pownforge-result-show' -- browse past runs;
 ;;     `result-show' renders findings with `pownforge-review-finding-at-point'
 ;;     bound locally to update a finding's review status in place.
@@ -508,6 +515,129 @@ Interactively, NAME and TARGET are read via `completing-read'."
       (set-process-filter proc #'pownforge--playbook-run-filter)
       (set-process-sentinel proc #'pownforge--playbook-run-sentinel))
     (pop-to-buffer buf)))
+
+;;; Attack sessions (record/track already-recorded runs as a named path)
+
+(defun pownforge-parse-attack-session-list (output)
+  "Parse `pownforge attack-session list' textual OUTPUT into a list of plists."
+  (cl-loop for line in (split-string (string-trim output) "\n" t)
+           when (string-match-p "\t" line)
+           collect (let ((fields (split-string line "\t")))
+                     (list :name (nth 0 fields)
+                           :stages (nth 1 fields)
+                           :description (nth 2 fields)))))
+
+(defvar pownforge-attack-session-list-mode-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map tabulated-list-mode-map)
+    (define-key map (kbd "RET") #'pownforge-attack-session-list-show)
+    (define-key map "c" #'pownforge-attack-session-create)
+    (define-key map "a" #'pownforge-attack-session-add-stage)
+    map)
+  "Keymap for `pownforge-attack-session-list-mode'.")
+
+(define-derived-mode pownforge-attack-session-list-mode tabulated-list-mode "PownForge-AttackSessions"
+  "Major mode listing pownforge attack sessions.
+\\{pownforge-attack-session-list-mode-map}"
+  (setq tabulated-list-format
+        [("Name" 20 t) ("Stages" 10 t) ("Description" 50 t)])
+  (setq tabulated-list-padding 2)
+  (setq tabulated-list-entries #'pownforge--attack-session-list-entries)
+  (tabulated-list-init-header))
+
+(defun pownforge--attack-session-list-entries ()
+  (mapcar (lambda (s)
+            (list (plist-get s :name)
+                  (vector (plist-get s :name) (plist-get s :stages) (plist-get s :description))))
+          (pownforge-parse-attack-session-list (pownforge--run '("attack-session" "list") '(:workdir)))))
+
+;;;###autoload
+(defun pownforge-attack-session-list ()
+  "Show pownforge attack sessions in a tabulated-list buffer.
+Press RET on a row to view that session's stages, `c' to create a new
+session, `a' to append a stage to one."
+  (interactive)
+  (let ((buf (get-buffer-create "*pownforge-attack-sessions*")))
+    (with-current-buffer buf
+      (pownforge-attack-session-list-mode)
+      (tabulated-list-print))
+    (pop-to-buffer buf)))
+
+(defun pownforge-attack-session-list-show ()
+  "Show the attack session at point's stages."
+  (interactive)
+  (let ((name (tabulated-list-get-id)))
+    (unless name (user-error "No attack session on this line"))
+    (pownforge-attack-session-show name)))
+
+;;;###autoload
+(defun pownforge-attack-session-show (name)
+  "Show attack session NAME's stages (`pownforge attack-session show NAME')."
+  (interactive
+   (list (completing-read "Attack session: "
+                           (mapcar (lambda (s) (plist-get s :name))
+                                   (pownforge-parse-attack-session-list
+                                    (pownforge--run '("attack-session" "list") '(:workdir))))
+                           nil t)))
+  (let ((output (pownforge--run (list "attack-session" "show" name) '(:workdir))))
+    (with-current-buffer (get-buffer-create (format "*pownforge-attack-session: %s*" name))
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert output))
+      (special-mode)
+      (pop-to-buffer (current-buffer)))))
+
+;;;###autoload
+(defun pownforge-attack-session-create (name description engagement)
+  "Create a new, empty attack session NAME with DESCRIPTION/ENGAGEMENT.
+Never executes anything -- only registers a name that
+`pownforge-attack-session-add-stage' can then append already-recorded runs
+to."
+  (interactive
+   (list (read-string "New attack session name: ")
+         (read-string "Description (blank for none): ")
+         (read-string "Engagement (blank for none, cross-reference only): ")))
+  (let ((args (append (list "attack-session" "create" name)
+                       (unless (string-empty-p description) (list "--description" description))
+                       (unless (string-empty-p engagement) (list "--engagement" engagement)))))
+    (message "%s" (string-trim (pownforge--run args '(:workdir))))))
+
+;;;###autoload
+(defun pownforge-attack-session-add-stage (name run-id label)
+  "Append RUN-ID (with optional LABEL) as the next stage of session NAME.
+RUN-ID must already exist (from `pownforge-scan'/`pownforge-playbook-run'/
+`pownforge result import') -- this never creates a run or executes
+anything."
+  (interactive
+   (list (completing-read "Attack session: "
+                           (mapcar (lambda (s) (plist-get s :name))
+                                   (pownforge-parse-attack-session-list
+                                    (pownforge--run '("attack-session" "list") '(:workdir))))
+                           nil t)
+         (completing-read "Run id: "
+                           (mapcar (lambda (r) (plist-get r :run-id))
+                                   (pownforge-parse-result-list
+                                    (pownforge--run '("result" "list") '(:workdir))))
+                           nil t)
+         (read-string "Label (blank for none): ")))
+  (let ((args (append (list "attack-session" "add-stage" name run-id)
+                       (unless (string-empty-p label) (list "--label" label)))))
+    (message "%s" (string-trim (pownforge--run args '(:workdir))))))
+
+;;;###autoload
+(defun pownforge-attack-session-report (name)
+  "Generate attack session NAME's Markdown report and open it."
+  (interactive
+   (list (completing-read "Attack session: "
+                           (mapcar (lambda (s) (plist-get s :name))
+                                   (pownforge-parse-attack-session-list
+                                    (pownforge--run '("attack-session" "list") '(:workdir))))
+                           nil t)))
+  (let* ((out (pownforge--run (list "attack-session" "report" name) '(:workdir)))
+         (path (when (string-match "wrote \\(.+\\)$" out) (match-string 1 out))))
+    (unless path
+      (user-error "could not determine report path from: %s" out))
+    (find-file (string-trim path))))
 
 ;;; Results (list + detail)
 

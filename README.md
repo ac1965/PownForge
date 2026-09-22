@@ -138,7 +138,9 @@ make test-all     # pytest + webuiビルド + Emacs ERT(npm/Emacsが入ってい
 - `AttackSession`による複数run経路の名前付き永続化（`pownforge attack-session
   create/add-stage/show/report`。既存run-idの存在確認のみで、実行・生成は
   一切しない。`walkthrough generate`の使い捨て出力を、ラベル付きで保存・
-  再参照できる経路に発展させたもの）
+  再参照できる経路に発展させたもの。Web UI（Attack Sessionページ）・
+  Emacs（`pownforge-attack-session-list/show/create/add-stage/report`）
+  からも同じ操作が可能）
 - LLM分析アダプタ（`llm` CLI経由。ローカルOllama/Claude/OpenAI等をモデル名で切替）
 - Emacs連携（`emacs/pownforge.el`）: 対象/プラグイン一覧、`--live`によるスキャン・
   Playbookのライブ表示、findingのレビュー、Org-modeへのfindings出力
@@ -164,5 +166,6 @@ make test-all     # pytest + webuiビルド + Emacs ERT(npm/Emacsが入ってい
 | `Engagement`（横展開の記録） | 実nmapスキャン+手動pivot記録 | Engagement外の対象への記録が拒否されること、正規メンバー間のpivot記録とウォークスルーへの反映を確認 |
 | `pownforge lab`（攻撃対象ホストの動的追加） | `tleemcjr/metasploitable2` | **常駐しないラボイメージ向けの`docker run -i`修正**（[lab.py](src/pownforge/core/lab.py)）を実機検証で発見・修正 |
 | `Playbook`（複数プラグインの連続実行・条件分岐） | OWASP Juice Shop、CLI/Web UI/Emacsの3経路 | 線形実行・条件分岐(`when`)の両方を実際に確認。Web UIはブラウザでPlaybooks画面からWebSocketライブ進捗まで、EmacsはCLI経由のライブテールまで実機確認。**`process-status`をシンボルのまま`string-trim`に渡すEmacs側の潜在バグ（`pownforge-scan`にも存在）を発見・修正**（[pownforge.el](emacs/pownforge.el)） |
+| `AttackSession`（複数run経路の名前付き永続化） | 実`network`スキャンのrun、CLI/Web UI/Emacsの3経路 | セッション作成→stage追加→Markdown/HTMLレポート表示を3経路それぞれで実機確認。WebはブラウザでAttack Sessionページから一気通貫、Emacsは実CLI（スタブでなく`.venv/bin/pownforge`）に対し`pownforge-attack-session-add-stage`/`-report`を実行し、レポートファイルの内容まで確認 |
 
 見つかったバグはいずれも実機検証でのみ露見するもので（モックXML/JSONを使うユニットテストだけでは検出できなかった）、発見のたびに再現テストを追加した上で修正しています。詳細な検証記録は [docs/handbook.md §6 プラグイン](docs/handbook.md#6-プラグイン)・[§7 ラボネットワーク](docs/handbook.md#7-ラボネットワーク)・[§12 Target modelとスコープ制御](docs/handbook.md#12-target-modelとスコープ制御) を参照してください。

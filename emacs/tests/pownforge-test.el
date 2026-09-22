@@ -104,6 +104,19 @@
                  '("cccccccccccc")))
   (should (null (pownforge-parse-playbook-run-ids "error: no playbook named 'nope'\n"))))
 
+(ert-deftest pownforge-test-parse-attack-session-list ()
+  (let ((sessions (pownforge-parse-attack-session-list
+                    "op-1\t1 stages\tinitial foothold via Shellshock\n")))
+    (should (= (length sessions) 1))
+    (should (equal (plist-get (car sessions) :name) "op-1"))
+    (should (equal (plist-get (car sessions) :stages) "1 stages"))
+    (should (equal (plist-get (car sessions) :description) "initial foothold via Shellshock"))))
+
+(ert-deftest pownforge-test-parse-attack-session-list-empty ()
+  (should (equal (pownforge-parse-attack-session-list
+                   "no attack sessions recorded yet; use `pownforge attack-session create`\n")
+                 nil)))
+
 (ert-deftest pownforge-test-severity-and-status-mapping ()
   (should (= (pownforge-severity-priority "critical") ?A))
   (should (= (pownforge-severity-priority "high") ?A))
@@ -244,6 +257,58 @@ signal wrong-type-argument instead of annotating the buffer."
                (pownforge-playbook-run-open-result)))
            (should (equal opened "bbbbbbbbbbbb")))
        (when (buffer-live-p buf) (kill-buffer buf))))))
+
+;;; Attack sessions (record/track already-recorded runs)
+
+(ert-deftest pownforge-test-attack-session-list-entries-runs-fake-cli ()
+  (pownforge-test-with-fake-cli
+   (let ((entries (pownforge--attack-session-list-entries)))
+     (should (= (length entries) 1))
+     (should (equal (car (car entries)) "op-1")))))
+
+(ert-deftest pownforge-test-attack-session-show-renders-stages ()
+  (pownforge-test-with-fake-cli
+   (pownforge-attack-session-show "op-1")
+   (with-current-buffer "*pownforge-attack-session: op-1*"
+     (unwind-protect
+         (progn
+           (should (string-match-p "engagement: eng-1" (buffer-string)))
+           (should (string-match-p "lab-web / nuclei \\[exploit\\]" (buffer-string))))
+       (kill-buffer)))))
+
+(ert-deftest pownforge-test-attack-session-create-calls-cli-with-options ()
+  (pownforge-test-with-fake-cli
+   (let (calls)
+     (cl-letf (((symbol-function 'pownforge--run)
+                (lambda (args _accepts) (push args calls) "created attack session 'op-2'")))
+       (pownforge-attack-session-create "op-2" "test session" "eng-1"))
+     (should (equal (car calls)
+                     '("attack-session" "create" "op-2"
+                       "--description" "test session" "--engagement" "eng-1"))))))
+
+(ert-deftest pownforge-test-attack-session-create-omits-blank-options ()
+  (pownforge-test-with-fake-cli
+   (let (calls)
+     (cl-letf (((symbol-function 'pownforge--run)
+                (lambda (args _accepts) (push args calls) "created attack session 'op-3'")))
+       (pownforge-attack-session-create "op-3" "" ""))
+     (should (equal (car calls) '("attack-session" "create" "op-3"))))))
+
+(ert-deftest pownforge-test-attack-session-add-stage-calls-cli ()
+  (pownforge-test-with-fake-cli
+   (let (calls)
+     (cl-letf (((symbol-function 'pownforge--run)
+                (lambda (args _accepts) (push args calls) "added stage 1 (run001) to attack session 'op-1'")))
+       (pownforge-attack-session-add-stage "op-1" "run001" "initial recon"))
+     (should (equal (car calls)
+                     '("attack-session" "add-stage" "op-1" "run001" "--label" "initial recon"))))))
+
+(ert-deftest pownforge-test-attack-session-report-opens-file ()
+  (pownforge-test-with-fake-cli
+   (let (opened-path)
+     (cl-letf (((symbol-function 'find-file) (lambda (path) (setq opened-path path))))
+       (pownforge-attack-session-report "op-1"))
+     (should (equal opened-path "/tmp/fake-pownforge-attack-session-op-1.md")))))
 
 ;;; Walkthrough (multi-run narrative)
 

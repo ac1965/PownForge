@@ -10,6 +10,7 @@ from starlette.types import Scope
 
 from pownforge.web.jobs import JobManager
 from pownforge.web.routers import (
+    attack_sessions,
     audit,
     lab,
     playbooks,
@@ -62,6 +63,7 @@ def create_app(
     app.include_router(runs.router, prefix="/api")
     app.include_router(scans.router, prefix="/api")
     app.include_router(playbooks.router, prefix="/api")
+    app.include_router(attack_sessions.router, prefix="/api")
     app.include_router(audit.router, prefix="/api")
     app.include_router(walkthroughs.router, prefix="/api")
     app.include_router(settings_router.router, prefix="/api")
