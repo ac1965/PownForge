@@ -4,16 +4,34 @@
 `EvidenceStore`)をそのまま使うFastAPIバックエンドを起動できます。スキャンの
 ライブ進捗はWebSocketでストリーミングされます。
 
-> **現在の状況:** バックエンドAPI（本ドキュメントの内容）は実装・テスト済みです。
-> React製のフロントエンド(`webui/`)は次の実装段階で追加予定で、まだこの
-> リポジトリには含まれていません。それまでは`curl`やWebSocketクライアントで
-> APIを直接操作するか、`/docs`（Swagger UI）から試せます。
+> **現在の状況:** バックエンドAPIとフロントエンド(`webui/`, React + Vite)の
+> 閲覧系画面(Dashboard/Targets/Lab/Runs/Run detail、Run detailからの
+> Analyze実行を含む)は実装・動作確認済みです。target登録・lab起動・新規
+> スキャンのフォームはまだ画面に無く、それらはAPI経由（`curl`や`/docs`の
+> Swagger UI）で行ってください。
 
 ## セットアップ
 
+### 開発時（2ターミナル）
+
 ```bash
+# ターミナル1: バックエンド
 pip install -e ".[web]"
 pownforge web serve
+
+# ターミナル2: フロントエンド（初回のみ `make web-install` でnpm installも）
+cd webui && npm run dev
+```
+
+`npm run dev` (Vite, 既定 `http://localhost:5173`) が `/api/*`（WebSocket含む）を
+`http://127.0.0.1:8420` へプロキシするので、ブラウザからは
+`http://localhost:5173` を開くだけで動きます。CORS設定は不要です。
+
+### ビルド済みSPAをFastAPIから配信する場合
+
+```bash
+make web-build      # webui/dist を生成
+pownforge web serve  # 同一オリジンでAPIとSPAの両方を配信
 ```
 
 - 既定は `http://127.0.0.1:8420`。`--host`/`--port`/`--config`/`--workdir`で変更可能。
@@ -22,6 +40,12 @@ pownforge web serve
   等で他インターフェースにバインドすると、target登録・lab起動・スキャン実行の
   書き込み系APIがそのまま露出します。信頼できないネットワークでは使わないでください。
 - Swagger UI: `http://127.0.0.1:8420/docs`
+- **開発サーバーの既知の注意点:** `npm run dev`（Vite/esbuild）の開発サーバーは、
+  ブラウザで開いている別のWebサイトからのリクエストを受け付けてしまう既知の
+  問題(GHSA-67mh-4wv8-2f99)があります。信頼できるネットワーク・自分だけが
+  使うマシンで動かしてください。ビルド済みSPAをFastAPI経由で配信する運用
+  (`make web-build` + `pownforge web serve`)ではこの開発サーバー自体を
+  使わないため影響しません。
 
 ## APIエンドポイント
 

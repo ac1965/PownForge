@@ -87,7 +87,9 @@ make test
 - `config/wordlists/`: ffuf等で使う動作確認用ワードリスト
 - `src/pownforge/web/`: FastAPIバックエンド（optional extra `[web]`）。`ScopePolicy`/
   `ScanRunner`/`LabManager`/`EvidenceStore` を呼ぶだけの薄いルーター群
-- `webui/`: React製フロントエンド（Python packageの外、npmで別ビルド。今後追加予定）
+- `webui/`: React製フロントエンド（Python packageの外、npmで別ビルド）。現状は
+  閲覧系画面(Dashboard/Targets/Lab/Runs/Run detail)とAnalyze実行のみで、
+  target登録・lab起動・新規スキャンのフォームは未実装
 - `docs/lab.md`: ラボネットワーク機能（`pownforge lab`）の使い方
 - `docs/web.md`: Web UI/APIの使い方
 - `docs/walkthrough.md`: 実機（OWASP Juice Shop等）での検証記録

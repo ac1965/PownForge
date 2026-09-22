@@ -77,8 +77,10 @@ pownforge analyze <run-id>
 
 `pip install -e ".[web]"` の上で `pownforge web serve` を実行すると、CLIと
 同じコアをそのまま使うFastAPIバックエンドが起動し、スキャンのライブ進捗を
-WebSocketで確認できます。詳細は [docs/web.md](docs/web.md) を参照してください
-（React製フロントエンドは実装中で、現時点ではAPIや`/docs`(Swagger UI)から直接操作します）。
+WebSocketで確認できます。React製フロントエンド(`webui/`)でDashboard/Targets/
+Lab/Runs/Run detail(Analyze実行含む)の閲覧ができます(target登録・lab起動・
+新規スキャンのフォームは未実装で、それらはAPI経由で行います)。詳細は
+[docs/web.md](docs/web.md) を参照してください。
 
 ## アーキテクチャ
 
@@ -99,7 +101,7 @@ make test
 - 対象管理・スコープ検証（`core/policy.py`）
 - プラグインレジストリと `network`（nmap）/ `web`（ffuf）。nmap XML / ffuf JSON出力を構造化データに正規化済み
 - 隔離Dockerネットワーク上への攻撃対象ホストの動的追加（`pownforge lab`）
-- Web API + ライブ進捗WebSocket（`pownforge web serve`、optional extra `[web]`）。フロントエンド(SPA)は実装中
+- Web API + ライブ進捗WebSocket（`pownforge web serve`、optional extra `[web]`）+ React製の閲覧用SPA（`webui/`）
 - 実行証跡（コマンド・タイムスタンプ・SHA-256ハッシュ）の保存
 - Markdownレポート生成
 - ローカルLLM（Ollama）分析アダプタ
