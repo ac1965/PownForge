@@ -78,6 +78,31 @@ def test_render_groups_findings_by_status() -> None:
     )
 
 
+def test_render_shows_executive_summary_with_no_findings() -> None:
+    output = render(_record())
+    assert "## エグゼクティブサマリー" in output
+    assert "- **総件数:** 0" in output
+    assert "- **確認済み:** 0" in output
+    assert "- **総合評価:** 指摘事項はありません" in output
+
+
+def test_render_shows_executive_summary_with_confirmed_findings() -> None:
+    record = _record(
+        findings=[
+            Finding(title="a", status="confirmed", severity="critical"),
+            Finding(title="b", status="confirmed", severity="high"),
+            Finding(title="c", status="needs-review"),
+        ]
+    )
+    output = render(record)
+    assert "- **総件数:** 3" in output
+    assert "- **確認済み:** critical 1 / high 1" in output
+    assert "- **要確認(未検証):** 1" in output
+    assert "- **総合評価:** 確認済みの最高重大度: critical" in output
+    # summary must appear before the detailed Findings section
+    assert output.index("## エグゼクティブサマリー") < output.index("## Findings")
+
+
 def test_render_with_analysis_shows_text_not_placeholder() -> None:
     record = _record(analysis="Looks like a dev server; no confirmed vulnerabilities.")
     output = render(record)

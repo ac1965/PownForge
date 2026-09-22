@@ -69,6 +69,41 @@ def test_render_markdown_orders_findings_by_severity_and_groups_by_status() -> N
     assert output.index("#### 確認済み") < output.index("critical one") < output.index("low one")
 
 
+def test_render_markdown_shows_aggregate_executive_summary_across_runs() -> None:
+    records = [
+        _record(
+            "lab",
+            "nuclei",
+            "2026-01-01T00:00:00Z",
+            findings=[Finding(title="a", status="confirmed", severity="high")],
+        ),
+        _record(
+            "lab",
+            "network",
+            "2026-01-02T00:00:00Z",
+            findings=[Finding(title="b", status="confirmed", severity="critical")],
+        ),
+    ]
+    output = render_markdown(_walkthrough(records=records))
+    assert "## エグゼクティブサマリー" in output
+    assert "- **総件数:** 2 (2 runs)" in output
+    assert "- **確認済み:** critical 1 / high 1" in output
+    assert "- **総合評価:** 確認済みの最高重大度: critical" in output
+    assert output.index("## エグゼクティブサマリー") < output.index("## ナラティブ")
+
+
+def test_render_html_shows_aggregate_executive_summary_across_runs() -> None:
+    records = [
+        _record(
+            "lab", "nuclei", "2026-01-01T00:00:00Z", findings=[Finding(title="a", status="confirmed", severity="low")]
+        )
+    ]
+    output = render_html(_walkthrough(records=records))
+    assert "<h2>エグゼクティブサマリー</h2>" in output
+    assert "<dt>総件数</dt><dd>1 (1 runs)</dd>" in output
+    assert "<dt>確認済み</dt><dd>low 1</dd>" in output
+
+
 def test_render_html_is_self_contained_and_escapes_tool_controlled_fields() -> None:
     record = _record(
         "<script>alert(1)</script>",

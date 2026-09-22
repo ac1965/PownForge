@@ -971,6 +971,15 @@ detail画面の確認ボタン) / `PATCH /api/runs/{id}/findings/{id}`のいず�
 severity配色のスタンドアロンページ)で生成できます。詳細は
 [§5](#5-cliコマンドリファレンス)を参照してください。
 
+各レポート(単一run向けの`report generate`、複数runを横断する
+`walkthrough generate`のいずれも)冒頭には**エグゼクティブサマリー**節が
+あり、`reporting/summary.py::summarize()`が既存のFindingを集計して
+「総件数・確認済みのseverity内訳・要確認件数・誤検知件数・総合評価
+(確認済みのうち最高severity)」を提示します。新しい判定や推測は一切
+行わず、既に保存済みのFinding/statusを集計するだけです
+(`The Hacker Playbook 2`の"Post-Game Analysis"章 — 報告書は詳細な指摘一覧の
+前に全体像を示すべき、という考え方に着想を得ています)。
+
 ## 13. テスト
 
 ```bash
@@ -1006,7 +1015,8 @@ findingsが正しく記録・表示されることを確認してから完了と
 ライブ進捗WebSocket)、`pownforge lab`による攻撃対象コンテナの動的管理、
 Emacs連携、複数runをまたぐ物語調ウォークスルー機能とAIの提案(Suggestion)、
 recon(`subfinder`)による受動的サブドメイン列挙(`The Hacker Playbook 2`の
-"Before the Snap"章に着想を得た偵察フェーズの補強)。
+"Before the Snap"章に着想を得た偵察フェーズの補強)、レポートのエグゼクティブ
+サマリー節(同書"Post-Game Analysis"章に着想を得た報告書の全体像提示)。
 
 **既知の未実装項目**:
 

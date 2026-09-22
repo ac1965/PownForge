@@ -88,6 +88,22 @@ def test_render_with_analysis_shows_text_not_placeholder() -> None:
     assert "`pownforge analyze` を実行すると" not in output
 
 
+def test_render_shows_executive_summary_with_confirmed_findings() -> None:
+    record = _record(
+        findings=[
+            Finding(title="a", status="confirmed", severity="critical"),
+            Finding(title="b", status="needs-review"),
+        ]
+    )
+    output = render(record)
+    assert "<h2>エグゼクティブサマリー</h2>" in output
+    assert "<dt>総件数</dt><dd>2</dd>" in output
+    assert "<dt>確認済み</dt><dd>critical 1</dd>" in output
+    assert "<dt>要確認(未検証)</dt><dd>1</dd>" in output
+    assert "<dt>総合評価</dt><dd>確認済みの最高重大度: critical</dd>" in output
+    assert output.index("エグゼクティブサマリー") < output.index("<h2>Findings</h2>")
+
+
 def test_render_escapes_html_in_tool_controlled_fields() -> None:
     record = _record(
         target="<script>alert(1)</script>",

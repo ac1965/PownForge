@@ -113,7 +113,7 @@ make test
 - 隔離Dockerネットワーク上への攻撃対象ホストの動的追加（`pownforge lab`）
 - Web API + ライブ進捗WebSocket（`pownforge web serve`、optional extra `[web]`）+ React製の閲覧用SPA（`webui/`）
 - 実行証跡（コマンド・タイムスタンプ・SHA-256ハッシュ）の保存
-- Markdownレポート生成
+- Markdown/HTMLレポート生成（エグゼクティブサマリー節つき）
 - LLM分析アダプタ（`llm` CLI経由。ローカルOllama/Claude/OpenAI等をモデル名で切替）
 - Emacs連携（`emacs/pownforge.el`）: 対象/プラグイン一覧、`--live`によるスキャンの
   ライブ表示、findingのレビュー、Org-modeへのfindings出力（[docs/handbook.md §9](docs/handbook.md#9-emacs連携)）

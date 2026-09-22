@@ -3,6 +3,7 @@ from __future__ import annotations
 import html as html_escape
 
 from pownforge.core.models import Finding, FindingStatus, RunRecord, Severity
+from pownforge.reporting.summary import summarize
 
 _SEVERITY_ORDER = {
     Severity.CRITICAL: 0,
@@ -78,6 +79,21 @@ def render(record: RunRecord) -> str:
         f"<dt>Tool version</dt><dd>{_esc(record.evidence.tool_version or '(unknown)')}</dd>",
         f"<dt>stdout sha256</dt><dd>{_esc(record.evidence.stdout_sha256)}</dd>",
         f"<dt>stderr sha256</dt><dd>{_esc(record.evidence.stderr_sha256)}</dd>",
+        "</dl>",
+        "<h2>エグゼクティブサマリー</h2>",
+    ]
+    summary = summarize(record.findings)
+    if summary.confirmed_by_severity:
+        breakdown = " / ".join(f"{_esc(sev.value)} {count}" for sev, count in summary.confirmed_by_severity)
+    else:
+        breakdown = "0"
+    parts += [
+        "<dl>",
+        f"<dt>総件数</dt><dd>{summary.total}</dd>",
+        f"<dt>確認済み</dt><dd>{breakdown}</dd>",
+        f"<dt>要確認(未検証)</dt><dd>{summary.needs_review}</dd>",
+        f"<dt>誤検知として却下</dt><dd>{summary.false_positive}</dd>",
+        f"<dt>総合評価</dt><dd>{_esc(summary.headline)}</dd>",
         "</dl>",
         "<h2>Findings</h2>",
     ]

@@ -4,6 +4,7 @@ import html as html_escape
 
 from pownforge.core.models import Finding, FindingStatus, RunRecord, Severity
 from pownforge.core.walkthrough import Walkthrough
+from pownforge.reporting.summary import summarize
 
 _SEVERITY_ORDER = {
     Severity.CRITICAL: 0,
@@ -44,6 +45,10 @@ def _sorted_findings(record: RunRecord, status: FindingStatus) -> list[Finding]:
     )
 
 
+def _all_findings(records: list[RunRecord]) -> list[Finding]:
+    return [finding for record in records for finding in record.findings]
+
+
 def render_markdown(walkthrough: Walkthrough) -> str:
     records = walkthrough.records
     lines = [
@@ -51,6 +56,22 @@ def render_markdown(walkthrough: Walkthrough) -> str:
         "",
         f"- **Runs:** {len(records)}",
         f"- **Period:** {records[0].created_at.isoformat()} — {records[-1].created_at.isoformat()}",
+        "",
+        "## エグゼクティブサマリー",
+        "",
+    ]
+    summary = summarize(_all_findings(records))
+    lines.append(f"- **総件数:** {summary.total} ({len(records)} runs)")
+    if summary.confirmed_by_severity:
+        breakdown = " / ".join(f"{sev.value} {count}" for sev, count in summary.confirmed_by_severity)
+        lines.append(f"- **確認済み:** {breakdown}")
+    else:
+        lines.append("- **確認済み:** 0")
+    lines.append(f"- **要確認(未検証):** {summary.needs_review}")
+    lines.append(f"- **誤検知として却下:** {summary.false_positive}")
+    lines.append(f"- **総合評価:** {summary.headline}")
+
+    lines += [
         "",
         "## ナラティブ(AI生成・要確認)",
         "",
@@ -148,6 +169,21 @@ def render_html(walkthrough: Walkthrough) -> str:
         f"<dt>Runs</dt><dd>{len(records)}</dd>",
         "<dt>Period</dt>"
         f"<dd>{_esc(records[0].created_at.isoformat())} — {_esc(records[-1].created_at.isoformat())}</dd>",
+        "</dl>",
+        "<h2>エグゼクティブサマリー</h2>",
+    ]
+    summary = summarize(_all_findings(records))
+    if summary.confirmed_by_severity:
+        breakdown = " / ".join(f"{_esc(sev.value)} {count}" for sev, count in summary.confirmed_by_severity)
+    else:
+        breakdown = "0"
+    parts += [
+        "<dl>",
+        f"<dt>総件数</dt><dd>{summary.total} ({len(records)} runs)</dd>",
+        f"<dt>確認済み</dt><dd>{breakdown}</dd>",
+        f"<dt>要確認(未検証)</dt><dd>{summary.needs_review}</dd>",
+        f"<dt>誤検知として却下</dt><dd>{summary.false_positive}</dd>",
+        f"<dt>総合評価</dt><dd>{_esc(summary.headline)}</dd>",
         "</dl>",
         "<h2>ナラティブ(AI生成・要確認)</h2>",
         f"<p><em>{_esc(_NARRATIVE_NOTICE)}</em></p>",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pownforge.core.models import Finding, FindingStatus, RunRecord, Severity
+from pownforge.reporting.summary import summarize
 
 _SEVERITY_ORDER = {
     Severity.CRITICAL: 0,
@@ -40,8 +41,21 @@ def render(record: RunRecord) -> str:
         f"- **stdout sha256:** `{record.evidence.stdout_sha256}`",
         f"- **stderr sha256:** `{record.evidence.stderr_sha256}`",
         "",
-        "## Findings",
+        "## エグゼクティブサマリー",
+        "",
     ]
+    summary = summarize(record.findings)
+    lines.append(f"- **総件数:** {summary.total}")
+    if summary.confirmed_by_severity:
+        breakdown = " / ".join(f"{sev.value} {count}" for sev, count in summary.confirmed_by_severity)
+        lines.append(f"- **確認済み:** {breakdown}")
+    else:
+        lines.append("- **確認済み:** 0")
+    lines.append(f"- **要確認(未検証):** {summary.needs_review}")
+    lines.append(f"- **誤検知として却下:** {summary.false_positive}")
+    lines.append(f"- **総合評価:** {summary.headline}")
+
+    lines += ["", "## Findings"]
     if record.findings:
         for status, heading in _STATUS_SECTIONS:
             findings = sorted(
