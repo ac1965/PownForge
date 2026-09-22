@@ -12,3 +12,5 @@ build/
 node_modules/
 webui/.vite/
 *.tsbuildinfo
+
+config/targets.yaml

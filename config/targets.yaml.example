@@ -1,0 +1,16 @@
+# 登録済みの許可対象。
+# 明示的に許可された対象のみをここに追加してください。
+# `pownforge target add` 経由で追加・保存します。手動編集はスキーマに注意してください。
+#
+# 実際に使う際は、このファイルを config/targets.yaml としてコピーしてください
+# (config/targets.yaml は .gitignore 済みで、リポジトリにはコミットされません)。
+#
+# 例:
+# targets:
+#   lab-web:
+#     kind: host
+#     address: 127.0.0.1
+#     allowed_plugins:
+#     - network
+#     notes: null
+targets: {}
