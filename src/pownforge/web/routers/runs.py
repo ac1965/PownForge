@@ -8,7 +8,8 @@ from pownforge.core.analysis import AnalysisError, run_analysis
 from pownforge.core.findings import FindingNotFoundError, review_finding
 from pownforge.core.models import EvidenceVerification, FindingStatus, RunRecord
 from pownforge.evidence.store import EvidenceStore
-from pownforge.reporting.markdown import render
+from pownforge.reporting.html import render as render_html
+from pownforge.reporting.markdown import render as render_markdown
 from pownforge.web.deps import get_store
 
 router = APIRouter(tags=["runs"])
@@ -28,12 +29,16 @@ def get_run(run_id: str, store: EvidenceStore = Depends(get_store)) -> RunRecord
 
 
 @router.get("/runs/{run_id}/report")
-def get_run_report(run_id: str, store: EvidenceStore = Depends(get_store)) -> dict[str, str]:
+def get_run_report(
+    run_id: str, format: str = "markdown", store: EvidenceStore = Depends(get_store)
+) -> dict[str, str]:
     try:
         record = store.load(run_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return {"markdown": render(record)}
+    if format == "html":
+        return {"html": render_html(record)}
+    return {"markdown": render_markdown(record)}
 
 
 @router.get("/runs/{run_id}/verify", response_model=EvidenceVerification)

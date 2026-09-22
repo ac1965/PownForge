@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from enum import Enum
 from pathlib import Path
 from typing import Optional
 
@@ -17,6 +18,7 @@ from pownforge.core.runner import RunnerError, ScanRunner
 from pownforge.evidence.audit import AuditStore
 from pownforge.evidence.store import EvidenceStore
 from pownforge.plugins.base import PluginError
+from pownforge.reporting import html as html_report
 from pownforge.reporting import markdown
 
 app = typer.Typer(help="PownForge: a modular security assessment CLI for authorized engagements.")
@@ -24,7 +26,7 @@ target_app = typer.Typer(help="Manage the registered, authorized scan targets.")
 plugin_app = typer.Typer(help="Inspect available plugins.")
 scan_app = typer.Typer(help="Run a plugin against a registered target.")
 result_app = typer.Typer(help="Inspect past scan runs.")
-report_app = typer.Typer(help="Generate Markdown reports from a run.")
+report_app = typer.Typer(help="Generate Markdown/HTML reports from a run.")
 lab_app = typer.Typer(help="Start/stop attack-target containers on an isolated lab network.")
 web_app = typer.Typer(help=r"Serve the web UI (needs the \[web] extra: pip install -e '.\[web]').")
 audit_app = typer.Typer(help="Inspect scan attempts that ScopePolicy rejected.")
@@ -146,6 +148,7 @@ def plugin_info(name: str) -> None:
     typer.echo(f"description: {plugin.description}")
     typer.echo(f"required tool: {plugin.required_tool}")
     typer.echo(f"tool available: {plugin.check()}")
+    typer.echo(f"expected kind: {plugin.expected_kind.value if plugin.expected_kind else 'any'}")
 
 
 def _run_scan(
@@ -377,18 +380,32 @@ def evidence_verify(run_id: str, workdir: Path = typer.Option(DEFAULT_WORKDIR)) 
     typer.echo("evidence verified: hashes match stored output")
 
 
+class ReportFormat(str, Enum):
+    MARKDOWN = "markdown"
+    HTML = "html"
+
+
 @report_app.command("generate")
-def report_generate(run_id: str, workdir: Path = typer.Option(DEFAULT_WORKDIR)) -> None:
-    """Render a Markdown report for a run into <workdir>/reports/."""
+def report_generate(
+    run_id: str,
+    format: ReportFormat = typer.Option(ReportFormat.MARKDOWN, "--format", help="markdown or html"),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+) -> None:
+    """Render a report for a run into <workdir>/reports/."""
     store = _store(workdir)
     try:
         record = store.load(run_id)
     except FileNotFoundError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
-    report_path = workdir / "reports" / f"{run_id}.md"
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(markdown.render(record))
+    if format == ReportFormat.HTML:
+        report_path = workdir / "reports" / f"{run_id}.html"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(html_report.render(record))
+    else:
+        report_path = workdir / "reports" / f"{run_id}.md"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(markdown.render(record))
     typer.echo(f"wrote {report_path}")
 
 

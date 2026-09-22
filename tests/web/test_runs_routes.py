@@ -106,6 +106,17 @@ def test_get_run_report_renders_markdown(tmp_path: Path) -> None:
     assert f"Run {record.run_id}" in resp.json()["markdown"]
 
 
+def test_get_run_report_renders_html_when_requested(tmp_path: Path) -> None:
+    record = _seed_record(tmp_path)
+    client = _client(tmp_path)
+    resp = client.get(f"/api/runs/{record.run_id}/report?format=html")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "markdown" not in body
+    assert body["html"].startswith("<!doctype html>")
+    assert f"Run {record.run_id}" in body["html"]
+
+
 def test_verify_run_reports_mismatch_for_bogus_seeded_hashes(tmp_path: Path) -> None:
     # _seed_record uses placeholder hashes ("abc"/"def") that don't match the
     # seeded output, so this exercises the MISMATCH path end to end.
