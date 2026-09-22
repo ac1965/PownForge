@@ -21,8 +21,9 @@ lab.md/web.md/emacs.md/walkthrough-report.md/walkthrough.md/roadmap.md)は
 11. [AIによる分析・ウォークスルー・提案](#11-aiによる分析ウォークスルー提案)
 12. [Target modelとスコープ制御](#12-target-modelとスコープ制御)
 13. [証跡とレポート](#13-証跡とレポート)
-14. [テスト](#14-テスト)
-15. [付録: 実装状況サマリー](#15-付録-実装状況サマリー)
+14. [`AttackOperation`モデル：攻撃経路のモデル化と承認フロー(Phase 2設計)](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)
+15. [テスト](#15-テスト)
+16. [付録: 実装状況サマリー](#16-付録-実装状況サマリー)
 
 ---
 
@@ -71,6 +72,7 @@ graph TD
         Registry["PluginRegistry"]
         Runner["ScanRunner"]
         Orchestrator["orchestrator.py<br/>(config/playbooks/*.yaml)"]
+        Operation["operation.py<br/>(AttackOperation/OperationRunner、Phase 2設計)"]
         Lab["LabManager"]
         Evidence["EvidenceStore"]
         Reporting["reporting/"]
@@ -81,6 +83,7 @@ graph TD
     Runner --> Registry
     Runner --> Evidence
     Orchestrator -- "各ステップでScanRunner.run()を呼ぶだけ" --> Runner
+    Operation -- "承認済みscan Actionのみ委譲" --> Runner
     Registry --> Plugins["plugins/<br/>recon・network・web・nuclei・kubernetes・container・sqlmap・vulncheck"]
     Plugins -- "build_command" --> ExtTools["外部ツール<br/>subfinder/nmap/ffuf/nuclei/trivy/sqlmap"]
     Runner -- "subprocess実行" --> ExtTools
@@ -1602,7 +1605,78 @@ stage追加→Markdown/HTMLレポート表示までブラウザから一気通�
 (`The Hacker Playbook 2`の"Post-Game Analysis"章 — 報告書は詳細な指摘一覧の
 前に全体像を示すべき、という考え方に着想を得ています)。
 
-## 14. テスト
+## 14. `AttackOperation`モデル：攻撃経路のモデル化と承認フロー(Phase 2設計)
+
+`AttackOperation`は、既存の`ScanRunner → Plugin → EvidenceStore`の上位に
+追加された、攻撃経路そのものを第一級オブジェクトとして扱うモデルです
+(`core/operation.py`)。[§13.4のAttackSession](#13-証跡とレポート)が
+「実行済みのrunを事後的に束ねる」記録専用の枠組みであるのに対し、
+`AttackOperation`は「これから何を・どういう順番で・誰の承認を得て
+実行するか」を事前に計画する枠組みです。両者は独立しており、既存の
+`AttackSession`はそのまま「既存Runの物語化」の後方互換経路として
+残っています。
+
+### モデル構成
+
+| クラス | 役割 |
+| --- | --- |
+| `AttackOperation` | `name`/`objective`/`engagement`と、`nodes`/`edges`/`actions`/`approvals`のリストを保持するトップレベルオブジェクト |
+| `AttackNode` | 到達済み・既知のtargetをグラフのノードとして表す(`id`/`target`/`label`/`state`) |
+| `AttackEdge` | ノード間の到達関係(`source`/`destination`/`relationship`/`capabilities`) |
+| `Action` | 実行候補(`id`/`phase`/`kind`/`target`/`plugin`/`status`)。`kind`は`scan`/`manual`/`pivot`の3種 |
+| `Approval` | `Action`に対する人間の承認記録(`approved_by`/`approved_at`/`note`) |
+
+`AttackOperationStore`(`core/attack_session.py`と同じ「1レコード1JSON
+ファイル」構成、保存先は`<workdir>/operations/<name>.json`)がこれらを
+永続化します。
+
+### CLI
+
+```bash
+pownforge operation create op1 --objective "lab engagement"
+pownforge operation add-action op1 a1 "network scan" \
+  --target lab-web --phase discovery --plugin network
+pownforge operation approve op1 a1 --approved-by operator
+pownforge operation execute op1 a1
+pownforge operation show op1
+```
+
+**実行できるのは承認済み(`approve`済み)の`scan`種別のActionのみです。**
+`OperationRunner.execute()`は次の順に検証します。
+
+1. Actionの`status`が`approved`でなければ`OperationError`(未承認では実行不可)
+2. `kind`が`scan`以外(`manual`/`pivot`)であれば`OperationError`
+   (「モデル化・承認はできるが、このリファクタリングでは実行プロバイダを
+   有効化しない」という設計方針をコードでも強制している)
+3. 検証を通った`scan`種別のActionのみ、既存の`ScanRunner`(`ScopePolicy`
+   による認可を経由)に委譲して実行し、結果の`run_id`をActionに記録して
+   `status`を`completed`にする
+
+`manual`/`pivot`のActionは`add-action --kind manual`(または`pivot`)で
+モデル化・`approve`まではできますが、`execute`は常に拒否されます。AIが
+`AttackOperation`やActionを直接操作する経路は追加していません(すべて
+人間がCLI/将来のフロントエンドから操作する想定)。
+
+### 既知の未実装項目
+
+`core/operation.py`の`add_node`/`add_edge`(`AttackNode`/`AttackEdge`に
+よるグラフ構築)は実装済みですが、**CLIサブコマンドとしては未公開**
+です(`pownforge operation`には`create`/`add-action`/`approve`/`execute`/
+`show`のみがあり、`add-node`/`add-edge`に相当するコマンドはありません)。
+現時点では`operation show`の`nodes=0 edges=0`が常に表示され、グラフ機能は
+Pythonから直接`core.operation`を呼ぶテスト(`tests/test_attack_operation.py`)
+経由でのみ検証されています。Web UI/Emacsからの操作も未対応です
+(`AttackSession`と異なり、CLIのみ)。
+
+**実機検証**: `operation create` → `operation add-action`(`network`
+プラグイン) → `operation approve` → `operation execute` → `operation show`
+を実際に実行し、`execute`が既存の`ScanRunner`経由で実nmapスキャンを
+最後まで走らせ、`run_id`が正しくActionに記録されることを確認した。
+未承認Actionへの`execute`が拒否されること、`manual`種別のActionは
+`add-action --kind manual`で登録・承認まではできるが`execute`は常に
+拒否されることも確認済み。
+
+## 15. テスト
 
 ```bash
 make install
@@ -1624,7 +1698,7 @@ make test-all
 findingsが正しく記録・表示されることを確認してから完了としています
 (各プラグインの「実機検証記録」を参照)。
 
-## 15. 付録: 実装状況サマリー
+## 16. 付録: 実装状況サマリー
 
 設計当初に提示された「Phase 2〜10」のロードマップ(10フェーズ・M1〜M7
 マイルストーン)と、実際にこのリポジトリで実装した内容の対比サマリーです。
@@ -1665,7 +1739,12 @@ discovery/vuln-confirm相当のみで、exploit以降は今までどおり記録
 `AttackSession`による複数run経路の名前付き永続化(`walkthrough
 generate`をその場限りの出力から、ラベル付きで保存・再参照できる経路に
 発展させたもの。`add-stage`は既存run-idの存在確認のみで、実行・生成は
-一切しない)。
+一切しない)、`AttackOperation`による攻撃経路の事前モデル化と人間承認
+フロー(既存の`ScanRunner`の上位に、Action(実行候補)とApproval(人間の
+承認)を第一級オブジェクトとして追加したもの。承認済み`scan`種別の
+Actionのみ既存の`ScanRunner`経由で実行でき、`manual`/`pivot`はモデル化・
+承認はできても実行プロバイダを有効化していない。詳細は
+[§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)を参照)。
 
 **既知の未実装項目**:
 
@@ -1679,3 +1758,6 @@ generate`をその場限りの出力から、ラベル付きで保存・再参�
   起動)
 - Target modelの「除外対象」「対象ごとの同時実行数制限」(具体的な利用者が
   無いまま拡張するのは時期尚早、という判断を維持)
+- `AttackOperation`の`add-node`/`add-edge`(グラフ構築)のCLI公開、
+  `manual`/`pivot`種別Actionの実行プロバイダ、Web UI/Emacsからの
+  `AttackOperation`操作([§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)参照)

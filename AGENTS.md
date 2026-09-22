@@ -79,7 +79,8 @@ make test
 ## ディレクトリ構成の概要
 
 - `src/pownforge/cli.py`: Typerエントリポイント
-- `src/pownforge/core/`: モデル・スコープポリシー・実行エンジン・プラグインレジストリ・ラボネットワーク管理（`lab.py`）
+- `src/pownforge/core/`: モデル・スコープポリシー・実行エンジン・プラグインレジストリ・ラボネットワーク管理（`lab.py`）・
+  複数run経路の名前付き永続化（`attack_session.py`）・攻撃経路のモデル化と承認フロー（`operation.py`、Phase 2設計）
 - `src/pownforge/plugins/`: 個別ツール（nmap, ffuf, nuclei, trivy(kubernetes/container), sqlmap 等）の
   プラグイン実装。`_trivy.py`は`KubernetesPlugin`/`ContainerPlugin`共通のtrivy JSON抽出ロジック
 - `src/pownforge/core/finding_utils.py`: LLM応答/プラグインの`_findings`規約から
@@ -94,9 +95,11 @@ make test
 - `src/pownforge/web/`: FastAPIバックエンド（optional extra `[web]`）。`ScopePolicy`/
   `ScanRunner`/`LabManager`/`EvidenceStore` を呼ぶだけの薄いルーター群
 - `webui/`: React製フロントエンド（Python packageの外、npmで別ビルド）。
-  Dashboard/Targets/Lab/Runs/Run detail/Audit/New Scan/Scan liveの各画面と、
-  target追加・削除、lab起動・削除、スキャン実行(ライブ進捗)、Analyze実行、
-  finding検証、evidence検証をひととおりカバーする
+  Dashboard/Targets/Lab/Runs/Run detail/Audit/New Scan/Scan live/Playbooks/
+  Playbook live/Attack Sessions/Walkthrough/Settingsの各画面と、target追加・
+  削除、lab起動・削除、スキャン実行(ライブ進捗)、Playbook実行(ライブ進捗)、
+  Attack Session作成・stage追加・レポート表示、Analyze実行、finding検証、
+  evidence検証、ウォークスルー生成をひととおりカバーする
 - `emacs/pownforge.el`: `pownforge`実行バイナリをサブプロセスとして呼ぶだけの
   Elisp front-end（`emacs/tests/`にERTテスト、実行はスタブCLI経由）
 - `docs/handbook.md`: 設計・ビルド・利用の手引書（アーキテクチャ図、CLI/
