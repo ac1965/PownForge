@@ -145,3 +145,46 @@ def test_runner_streams_lines_via_on_line_callback(tmp_path: Path) -> None:
     assert seen == ["a", "b", "c"]
     assert record.output["raw_stdout"] == "a\nb\nc\n"
     assert record.evidence.returncode == 0
+
+
+class FindingEmittingPlugin(Plugin):
+    name = "findings-emitter"
+    version = "0.0.1"
+    description = "test double whose normalize() emits _findings"
+
+    def check(self) -> bool:
+        return True
+
+    def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
+        return ["echo", target.address]
+
+    def normalize(self, target: Target, raw_stdout: str, raw_stderr: str) -> dict[str, Any]:
+        return {
+            "raw_stdout": raw_stdout,
+            "raw_stderr": raw_stderr,
+            "_findings": [
+                {"title": "Good finding", "severity": "high", "detail": "x"},
+                {"title": "Bad severity", "severity": "not-a-real-severity", "detail": "y"},
+                {"severity": "low", "detail": "no title, should be skipped"},
+            ],
+        }
+
+
+def test_runner_converts_plugin_findings_convention(tmp_path: Path) -> None:
+    policy = ScopePolicy(targets={})
+    policy.add_target(Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1"))
+    registry = PluginRegistry()
+    registry.register(FindingEmittingPlugin())
+    store = EvidenceStore(tmp_path / "runs")
+    runner = ScanRunner(policy=policy, registry=registry, store=store)
+
+    record = runner.run("lab", "findings-emitter", {})
+
+    assert len(record.findings) == 2
+    assert record.findings[0].title == "Good finding"
+    assert record.findings[0].severity.value == "high"
+    assert record.findings[0].source == "tool"
+    assert record.findings[0].status.value == "needs-review"
+    assert record.findings[1].title == "Bad severity"
+    assert record.findings[1].severity.value == "info"  # invalid severity falls back
+    assert "_findings" not in record.output  # convention key is consumed, not stored raw

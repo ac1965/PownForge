@@ -5,7 +5,8 @@ import threading
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from pownforge.core.models import Evidence, RunRecord, Target
+from pownforge.core.finding_utils import coerce_finding
+from pownforge.core.models import Evidence, Finding, RunRecord, Target
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.core.registry import PluginRegistry
 from pownforge.evidence.audit import AuditStore
@@ -36,10 +37,7 @@ def _tool_version(plugin: Plugin) -> str | None:
         result = subprocess.run(version_command, capture_output=True, text=True, timeout=5)
     except (OSError, subprocess.TimeoutExpired):
         return None
-    output = (result.stdout or result.stderr or "").strip()
-    if not output:
-        return None
-    return output.splitlines()[0]
+    return plugin.parse_version_output(result.stdout, result.stderr)
 
 
 class ScanRunner:
@@ -113,6 +111,20 @@ class ScanRunner:
         stderr_text = "".join(stderr_lines)
 
         output = plugin.normalize(target, stdout_text, stderr_text)
+        # Convention: a plugin may pop-able-ly include an "_findings" key of
+        # loosely-typed dicts (its own tool-native matches, not LLM output)
+        # in the normalized output. ScanRunner turns those into real Finding
+        # objects here; plugins that don't use this (network, web) are
+        # unaffected and RunRecord.findings stays empty as before.
+        raw_findings = output.pop("_findings", [])
+        findings: list[Finding] = []
+        for item in raw_findings:
+            if not isinstance(item, dict):
+                continue
+            finding = coerce_finding(item, source="tool")
+            if finding is not None:
+                findings.append(finding)
+
         evidence = Evidence(
             command=command,
             started_at=started_at,
@@ -127,6 +139,7 @@ class ScanRunner:
             plugin=plugin_name,
             evidence=evidence,
             output=output,
+            findings=findings,
         )
         self._store.save(record)
         return record

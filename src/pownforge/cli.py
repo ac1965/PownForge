@@ -173,6 +173,21 @@ def scan_web(
     _run_scan("web", target, option, config, workdir)
 
 
+@scan_app.command("nuclei")
+def scan_nuclei(
+    target: str = typer.Option(..., "--target"),
+    option: list[str] = typer.Option(
+        [],
+        "--option",
+        help="key=value, may repeat; supports tags=, severity=, templates=",
+    ),
+    config: Path = typer.Option(DEFAULT_CONFIG),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+) -> None:
+    """Run the nuclei plugin (template-based vulnerability detection) against a registered target."""
+    _run_scan("nuclei", target, option, config, workdir)
+
+
 @result_app.command("list")
 def result_list(workdir: Path = typer.Option(DEFAULT_WORKDIR)) -> None:
     """List past scan runs, most recent first."""

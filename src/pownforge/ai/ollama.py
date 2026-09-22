@@ -6,7 +6,8 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from pownforge.core.models import Finding, Severity
+from pownforge.core.finding_utils import coerce_finding
+from pownforge.core.models import Finding
 
 DEFAULT_LLM_BIN = Path.home() / ".local" / "bin" / "llm"
 
@@ -66,18 +67,11 @@ def parse_analysis_response(text: str) -> AnalysisResult:
     summary = str(payload.get("summary") or "").strip() or text.strip()
     findings: list[Finding] = []
     for item in payload.get("findings") or []:
-        if not isinstance(item, dict) or not item.get("title"):
+        if not isinstance(item, dict):
             continue
-        title = str(item["title"])
-        detail = str(item.get("detail", ""))
-        try:
-            findings.append(
-                Finding(title=title, severity=item.get("severity", "info"), detail=detail, source="ai")
-            )
-        except ValueError:
-            # Model returned a severity outside our enum; keep the finding
-            # rather than dropping it, but don't trust its severity claim.
-            findings.append(Finding(title=title, severity=Severity.INFO, detail=detail, source="ai"))
+        finding = coerce_finding(item, source="ai")
+        if finding is not None:
+            findings.append(finding)
     return AnalysisResult(summary=summary, findings=findings, parsed=True)
 
 

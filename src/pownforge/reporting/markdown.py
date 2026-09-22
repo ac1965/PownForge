@@ -16,9 +16,11 @@ _STATUS_SECTIONS = [
     (FindingStatus.FALSE_POSITIVE, "誤検知として却下"),
 ]
 
+_SOURCE_LABELS = {"ai": "AI推定", "tool": "ツール検出"}
+
 
 def _render_finding(finding: Finding) -> str:
-    tag = "AI推定" if finding.source == "ai" else "manual"
+    tag = _SOURCE_LABELS.get(finding.source, "manual")
     return (
         f"- **[{finding.severity.value}]** ({tag}, `{finding.finding_id}`) "
         f"{finding.title} — {finding.detail}"

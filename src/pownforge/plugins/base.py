@@ -29,7 +29,13 @@ class Plugin(ABC):
 
     @abstractmethod
     def normalize(self, target: Target, raw_stdout: str, raw_stderr: str) -> dict[str, Any]:
-        """Turn raw tool output into a normalized, JSON-serializable result."""
+        """Turn raw tool output into a normalized, JSON-serializable result.
+
+        May include an "_findings" key: a list of {"title", "severity",
+        "detail"} dicts for tool-native matches (e.g. nuclei template hits).
+        ScanRunner pops that key and turns it into real Finding objects
+        (source="tool", status defaults to needs-review like any other
+        finding). Plugins that don't set it are unaffected."""
 
     def version_command(self) -> list[str] | None:
         """Argv to query the required tool's version (e.g. ["nmap", "--version"]).
@@ -38,3 +44,14 @@ class Plugin(ABC):
         build_command, this only returns argv — ScanRunner is the one that
         actually runs it, so plugins never call subprocess themselves."""
         return None
+
+    def parse_version_output(self, stdout: str, stderr: str) -> str | None:
+        """Extract a human-readable version string from version_command()'s
+        captured output. Default: first non-empty line of stdout, falling
+        back to stderr. Override this when the tool logs other lines (a
+        warning, a banner) ahead of the actual version on the same stream —
+        nuclei always does this, for example."""
+        output = (stdout or stderr or "").strip()
+        if not output:
+            return None
+        return output.splitlines()[0]

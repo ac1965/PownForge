@@ -61,8 +61,11 @@ class Finding(BaseModel):
     title: str
     severity: Severity = Severity.INFO
     detail: str = ""
-    # "ai": produced by `pownforge analyze` from unverified LLM output — never
-    # a confirmed vulnerability. "manual": entered/reviewed by a human.
+    # "ai": produced by `pownforge analyze` from unverified LLM output.
+    # "tool": produced by a plugin's own tool-native detection (e.g. a nuclei
+    # template match), via the "_findings" convention in Plugin.normalize().
+    # "manual": entered/reviewed by a human. None of these is ever a
+    # confirmed vulnerability by itself — see FindingStatus.
     source: str = "manual"
     # Every finding starts unverified, regardless of source: a tool (or an
     # LLM) saying "vulnerable" is a candidate, not a confirmed result. Only a
