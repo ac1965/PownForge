@@ -22,7 +22,15 @@ CLI (Typer)
   生成する`Finding`は常に`source="ai"`を持ち、レポート上でも「AI推定・要確認」と
   明記されます。`severity`はLLMの自由記述ではなく固定のenum(`info/low/medium/
   high/critical`)で検証し、想定外の値は`info`にフォールバックしてタイトル・詳細は
-  保持します（1件の逸脱で応答全体を捨てない）。
+  保持します（1件の逸脱で応答全体を捨てない）。`pownforge walkthrough generate`
+  (`core/walkthrough.py`)も同じ`OllamaAdapter`を使い複数runをまたぐ接続
+  ナラティブを生成しますが、**どのRunRecordも書き換えません**(`analyze`は
+  対象runの`findings`/`analysis`を上書き保存する副作用を持つのに対し、
+  walkthroughは読み取り専用で新しいレポートファイルを生成するだけ)。
+  プロンプトには各runのtarget/plugin/findings(severity/status/source)だけを
+  渡し、生のraw_stdoutは渡しません。生成されたナラティブは常に
+  「AI生成・要確認」の注記付きで、各runの詳細セクション(検証状態を含む)と
+  セットで表示されます。
 - **スコープはコードで強制する**: `pownforge scan` は `config/targets.yaml` に
   登録された対象名でしか実行できません。任意のホスト名・URLを直接引数に取りません。
   `pownforge lab add` も最終的に同じ `ScopePolicy.add_target()` を通ります。

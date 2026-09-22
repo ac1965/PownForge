@@ -18,6 +18,7 @@
 | `pownforge result review <run-id> <finding-id> <needs-review\|confirmed\|false-positive>` | findingの検証状態を更新 |
 | `pownforge report generate <run-id> [--format markdown\|html]` | レポート(既定Markdown、`--format html`でスタンドアロンHTML)を `.pownforge/reports/<run-id>.{md,html}` に生成（findingsは検証状態別に見出しを分けて出力）。HTMLはWeb UIと同じseverity配色 |
 | `pownforge analyze <run-id>` | ローカルLLMによる分析草案を出力 |
+| `pownforge walkthrough generate <run-id>... \| --target <name> [--model ...] [--format markdown\|html]` | 複数runをまたぐ物語調ウォークスルーをローカルLLMで生成。`<run-id>...`(指定順)と`--target`(該当targetの全runを時系列)はどちらか一方のみ指定。`.pownforge/reports/walkthrough-<最初のrun-id>.{md,html}`に出力。読み取り専用(どのrunのfindings/analysisも書き換えない)。詳細は[docs/walkthrough-report.md](walkthrough-report.md) |
 | `pownforge lab add <name> --image <image> [--kind host\|url] [--port <n>] [--scheme http\|https] [--env k=v ...] [--allowed-plugins a,b] [--no-register] [--network <name>]` | 隔離ネットワーク上に攻撃対象ホストを起動し、既定でスコープにも登録（`--kind url` は `--port` 必須） |
 | `pownforge lab list [--network <name>]` | 稼働中/停止中のラボホスト一覧 |
 | `pownforge lab remove <name> [--purge] [--network <name>]` | ラボホストを停止・削除（`--purge` でスコープからも削除） |
@@ -29,8 +30,10 @@
 （`target list/add`、`scan network/web`、`lab add/remove`）だけが受け付けます。
 `--workdir` / `POWNFORGE_HOME`（既定: `.pownforge/`）は実行状態を読み書きする
 コマンド（`init`、`scan network/web`、`result list/show/review`、
-`report generate`、`analyze`、`audit list/show`、`evidence verify`）だけが
-受け付けます。
+`report generate`、`analyze`、`walkthrough generate`、`audit list/show`、
+`evidence verify`）だけが受け付けます。`walkthrough generate`は
+`config/targets.yaml`(`--config`)を読み書きしません(`EvidenceStore`上の
+runを`target`文字列で絞り込むだけで、スコープの再照会が不要なため)。
 `plugin list/info` と `lab list` はどちらも取りません。
 `scan` は登録済みの対象名しか受け付けず、任意のホスト名・URLを直接指定することはできません。
 各プラグインは前提とする`Target.kind`(`plugin info`の`expected kind`)を宣言しており、

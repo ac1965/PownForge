@@ -19,7 +19,9 @@
 ライブ進捗WebSocket、`pownforge lab`による攻撃対象コンテナの動的管理)。
 この2つはロードマップ策定後にユーザー要望で追加され、M7の「操作インターフェース」を
 Emacsより先にWeb UIで実現した形になっている。Emacs連携自体も後日
-(`emacs/pownforge.el`)追加した。
+(`emacs/pownforge.el`)追加した。さらに後日、複数runをまたぐ物語調
+ウォークスルー機能(`core/walkthrough.py`)も追加し、CLI/Web API/Web UI/
+Emacsの4経路全てに実装した。
 
 ---
 
@@ -228,6 +230,7 @@ SDKパッケージ化・入力出力の型スキーマ(`options`/`normalize()`�
 | ~~1~~ | ~~コマンド秘匿処理~~(Evidence.commandのマスキング) | ✅ **完了**。`core/secrets.py::mask_command()`が`--token`/`--password`/`--cookie`等それらしい名前のフラグの値を`***`に置換したコピーを`Evidence.command`に格納する(実行自体はマスク前の引数のまま、`ScanRunner`内の1箇所のみ変更)。今はどのプラグインも該当しないため実害は無いが、将来認証情報を扱うプラグインを追加した際の漏洩を防ぐための予防的実装 |
 | ~~2~~ | ~~HTMLレポート出力~~(Phase 6) | ✅ **完了**。新規`reporting/html.py`(Markdown→HTML変換ライブラリは使わず直接HTML化、severity配色はWeb UIの`.severity-*.badge`と共通)。`pownforge report generate --format html`・`GET /runs/{id}/report?format=html`から生成可能 |
 | ~~3~~ | ~~Plugin SDKの正式化~~(Phase 10) | ✅ **完了**(部分)。`Plugin`ABCに`expected_kind`/`kind_hint`/`require_kind()`を追加し、6プラグイン全てが前提とする`Target.kind`を宣言・検証するよう統一(以前は`SqlmapPlugin`のみ手書きで検証)。`tests/plugin_contract.py`で全プラグイン共通のABC契約を一括テスト。`PluginMetadata`のフル形式・`options`/`normalize()`の型スキーマ化までは引き続き未実装 |
+| ~~1~~ | ~~複数runをまたぐ物語調ウォークスルー機能~~ | ✅ **完了**。`core/walkthrough.py`(`select_runs`/`generate_walkthrough`)を新設し、`pownforge analyze`と同じ`OllamaAdapter`で複数run分の構造化サマリー(生のraw_stdoutは渡さない)から接続ナラティブを生成。`analyze`と異なりどのRunRecordも書き換えない読み取り専用設計。CLI(`pownforge walkthrough generate`)・Web API(`POST /api/walkthroughs`)・Web UI(`/walkthrough/new`)・Emacs(`pownforge-walkthrough-generate`)の4経路全てに実装し、実機(ローカルOllama `qwen3:14b`)で非破壊性を含め動作確認済み |
 
 これでPhase 2〜10は全て完了/部分完了。M6(Kubernetes Lab)は`KubernetesPlugin`
 により部分完了(専用ラボ構成は未着手)、Phase 5のAPI専用プラグイン(curl/httpx)・

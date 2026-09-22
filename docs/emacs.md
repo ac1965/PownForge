@@ -37,6 +37,7 @@ Python側の同じコードパスを通ります)。
 | `pownforge-result-list` | 過去の実行一覧。`RET`で詳細、`o`でその実行のfindingsをOrgとして挿入 |
 | `pownforge-result-show` | 実行の詳細(target/plugin/tool_version/findings)を表示。findingsはseverity降順。行上で`r`を押すと`pownforge result review`でステータス変更 |
 | `pownforge-report-generate` | Markdownレポートを生成しファイルを開く |
+| `pownforge-walkthrough-generate` | 複数runをまたぐ物語調ウォークスルーを生成。run idを`completing-read`で1件ずつ追加(空欄で終了)、1件も追加しなければ代わりにtargetを選ぶ。読み取り専用(どのrunのfindings/analysisも書き換えない)。生成後ファイルを開く |
 | `pownforge-audit-list` | `ScopePolicy`が拒否した実行試行の一覧(`tabulated-list-mode`) |
 | `pownforge-findings-to-org` | 実行のfindingsをOrgアウトラインとして現在のバッファ(要`org-mode`)のpointに挿入 |
 | `pownforge-review-finding-in-org-at-point` | 上記で挿入したOrg見出しの`POWNFORGE_RUN_ID`/`POWNFORGE_FINDING_ID`プロパティから、そのfindingを直接レビュー(`pownforge result review`実行 + TODO状態を追従) |
@@ -86,4 +87,6 @@ make emacs-test
 実機検証: 実際の`pownforge`バイナリ・`nmap`を使い、`pownforge-scan`でlocalhostへの
 ライブスキャンがバッファへ逐次表示されること、完了後に`run <id> completed`から
 run idが解決されること、`pownforge-result-show`/`pownforge-findings-to-org`が
-実際のJSON出力を正しく描画することを確認済み。
+実際のJSON出力を正しく描画することを確認済み。`pownforge-walkthrough-generate`も、
+実際の2件のrunに対しrun idを対話的に選んで生成→ファイルオープンまで
+(ローカルOllama経由で)確認済み。
