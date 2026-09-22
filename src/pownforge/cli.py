@@ -15,11 +15,13 @@ from pownforge.core.models import FindingStatus, Target, TargetEnvironment, Targ
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.core.registry import default_registry
 from pownforge.core.runner import RunnerError, ScanRunner
+from pownforge.core.walkthrough import WalkthroughError, generate_walkthrough
 from pownforge.evidence.audit import AuditStore
 from pownforge.evidence.store import EvidenceStore
 from pownforge.plugins.base import PluginError
 from pownforge.reporting import html as html_report
 from pownforge.reporting import markdown
+from pownforge.reporting import walkthrough as walkthrough_report
 
 app = typer.Typer(help="PownForge: a modular security assessment CLI for authorized engagements.")
 target_app = typer.Typer(help="Manage the registered, authorized scan targets.")
@@ -27,6 +29,7 @@ plugin_app = typer.Typer(help="Inspect available plugins.")
 scan_app = typer.Typer(help="Run a plugin against a registered target.")
 result_app = typer.Typer(help="Inspect past scan runs.")
 report_app = typer.Typer(help="Generate Markdown/HTML reports from a run.")
+walkthrough_app = typer.Typer(help="Generate a narrative walkthrough spanning multiple runs.")
 lab_app = typer.Typer(help="Start/stop attack-target containers on an isolated lab network.")
 web_app = typer.Typer(help=r"Serve the web UI (needs the \[web] extra: pip install -e '.\[web]').")
 audit_app = typer.Typer(help="Inspect scan attempts that ScopePolicy rejected.")
@@ -37,6 +40,7 @@ app.add_typer(plugin_app, name="plugin")
 app.add_typer(scan_app, name="scan")
 app.add_typer(result_app, name="result")
 app.add_typer(report_app, name="report")
+app.add_typer(walkthrough_app, name="walkthrough")
 app.add_typer(lab_app, name="lab")
 app.add_typer(web_app, name="web")
 app.add_typer(audit_app, name="audit")
@@ -406,6 +410,44 @@ def report_generate(
         report_path = workdir / "reports" / f"{run_id}.md"
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(markdown.render(record))
+    typer.echo(f"wrote {report_path}")
+
+
+@walkthrough_app.command("generate")
+def walkthrough_generate(
+    run_ids: list[str] = typer.Argument(
+        None, help="Run ids to include, in this order. Give either these or --target, not both."
+    ),
+    target: Optional[str] = typer.Option(
+        None, "--target", help="Include every run recorded against this target, oldest first."
+    ),
+    model: Optional[str] = typer.Option(
+        None, "--model", help="Ollama model name to request from the local llm router."
+    ),
+    format: ReportFormat = typer.Option(ReportFormat.MARKDOWN, "--format", help="markdown or html"),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+) -> None:
+    """Generate a narrative walkthrough connecting multiple runs, via the local LLM.
+
+    Read-only: no run's stored findings/analysis are modified, unlike `analyze`.
+    """
+    store = _store(workdir)
+    adapter = OllamaAdapter(model=model)
+    try:
+        walkthrough = generate_walkthrough(store, adapter, run_ids or None, target)
+    except WalkthroughError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    first_run_id = walkthrough.records[0].run_id
+    if format == ReportFormat.HTML:
+        report_path = workdir / "reports" / f"walkthrough-{first_run_id}.html"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(walkthrough_report.render_html(walkthrough))
+    else:
+        report_path = workdir / "reports" / f"walkthrough-{first_run_id}.md"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(walkthrough_report.render_markdown(walkthrough))
     typer.echo(f"wrote {report_path}")
 
 
