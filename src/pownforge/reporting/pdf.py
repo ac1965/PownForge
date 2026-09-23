@@ -4,7 +4,15 @@ import io
 from pathlib import Path
 from xml.sax.saxutils import escape
 
-from pownforge.core.models import AttackSession, Finding, FindingStatus, RunRecord, Severity
+from pownforge.core.models import (
+    AttackSession,
+    Finding,
+    FindingStatus,
+    PreconditionStatus,
+    PrimitiveRunRecord,
+    RunRecord,
+    Severity,
+)
 from pownforge.reporting.summary import summarize
 
 # Imported lazily-at-module-level rather than inside render(): this module
@@ -279,6 +287,125 @@ def render_attack_session(session: AttackSession, records: list[RunRecord]) -> b
                     story.append(Spacer(1, 1.5 * mm))
         else:
             story.append(Paragraph("No findings recorded for this stage.", styles["Normal"]))
+
+    doc.build(story)
+    return buf.getvalue()
+
+
+_PRECONDITION_LABEL = {
+    PreconditionStatus.MET: "met",
+    PreconditionStatus.UNMET: "unmet",
+    PreconditionStatus.UNKNOWN: "unknown",
+}
+
+_PRECONDITION_COLOR = {
+    PreconditionStatus.MET: colors.HexColor("#1e7d34"),
+    PreconditionStatus.UNMET: colors.HexColor("#c0392b"),
+    PreconditionStatus.UNKNOWN: colors.HexColor("#b8960c"),
+}
+
+
+def render_primitive(record: PrimitiveRunRecord) -> bytes:
+    """Render a PrimitiveRunRecord as a PDF (bytes). Mirrors
+    reporting/primitive.py's Markdown/HTML section for section."""
+    styles = _stylesheet()
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        title=f"Primitive run {record.run_id} — PownForge report",
+        topMargin=18 * mm,
+        bottomMargin=18 * mm,
+    )
+    story: list = [
+        Paragraph(f"Primitive run {escape(record.run_id)}", styles["Title"]),
+        Spacer(1, 4 * mm),
+    ]
+    header = [
+        ("Primitive", record.primitive),
+        ("Category", record.category or "(none)"),
+        ("Target", record.target),
+        ("Created", record.created_at.isoformat()),
+        ("Requested level", record.requested_level.value),
+        ("Level reached", record.level_reached.value),
+    ]
+    if record.notes:
+        header.append(("Note", record.notes))
+    story.append(_kv_table(header, styles))
+
+    story.append(Paragraph("前提条件 (Preconditions)", styles["Heading2"]))
+    if record.preconditions.preconditions:
+        for p in record.preconditions.preconditions:
+            color = _PRECONDITION_COLOR[p.status].hexval()
+            detail = f" — {escape(p.detail)}" if p.detail else ""
+            story.append(
+                Paragraph(
+                    f'<font color="{color}"><b>{_PRECONDITION_LABEL[p.status]}</b></font> '
+                    f'<font face="Courier">{escape(p.id)}</font>: {escape(p.description)}{detail}',
+                    styles["Normal"],
+                )
+            )
+    else:
+        story.append(Paragraph("前提条件は評価されていません。", styles["Normal"]))
+
+    evidence = record.evidence
+    story.append(Paragraph("観測 (Observations — 事実)", styles["Heading2"]))
+    if evidence and evidence.observations:
+        for o in evidence.observations:
+            story.append(
+                Paragraph(
+                    f'<font face="Courier">{escape(o.type)}</font> '
+                    f"({escape(o.provenance.kind.value)}): {escape(o.detail)}",
+                    styles["Normal"],
+                )
+            )
+    else:
+        story.append(Paragraph("観測はありません。", styles["Normal"]))
+
+    if evidence and evidence.artifacts:
+        story.append(Paragraph("保存された証拠 (Artifacts)", styles["Heading2"]))
+        for a in evidence.artifacts:
+            loc = f" {escape(a.path)}" if a.path else ""
+            story.append(Paragraph(f"<b>{escape(a.type)}</b>{loc}: {escape(a.description)}", styles["Normal"]))
+
+    story.append(Paragraph("Findings (観測から導いた診断)", styles["Heading2"]))
+    if evidence and evidence.findings:
+        for finding in evidence.findings:
+            story.append(_render_finding(finding, styles))
+            story.append(Spacer(1, 1.5 * mm))
+    else:
+        story.append(Paragraph("Findingはありません。", styles["Normal"]))
+
+    story.append(Paragraph("Claims (上位の主張 — 推論)", styles["Heading2"]))
+    if evidence and evidence.claims:
+        for c in evidence.claims:
+            support = f" (根拠: {escape(', '.join(c.supported_by))})" if c.supported_by else ""
+            story.append(
+                Paragraph(f"<b>[{escape(c.confidence.value)}]</b> {escape(c.statement)}{support}", styles["Normal"])
+            )
+    else:
+        story.append(Paragraph("Claimはありません。", styles["Normal"]))
+
+    story.append(Paragraph("生成リソースとクリーンアップ (Resources & Cleanup)", styles["Heading2"]))
+    if record.resources:
+        for r in record.resources:
+            story.append(
+                Paragraph(
+                    f'<font face="Courier">{escape(r.status.value)}</font> '
+                    f"<b>{escape(r.type)}</b>: {escape(r.description)}",
+                    styles["Normal"],
+                )
+            )
+    else:
+        story.append(Paragraph("生成されたリソースはありません。", styles["Normal"]))
+    if record.residual_resources:
+        story.append(
+            Paragraph(
+                f'<font color="#c0392b"><b>⚠ {len(record.residual_resources)} '
+                "件のリソースがクリーンアップ未検証のまま残っています。</b></font>",
+                styles["Normal"],
+            )
+        )
 
     doc.build(story)
     return buf.getvalue()

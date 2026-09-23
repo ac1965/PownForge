@@ -350,6 +350,7 @@ pownforge analyze <run-id>
 | `pownforge primitive run <id> --target <name> [--level detection\|validation\|execution] [--option k=v ...]` | 検証プリミティブを対象に実行し`PrimitiveRunRecord`を保存。スコープ+SafetyPolicyを先に強制(拒否は`AuditStore`に記録)。exploitは実行しない |
 | `pownforge primitive runs` | 保存済みのプリミティブ実行を一覧表示 |
 | `pownforge primitive show <run-id>` | 保存済みプリミティブ実行(前提条件・Evidence4層・cleanup結果)をJSONで表示 |
+| `pownforge primitive report <run-id> [--format markdown\|html\|pdf]` | プリミティブ実行を`<workdir>/reports/`にレポート出力。PDFは`[pdf]` extra必要(§13と同じNoto Sans JP埋め込み) |
 | `pownforge audit list` | `ScopePolicy`が拒否したスキャン実行の試みを一覧表示 |
 | `pownforge audit show <violation-id>` | 拒否された試みの詳細(JSON) |
 | `pownforge evidence verify <run-id>` | 保存済みoutputからハッシュを再計算し、証跡と一致するか確認 |
@@ -362,7 +363,7 @@ pownforge analyze <run-id>
 - `--workdir` / `POWNFORGE_HOME`(既定: `.pownforge/`): `init`、`scan *`、
   `result *`、`report generate`、`analyze`、`walkthrough generate`、
   `audit *`、`evidence verify`、`attack-session *`、`operation *`、
-  `primitive run/runs/show`だけが受け付ける。`walkthrough generate`は
+  `primitive run/runs/show/report`だけが受け付ける。`walkthrough generate`は
   `--config`を受け付けない
   (`EvidenceStore`上のrunを`target`文字列で絞り込むだけで、スコープの
   再照会が不要なため)
@@ -2473,6 +2474,26 @@ pownforge primitive show <run-id>
 `PrimitiveRunner`経由で実行し、スコープ外や安全エンベロープ超過は
 `AuditStore`に`primitive:<id>`として記録されてから拒否されます
 (例: `--level execution`を`execution_enabled=false`のスコープで要求)。
+
+### レポート出力
+
+`PrimitiveRunRecord`はMarkdown/HTML/PDFでレポート化できます
+(`pownforge primitive report <run-id> --format markdown|html|pdf`、
+`<workdir>/reports/`へ出力)。レンダラは`reporting/primitive.py`
+(Markdown/HTML)と`reporting/pdf.py::render_primitive()`(PDF、§13と同じ
+Noto Sans JP埋め込み)。3形式とも節構成は揃えてあり、docs/handbook.md §15の
+最終Finding形(何を検証し・なぜ検証可能で・何を観測し・何が変わり・
+片付いたか)に対応します。
+
+| 節 | 内容 |
+| --- | --- |
+| ヘッダ | primitive/category/target/requested_level/level_reached、あればnotes |
+| 前提条件 | 各Preconditionを`✓ met`/`✗ unmet`/`? unknown`で表示 |
+| 観測(事実) | Observation(常にprovenance=observed) |
+| Artifacts | 保存した証拠(あれば) |
+| Findings | 観測から導いた診断(severity/source/id) |
+| Claims | 上位の主張(confidence、根拠の観測id) |
+| リソースとクリーンアップ | ManagedResourceの状態。`residual_resources`があれば警告表示 |
 
 ## 16. テスト
 

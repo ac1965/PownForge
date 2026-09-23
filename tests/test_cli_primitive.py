@@ -116,3 +116,40 @@ def test_primitive_run_execution_refused_and_audited(tmp_path: Path, ssrf_target
     # the refusal was recorded to the audit log
     audit = runner.invoke(app, ["audit", "list", "--workdir", str(workdir)])
     assert "primitive:http.oob-interaction" in audit.stdout
+
+
+def test_primitive_report_writes_markdown_and_html(tmp_path, ssrf_target: str) -> None:
+    config = tmp_path / "targets.yaml"
+    workdir = tmp_path / "state"
+    runner.invoke(
+        app,
+        ["target", "add", "ssrf-lab", "--address", ssrf_target, "--kind", "url", "--config", str(config)],
+    )
+    runner.invoke(
+        app,
+        [
+            "primitive", "run", "http.oob-interaction",
+            "--target", "ssrf-lab",
+            "--option", "path=/fetch?url={callback}",
+            "--config", str(config),
+            "--workdir", str(workdir),
+        ],
+    )
+    run_id = PrimitiveRunStore(workdir / "primitive_runs").list()[0].run_id
+
+    for fmt, suffix, needle in [("markdown", "md", "# Primitive run"), ("html", "html", "<!doctype html>")]:
+        result = runner.invoke(
+            app, ["primitive", "report", run_id, "--format", fmt, "--workdir", str(workdir)]
+        )
+        assert result.exit_code == 0, result.stdout
+        report = (workdir / "reports" / f"{run_id}.{suffix}").read_text()
+        assert needle in report
+        assert "callback_received" in report
+
+
+def test_primitive_report_unknown_run_errors(tmp_path) -> None:
+    result = runner.invoke(
+        app, ["primitive", "report", "nope", "--workdir", str(tmp_path / "state")]
+    )
+    assert result.exit_code == 1
+    assert "no primitive run" in result.stderr

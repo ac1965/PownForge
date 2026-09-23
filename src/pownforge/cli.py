@@ -61,6 +61,7 @@ from pownforge.plugins.base import PluginError
 from pownforge.reporting import attack_session as attack_session_rendering
 from pownforge.reporting import html as html_report
 from pownforge.reporting import markdown
+from pownforge.reporting import primitive as primitive_report_render
 from pownforge.reporting import walkthrough as walkthrough_report
 
 app = typer.Typer(help="PownForge: a modular security assessment CLI for authorized engagements.")
@@ -140,6 +141,21 @@ def _attack_sessions(workdir: Path) -> AttackSessionStore:
 
 def _primitive_runs(workdir: Path) -> PrimitiveRunStore:
     return PrimitiveRunStore(workdir / "primitive_runs")
+
+
+class ReportFormat(str, Enum):
+    MARKDOWN = "markdown"
+    HTML = "html"
+    PDF = "pdf"
+
+
+def _pdf_module():  # noqa: ANN202
+    try:
+        from pownforge.reporting import pdf as pdf_report
+    except ImportError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    return pdf_report
 
 
 @app.command()
@@ -523,6 +539,32 @@ def primitive_show(
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(record.model_dump_json(indent=2))
+
+
+@primitive_app.command("report")
+def primitive_report(
+    run_id: str,
+    format: ReportFormat = typer.Option(ReportFormat.MARKDOWN, "--format", help="markdown, html, or pdf"),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+) -> None:
+    """Render a report for a primitive run into <workdir>/reports/."""
+    try:
+        record = _primitive_runs(workdir).load(run_id)
+    except FileNotFoundError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    reports_dir = workdir / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    if format == ReportFormat.PDF:
+        report_path = reports_dir / f"{run_id}.pdf"
+        report_path.write_bytes(_pdf_module().render_primitive(record))
+    elif format == ReportFormat.HTML:
+        report_path = reports_dir / f"{run_id}.html"
+        report_path.write_text(primitive_report_render.render_html(record))
+    else:
+        report_path = reports_dir / f"{run_id}.md"
+        report_path.write_text(primitive_report_render.render_markdown(record))
+    typer.echo(f"wrote {report_path}")
 
 
 @operation_app.command("create")
@@ -1256,21 +1298,6 @@ def evidence_verify(run_id: str, workdir: Path = typer.Option(DEFAULT_WORKDIR)) 
         )
         raise typer.Exit(code=1)
     typer.echo("evidence verified: hashes match stored output")
-
-
-class ReportFormat(str, Enum):
-    MARKDOWN = "markdown"
-    HTML = "html"
-    PDF = "pdf"
-
-
-def _pdf_module():  # noqa: ANN202
-    try:
-        from pownforge.reporting import pdf as pdf_report
-    except ImportError as exc:
-        typer.echo(f"error: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
-    return pdf_report
 
 
 @report_app.command("generate")
