@@ -1275,6 +1275,61 @@ pownforge lab provider cleanup log4j/CVE-2021-44228 --purge
   `LabManager`/`KindClusterManager`と同じくrunnerを注入可能にしてテスト
   できるようにしている
 
+#### 実機スモーク手順(隔離ラボホスト)
+
+Vulhubシナリオを起動し、検証プリミティブで露出指標を確認して、横断
+レポートまで一本で回す手順です。**意図的に脆弱なコンテナを起動する**ため、
+インターネットから隔離されたラボホスト上でのみ実施してください。
+
+前提: そのホストにDocker(`docker compose`)とPownForge(`.venv`)があること。
+
+```bash
+# 1) Vulhubを取得(取り込まず外部参照)
+git clone https://github.com/vulhub/vulhub ~/vulhub
+export POWNFORGE_VULHUB_DIR=~/vulhub
+
+# 2) シナリオを起動し、url対象として登録
+pownforge lab provider list | grep -i log4j
+pownforge lab provider start log4j/CVE-2021-44228 --register
+#  -> registered target 'vulhub-log4j-cve-2021-44228' -> http://127.0.0.1:<port>
+pownforge lab provider status log4j/CVE-2021-44228   # 公開ポート確認
+
+# 3) 検証プリミティブで露出指標を確認(コード実行なし)
+#    重要: 対象はコンテナ内なので、リスナーは 127.0.0.1 ではなく
+#    「コンテナから到達可能なホストアドレス」にbindする必要がある。
+#    既定bridgeなら docker gateway(多くは 172.17.0.1)。
+GW=$(docker network inspect bridge \
+  -f '{{ (index .IPAM.Config 0).Gateway }}')
+pownforge primitive run jndi.oob-lookup-probe \
+  --target vulhub-log4j-cve-2021-44228 \
+  --option header=X-Api-Version \
+  --option bind_host="$GW"
+
+# 4) 横断エンゲージメント・レポート(スキャン + プリミティブを1枚に)
+pownforge report engagement \
+  --target vulhub-log4j-cve-2021-44228 --format html
+
+# 5) 後片付け(ボリュームごと + 登録対象も削除)
+pownforge lab provider cleanup log4j/CVE-2021-44228 --purge
+```
+
+**到達性のポイント(コールバックが出ないときの調整)**:
+
+- `jndi.oob-lookup-probe`(および`http.oob-interaction`)のリスナーは
+  `--option bind_host=<addr>`で指定したホストアドレスにbindし、マーカーも
+  そのアドレスを指す。既定`127.0.0.1`はコンテナからは自分のループバックに
+  なり届かないため、**コンテナ側から到達できるホストアドレス**を指定する
+  (既定bridgeのgateway、Docker Desktopなら`host.docker.internal`が使える
+  こともある)。Vulhubシナリオが独自ネットワークを使う場合は、そのネット
+  ワークのgatewayを`docker network inspect <net>`で確認する
+- 対象が実際にそのヘッダ(既定`X-Api-Version`)をログ経由でJNDI解決する
+  経路でなければコールバックは出ない。シナリオのREADME/PoCで注入点
+  (ヘッダ名やパラメータ)を確認し、`--option header=<name>`を合わせる。
+  `--option timeout=<秒>`を延ばすと遅延の大きい環境でも拾いやすい
+- 観測できるのは「外向きルックアップの試行」まで(露出指標)。実際の悪用
+  可否・影響は、人間が別ツールで確認して`pownforge result import`で
+  同じ証跡・レポートに取り込む(PownForge自身はexploitを実行しない)
+
 ## 8. Playbook: 複数プラグインの連続実行
 
 `pownforge scan <plugin>`は常に1プラグイン・1runです。実際のエンゲージ
