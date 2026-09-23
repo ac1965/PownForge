@@ -100,3 +100,37 @@ def test_engagement_report_unknown_engagement_404(tmp_path: Path) -> None:
     with TestClient(_app(tmp_path)) as client:
         resp = client.get("/api/reports/engagement", params={"engagement": "nope"})
     assert resp.status_code == 404
+
+
+def test_engagement_report_json_cve_matrix(tmp_path: Path) -> None:
+    from pownforge.core.models import Artifact
+    ev = Evidence(command=["nuclei", "lab"], started_at=_T0, finished_at=_T0, returncode=0,
+                  stdout_sha256="a", stderr_sha256="b")
+    EvidenceStore(tmp_path / "state" / "runs").save(
+        RunRecord(target="lab", plugin="nuclei", evidence=ev, cves=["CVE-2021-44228"])
+    )
+    EvidenceStore(tmp_path / "state" / "runs").save(
+        RunRecord(target="lab", plugin="manual", evidence=ev, cves=["CVE-2021-44228"],
+                  artifacts=[Artifact(type="manual-artifact", description="p", path="x", sha256="h")])
+    )
+    PrimitiveRunStore(tmp_path / "state" / "primitive_runs").save(
+        PrimitiveRunRecord(primitive="jndi.oob-lookup-probe", target="lab",
+                           requested_level=ValidationLevel.VALIDATION, level_reached=ValidationLevel.VALIDATION,
+                           preconditions=PreconditionReport(),
+                           evidence=PrimitiveEvidence(target="lab", primitive="jndi.oob-lookup-probe",
+                                                      claims=[Claim(statement="x", confidence=ConfidenceLevel.CONFIRMED)]),
+                           cves=["CVE-2021-44228"])
+    )
+    with TestClient(_app(tmp_path)) as client:
+        resp = client.get("/api/reports/engagement", params={"target": "lab", "format": "json"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["scan_runs"] == 2
+    matrix = body["cve_exposure"]
+    assert len(matrix) == 1
+    row = matrix[0]
+    assert row["cve"] == "CVE-2021-44228"
+    assert row["scan_plugins"] == ["nuclei"]
+    assert row["primitive_ids"] == ["jndi.oob-lookup-probe"]
+    assert row["confirmed_validation"] is True
+    assert row["manual_artifact_count"] == 1

@@ -1599,7 +1599,7 @@ Dashboard/Targets/Lab/Runs/Run detail/Audit/New Scan/Scan live/
 Playbooks/Playbook live/Attack Session/Primitives/Engagement/Walkthrough/Settingsの各画面から、
 target追加・削除、labホスト起動・削除、kindクラスタ操作(Labページ、作成/削除・kubernetes対象登録)、
 VulhubシナリオのLab Provider操作(Labページ、起動/停止/破棄・url対象登録)、
-横断エンゲージメント・レポート生成
+横断エンゲージメント・レポート生成とCVE露出マトリクスの表示
 (Engagementページ)、新規スキャン実行(ライブ進捗)、
 Playbook実行(ステップ単位のライブ進捗、
 [§8](#8-playbook-複数プラグインの連続実行)参照)、Attack Sessionの作成・
@@ -1663,7 +1663,7 @@ medium/青=low/灰=info)付きで、検証状態(確認済み/要確認/誤検�
 | `GET /api/primitive-runs` | 保存済みプリミティブ実行の一覧 |
 | `GET /api/primitive-runs/{run_id}` | プリミティブ実行の詳細(JSON) |
 | `GET /api/primitive-runs/{run_id}/report[?format=markdown\|html\|pdf]` | プリミティブ実行のレポート(`pdf`時は`application/pdf`、未インストール時`501`) |
-| `GET /api/reports/engagement[?target=<name>\|engagement=<name>][&format=markdown\|html\|pdf]` | RunRecordとPrimitiveRunRecordを横断した1つのエンゲージメント・レポート(スコープ省略時は全run。詳細は[§13](#13-証跡とレポート)) |
+| `GET /api/reports/engagement[?target=<name>\|engagement=<name>][&format=markdown\|html\|pdf\|json]` | RunRecordとPrimitiveRunRecordを横断した1つのエンゲージメント・レポート(スコープ省略時は全run)。`format=json`はCVE露出マトリクス等を構造化データで返す(Web UIのEngagementページが表描画に使用)。詳細は[§13](#13-証跡とレポート) |
 | `GET /api/audit` | `ScopePolicy`が拒否したスキャン実行の試みを一覧表示 |
 | `GET /api/audit/{violation_id}` | 拒否された試みの詳細(JSON) |
 | `POST /api/walkthroughs` | 複数runをまたぐウォークスルーを生成。詳細は[§11](#11-aiによる分析ウォークスルー提案) |

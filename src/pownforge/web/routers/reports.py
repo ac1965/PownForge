@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import asdict
+
 from fastapi import APIRouter, Depends, HTTPException, Response
 
 from pownforge.core.engagement_report import (
@@ -57,6 +59,14 @@ def get_engagement_report(
     policy: ScopePolicy = Depends(get_policy),
 ):
     report = _collect(target, engagement, store, primitive_store, policy)
+    if format == "json":
+        return {
+            "scope_label": report.scope_label,
+            "targets": report.targets(),
+            "scan_runs": len(report.runs),
+            "primitive_runs": len(report.primitive_runs),
+            "cve_exposure": [asdict(e) for e in report.cve_exposure()],
+        }
     if format == "pdf":
         try:
             from pownforge.reporting import pdf as pdf_report

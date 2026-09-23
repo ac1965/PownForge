@@ -322,6 +322,24 @@ export interface PrimitiveRunRecord {
   notes: string;
 }
 
+export interface CveExposure {
+  cve: string;
+  scan_plugins: string[];
+  primitive_ids: string[];
+  highest_validation: string | null;
+  confirmed_validation: boolean;
+  manual_run_ids: string[];
+  manual_artifact_count: number;
+}
+
+export interface EngagementJson {
+  scope_label: string;
+  targets: string[];
+  scan_runs: number;
+  primitive_runs: number;
+  cve_exposure: CveExposure[];
+}
+
 export const api = {
   listTargets: () => request<Target[]>("/targets"),
   addTarget: (target: Target) =>
@@ -445,6 +463,12 @@ export const api = {
     if (scope.target) params.set("target", scope.target);
     if (scope.engagement) params.set("engagement", scope.engagement);
     return request<{ markdown?: string; html?: string }>(`/reports/engagement?${params}`);
+  },
+  getEngagementCveMatrix: (scope: { target?: string; engagement?: string }) => {
+    const params = new URLSearchParams({ format: "json" });
+    if (scope.target) params.set("target", scope.target);
+    if (scope.engagement) params.set("engagement", scope.engagement);
+    return request<EngagementJson>(`/reports/engagement?${params}`);
   },
   engagementReportPdfUrl: (scope: { target?: string; engagement?: string }) => {
     const params = new URLSearchParams({ format: "pdf" });
