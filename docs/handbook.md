@@ -308,6 +308,7 @@ pownforge analyze <run-id>
 | `pownforge scan network --target <name> [--option k=v ...] [--live]` | networkプラグイン(nmap)を実行 |
 | `pownforge scan web --target <name> --option wordlist=<path> [--live]` | webプラグイン(ffuf)を実行 |
 | `pownforge scan api --target <name> [--option path=/... --option method=GET\|HEAD\|OPTIONS --option timeout=<秒>] [--live]` | apiプラグイン(curlで1リクエスト、ヘッダの受動チェック)を実行。`kind=url`の対象のみ。詳細は[§6](#6-プラグイン) |
+| `pownforge scan identity --target <name> [--option document=openid-configuration\|oauth-authorization-server --option timeout=<秒>] [--live]` | identityプラグイン(IdPの公開discovery文書を1回取得して記録)を実行。`kind=url`(addressはissuerのURL)。詳細は[§6](#6-プラグイン) |
 | `pownforge scan nuclei --target <name> [--option tags=... --option severity=... --option templates=...] [--live]` | nucleiプラグイン(テンプレートベースの脆弱性検出)を実行。検出結果はfinding(`source: "tool"`)として記録 |
 | `pownforge scan kubernetes --target <name> [--option namespaces=... --option severity=...] [--live]` | kubernetesプラグイン(`trivy k8s`)を実行。対象の`address`はkubeconfigのcontext名 |
 | `pownforge scan kubernetes-audit --target <name> [--option namespaces=...] [--live]` | kubernetes-auditプラグイン(kubectl+trivy k8s、RBAC/Pod Security/Network/Imageの攻撃チェーン検出)を実行 |
@@ -710,6 +711,52 @@ pownforge scan api --target lab-api --option path=/rest/products --option method
 (`X-Content-Type-Options`欠落、CSP欠落、`Server`のバージョン表記)が
 記録されること、`method=DELETE`と`path=@evil.example/`が実行前に拒否
 されることを確認した。
+
+### identity(`curl`、OIDC/OAuth discovery文書)
+
+IdP(OpenID Provider / OAuth認可サーバー)が**認証なしで公開している
+設定メタデータを1回だけ取得**して記録するプラグインです。`expected_kind`
+は`url`で、addressにはissuerのURL(例: `http://lab-idp:8080/realms/lab`)
+を登録します。
+
+```bash
+pownforge target add lab-idp --address http://lab-idp:8080/realms/lab --kind url \
+  --allowed-plugins identity
+pownforge scan identity --target lab-idp
+pownforge scan identity --target lab-idp --option document=oauth-authorization-server
+```
+
+`--option`のキー: `document`(`openid-configuration`(既定、OpenID Connect
+Discovery 1.0の`/.well-known/openid-configuration`)または
+`oauth-authorization-server`(RFC 8414の`/.well-known/oauth-authorization-server`)
+の2択、任意パスは不可)、`timeout`(秒、既定30)。
+
+**扱わないもの**: 認証情報(パスワード・トークン・クライアント
+シークレット)は一切受け取らず送らない。discovery文書に列挙された
+エンドポイント(token/userinfo/jwks等)にもアクセスしない。そのため当初
+想定していた`core/secrets.py::mask_command()`の対象になる値も無い。
+URLの組み立ては`api`プラグインと同じく登録済みaddressとのscheme/host/port
+一致を検証し、リダイレクトは追わない。
+
+**記録内容**: ステータス、Content-Type、文書中の主要フィールド(issuer、
+各endpoint、`jwks_uri`、`scopes_supported`、`grant_types_supported`、
+`response_types_supported`、`code_challenge_methods_supported`、
+`token_endpoint_auth_methods_supported`、`id_token_signing_alg_values_supported`等)。
+生のレスポンス全体も`raw_stdout`として証跡に残る。
+
+**finding**(`source: "tool"`、`needs-review`。文書の記載内容だけから判定
+する受動的な観測): `id_token_signing_alg_values_supported`に`none`(medium)、
+implicitフロー(`grant_types_supported`の`implicit`または`response_types`
+に`token`)の提供(info)、`password`グラント(low)、
+`code_challenge_methods_supported`にS256が無い(low)、issuerが登録済み
+addressと異なる(info)、localhost以外の`http://`エンドポイント(low)。
+200以外やJSONでない応答ではfindingを生成しない。
+
+**実機検証**: 2026-09-23、`127.0.0.1`上のローカルHTTPサーバーに静的な
+discovery文書を置いて`scan identity`を実行し、文書へのリクエスト1回のみで
+メタデータが記録され、finding 3件(alg `none`、implicit、PKCE S256なし)が
+生成されることを確認した。`allowed_plugins: [identity]`の対象に`scan api`
+を実行するとScopePolicyが拒否することも確認した。
 
 ### vulncheck(`nmap` NSEスクリプト)
 
@@ -2264,8 +2311,8 @@ Target modelの除外対象(`excluded`)と対象ごとの同時実行数制限
   curlで1URL・1リクエストのみ)、sqlmap以外のPhase 5候補
 - Plugin SDKの正式なパッケージ化(`PluginMetadata`の完全な形、`options`/
   `normalize()`戻り値の型スキーマ)
-- `identity`系プラグイン(認証情報を扱うため、`core/secrets.py::
-  mask_command()`のマスキング対象になる想定)
+- 認証情報を扱う`identity`系プラグイン(`identity`プラグインは公開
+  discovery文書の取得のみで、認証情報は扱わない)
 - Web UI/Web APIからのkindクラスタ操作(`pownforge lab kind`はCLIのみ、
   [§7](#kubeforgekind-クラスタへの接続)参照)
 - Web UI/Emacsからの`AttackOperation`操作(CLIのみ対応。`add-node`/

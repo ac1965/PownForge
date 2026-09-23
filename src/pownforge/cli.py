@@ -781,6 +781,24 @@ def scan_api(
     _run_scan("api", target, option, config, workdir, live)
 
 
+@scan_app.command("identity")
+def scan_identity(
+    target: str = typer.Option(..., "--target"),
+    option: list[str] = typer.Option(
+        [],
+        "--option",
+        help="key=value, may repeat: document=openid-configuration|oauth-authorization-server, timeout=<s>",
+    ),
+    live: bool = typer.Option(
+        False, "--live", help="Stream the underlying tool's stdout line-by-line as it runs."
+    ),
+    config: Path = typer.Option(DEFAULT_CONFIG),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+) -> None:
+    """Run the identity plugin (fetch the public OIDC/OAuth discovery document once)."""
+    _run_scan("identity", target, option, config, workdir, live)
+
+
 @scan_app.command("nuclei")
 def scan_nuclei(
     target: str = typer.Option(..., "--target"),

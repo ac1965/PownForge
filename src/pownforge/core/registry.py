@@ -3,6 +3,7 @@ from __future__ import annotations
 from pownforge.plugins.api import ApiPlugin
 from pownforge.plugins.base import Plugin
 from pownforge.plugins.container import ContainerPlugin
+from pownforge.plugins.identity import IdentityPlugin
 from pownforge.plugins.kube_bench import KubeBenchPlugin
 from pownforge.plugins.kubernetes import KubernetesPlugin
 from pownforge.plugins.kubernetes_audit import KubernetesAuditPlugin
@@ -48,4 +49,5 @@ def default_registry() -> PluginRegistry:
     registry.register(ContainerPlugin())
     registry.register(VulncheckPlugin())
     registry.register(ApiPlugin())
+    registry.register(IdentityPlugin())
     return registry
