@@ -723,6 +723,36 @@ Metasploitable2のSamba相手に実行)を実行。この検証で**実バグを
 「攻撃対象ホスト」として、隔離されたDockerネットワーク上に動的に
 起動・停止するための機能です。`compose.yaml`を手動編集する必要はありません。
 
+### 再現可能な固定ラボ: pownforge-vulnerable-lab
+
+本節(§7)の実機検証は元々、検証のたびにコンテナを手で起動・削除する
+アドホックな作業でした。[ac1965/pownforge-vulnerable-lab](https://github.com/ac1965/pownforge-vulnerable-lab)
+は、この検証環境を`docker compose up`一発で再現できる状態に固定した
+別リポジトリです。以下を含みます。
+
+- `metasploitable2`/`juice-shop`のcompose定義(下記「推奨する練習用の
+  脆弱イメージ」と同じイメージ)
+- `flask-sqli`: sqlmap検証用に新規追加した、生の文字列結合でSQLを
+  組み立てる最小Flask+SQLiteアプリ(boolean-based blind/error-based/
+  UNION queryの3手法が検出できる。DBMSがSQLiteのためtime-based blind
+  は対象外)
+- `kind/`: `kubernetes`/`kubernetes-audit`/`kube-bench`プラグインの
+  基本動作確認用に絞った最小kindクラスタ + 脆弱ワークロード
+  (privileged pod、過剰権限RBAC等)
+
+**KubeForgeを置き換えるものではない。** `pownforge-vulnerable-lab/kind/`
+はPownForgeの3プラグインが検出できることを確認するための最小構成に
+留めています。Calico CNIの導入、kube-bench向けハードニング比較用の
+`kubeadmConfigPatches`、より本格的な攻撃チェーンシナリオといった
+[KubeForge](https://github.com/ac1965/KubeForge)固有の価値は引き続き
+KubeForge側にあり、下記「KubeForge(kindクラスタ)への接続」の手順は
+そのまま有効です。用途に応じて使い分けてください。
+
+- PownForgeの基本動作を`docker compose up`一発で確認したいだけ →
+  `pownforge-vulnerable-lab`
+- Calico込みのNetworkPolicy検証やkube-bench比較など、より本格的な
+  K8sセキュリティ診断ラボが必要 → KubeForge
+
 ### 安全設計
 
 - ラボ用ネットワーク(既定名: `pownforge-lab`)は`docker network create
@@ -813,6 +843,21 @@ VMです。同等の練習効果を得るには、個々にDockerイメージが
 `Exited (0)`になってしまいます。`LabManager.add()`は`-i`
 (標準入力を開いたままにする)を常に付与することでこれを回避しています。
 
+上記2イメージの起動・登録手順は
+[pownforge-vulnerable-lab](https://github.com/ac1965/pownforge-vulnerable-lab)
+の`compose.yaml`として固定化済みです(前掲「再現可能な固定ラボ」参照)。
+都度`pownforge lab add`を手で打つ代わりに`docker compose up`だけで
+両方を再現できます。
+
+**Apple Silicon (arm64) での注意**: `bkimminich/juice-shop`は
+`linux/amd64`/`linux/arm64`のマルチアーキ対応(Docker Hub確認)で
+ネイティブに動作します。一方`tleemcjr/metasploitable2`は
+`linux/amd64`のみで、arm64ネイティブ版は存在しません。実体が
+Ubuntu 8.04ベースのファイルシステムで、当時arm64ディストリビューション
+自体が存在しなかったためです。Apple Silicon MacではQEMUエミュレーション
+(`platform: linux/amd64`指定)で動作させる他なく、起動・スキャンは
+低速になりますが機能的な差はありません。
+
 ### 実機検証記録(Metasploitable2)
 
 `pownforge lab add metasploitable2 --image tleemcjr/metasploitable2 --kind
@@ -854,6 +899,10 @@ Juice Shopの待受ポート(3000/tcp open)を正しく検出できることを�
 (`trivy k8s`、§6「プラグイン」参照)の対象として、
 `pownforge-lab`ネットワーク上の`pownforge`サービスコンテナ
 (`docker compose run pownforge ...`)から直接スキャンする手順。
+(`pownforge-vulnerable-lab/kind/`との使い分けは前掲「再現可能な固定ラボ」参照。
+以下の手順は`kubeforge-lab`という名前のクラスタを前提にしているが、
+`pownforge-vulnerable-lab`側のクラスタ名は`pownforge-vulnerable-lab`
+であり、その場合は該当箇所を読み替えること)
 
 `kubernetes`プラグインは`trivy k8s <context>`をそのまま呼び出すだけで、
 接続先はambientなkubeconfig(`KUBECONFIG`環境変数)が持つcontextの
