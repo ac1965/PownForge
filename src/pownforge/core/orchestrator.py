@@ -1,20 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
 import yaml
 
-from pownforge.core.models import (
-    Campaign,
-    Engagement,
-    Playbook,
-    PlaybookStep,
-    PlaybookStepCondition,
-    RunRecord,
-    Severity,
-)
+from pownforge.core.models import Playbook, PlaybookStep, PlaybookStepCondition, RunRecord, Severity
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.core.registry import PluginRegistry
 from pownforge.core.runner import RunnerError, ScanRunner
@@ -23,7 +15,6 @@ from pownforge.evidence.store import EvidenceStore
 from pownforge.plugins.base import PluginError
 
 OnStep = Callable[[int, int, PlaybookStep], None]
-OnCampaignStep = Callable[[int, int, str, int, int, PlaybookStep], None]
 
 
 class PlaybookError(RuntimeError):
@@ -53,36 +44,6 @@ def resolve_playbook(playbooks_dir: Path, name: str) -> Playbook:
     if not path.exists():
         raise PlaybookError(f"no playbook named '{name}' in {playbooks_dir}")
     return load_playbook(path)
-
-
-class CampaignError(RuntimeError):
-    """Raised when a campaign file can't be found/parsed, or when the
-    Engagement/Playbook it references can't be resolved."""
-
-
-def load_campaign(path: Path) -> Campaign:
-    try:
-        data = yaml.safe_load(path.read_text()) or {}
-    except OSError as exc:
-        raise CampaignError(f"could not read campaign file '{path}': {exc}") from exc
-    try:
-        return Campaign(**data)
-    except Exception as exc:  # pydantic ValidationError, etc.
-        raise CampaignError(f"invalid campaign file '{path}': {exc}") from exc
-
-
-def list_campaigns(campaigns_dir: Path) -> list[Campaign]:
-    if not campaigns_dir.is_dir():
-        return []
-    campaigns = [load_campaign(path) for path in sorted(campaigns_dir.glob("*.yaml"))]
-    return sorted(campaigns, key=lambda c: c.name)
-
-
-def resolve_campaign(campaigns_dir: Path, name: str) -> Campaign:
-    path = campaigns_dir / f"{name}.yaml"
-    if not path.exists():
-        raise CampaignError(f"no campaign named '{name}' in {campaigns_dir}")
-    return load_campaign(path)
 
 
 _SEVERITY_RANK = {
@@ -167,78 +128,3 @@ def run_playbook(
             continue
         results.append(PlaybookStepResult(step=step, record=record, error=None))
     return results
-
-
-@dataclass
-class CampaignTargetResult:
-    target_name: str
-    steps: list[PlaybookStepResult] = field(default_factory=list)
-    # Set only if the target itself couldn't be run at all (e.g. it was
-    # removed from the scope file after being added to the Engagement) --
-    # distinct from a PlaybookStepResult.error, which is scoped to one step.
-    error: str | None = None
-
-
-@dataclass
-class CampaignResult:
-    campaign: Campaign
-    target_results: list[CampaignTargetResult] = field(default_factory=list)
-
-    def successful_stages(self) -> list[tuple[str, RunRecord]]:
-        """(label, record) for every step across every target that actually
-        produced a RunRecord -- skipped/failed steps and targets that never
-        started are excluded. Used to populate the AttackSession created
-        after a campaign run."""
-        stages: list[tuple[str, RunRecord]] = []
-        for target_result in self.target_results:
-            for step_result in target_result.steps:
-                if step_result.record is not None:
-                    stages.append((f"{target_result.target_name}: {step_result.step.plugin}", step_result.record))
-        return stages
-
-
-def run_campaign(
-    campaign: Campaign,
-    playbook: Playbook,
-    engagement: Engagement,
-    policy: ScopePolicy,
-    registry: PluginRegistry,
-    store: EvidenceStore,
-    audit: AuditStore | None = None,
-    on_step: OnCampaignStep | None = None,
-) -> CampaignResult:
-    """Run PLAYBOOK against every target in ENGAGEMENT.targets, in order, via
-    run_playbook() -- one full Playbook run per target, using the exact same
-    ScanRunner/ScopePolicy path a single `pownforge playbook run` would.
-    Neither the Campaign nor the Engagement grants any execution right
-    beyond what each target's own `allowed_plugins` already authorizes;
-    this only sequences several already-authorized single-target Playbook
-    runs, it never lets one target's run reach another (see
-    ScopePolicy.authorize_pivot()).
-
-    A target whose Playbook run fails to even start (e.g. it was removed
-    from the scope file after being added to the Engagement) does not stop
-    the campaign: later targets are independent, so running them anyway
-    surfaces more information than aborting would -- same rationale as a
-    failed Playbook step not stopping the rest of the Playbook."""
-    target_results: list[CampaignTargetResult] = []
-    total_targets = len(engagement.targets)
-    for t_index, target_name in enumerate(engagement.targets, start=1):
-
-        def _on_step(
-            step_index: int,
-            step_total: int,
-            step: PlaybookStep,
-            _t_index: int = t_index,
-            _target_name: str = target_name,
-        ) -> None:
-            if on_step is not None:
-                on_step(_t_index, total_targets, _target_name, step_index, step_total, step)
-
-        try:
-            steps = run_playbook(playbook, target_name, policy, registry, store, audit, on_step=_on_step)
-        except PlaybookError as exc:
-            target_results.append(CampaignTargetResult(target_name=target_name, error=str(exc)))
-            continue
-        target_results.append(CampaignTargetResult(target_name=target_name, steps=steps))
-    return CampaignResult(campaign=campaign, target_results=target_results)

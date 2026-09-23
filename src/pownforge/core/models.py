@@ -148,27 +148,6 @@ class Playbook(BaseModel):
     steps: list[PlaybookStep] = Field(default_factory=list)
 
 
-class Campaign(BaseModel):
-    """A human-authored, version-controlled reference from a named
-    Engagement to a Playbook: `pownforge campaign run <name>` runs the
-    Playbook against every target in the Engagement, in order, via the same
-    run_playbook()/ScanRunner/ScopePolicy path a single `pownforge playbook
-    run` would use for one target. Neither the Campaign nor the Engagement
-    it references grants any execution right beyond what each target's own
-    `allowed_plugins` already authorizes -- this is a scheduling
-    convenience over two already-existing, already-authorized concepts, not
-    a new authorization mechanism (see ScopePolicy.authorize_pivot() /
-    Engagement, and the "実行時の分岐・AI判断は入れない" principle in
-    docs/handbook.md §8, which applies here unchanged: what runs against
-    which target is fixed by this file at authoring time, never decided at
-    run time). See core/orchestrator.py."""
-
-    name: str
-    description: str = ""
-    engagement: str
-    playbook: str
-
-
 class Suggestion(BaseModel):
     """An AI-generated "what to try next" recommendation produced by
     `pownforge walkthrough generate` (core/walkthrough.py). Deliberately not

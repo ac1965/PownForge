@@ -327,9 +327,6 @@ pownforge analyze <run-id>
 | `pownforge playbook list [--playbooks-dir <dir>]` | 利用可能なPlaybookの一覧 |
 | `pownforge playbook show <name> [--playbooks-dir <dir>]` | Playbookのステップ内容を表示 |
 | `pownforge playbook run <name> --target <target> [--playbooks-dir <dir>]` | Playbookの全ステップを対象に順次実行。1ステップ失敗しても後続は継続、`when`条件を満たさないステップはSKIPPEDとして報告(詳細は[§8](#8-playbook-複数プラグインの連続実行)) |
-| `pownforge campaign list [--campaigns-dir <dir>]` | 利用可能なCampaignの一覧 |
-| `pownforge campaign show <name> [--campaigns-dir <dir>]` | CampaignのEngagement/Playbook参照を表示 |
-| `pownforge campaign run <name> [--session-name <name>] [--campaigns-dir <dir>] [--playbooks-dir <dir>]` | Campaignが参照するEngagementの全targetに対してPlaybookを順次実行し、成功したrunを新規AttackSessionに自動登録(詳細は[§8](#8-playbook-複数プラグインの連続実行)「Campaign」) |
 | `pownforge attack-session create <name> [--description <text>] [--engagement <name>]` | 空のAttackSessionを作成(何も実行しない) |
 | `pownforge attack-session add-stage <name> <run-id> [--label <text>]` | 既存のrun-idをAttackSessionの次のステージとして追加 |
 | `pownforge attack-session list` | AttackSessionの一覧 |
@@ -1177,78 +1174,31 @@ run idを解決できなかった場合に`wrong-type-argument`エラーで例�
 ケースしかテストされておらず露見していなかった)。`process-status`の
 戻り値をそのまま`format`に渡すよう修正し、回帰テストを追加した。
 
-### Campaign: 複数targetへのPlaybook一括実行
+### 複数targetへの適用(運用パターン)
 
 `pownforge playbook run`は常に1つのtargetに対する実行です。複数の
-targetに同じ手順(例: 「discoveryのラボ環境すべてに対してweb-baselineを
-回す」)を適用したい場合、対象ごとにコマンドを打ち直すのは煩雑です。
-`Campaign`は、既存の2つの概念
-
-- **Engagement**(`pownforge engagement add`で登録する、既に認可済みの
-  targetの名前付きグループ)
-- **Playbook**(§8前半で説明した、1targetに対するプラグイン連続実行の
-  静的な定義)
-
-を組み合わせて「このEngagementの全targetに対してこのPlaybookを回す」
-ことだけを宣言する、薄い参照ファイルです。
-
-```yaml
-# config/campaigns/lab-sweep.yaml
-name: lab-sweep
-description: "network-baseline playbook across every target in the lab-targets engagement"
-engagement: lab-targets
-playbook: network-baseline
-```
+targetに同じPlaybookを適用したい場合、専用のコマンドは用意していません
+-- 既存の`Engagement`(§12)・`playbook run`・`attack-session`
+(§13)を組み合わせるだけで同じことができ、新しい認可の仕組みは不要
+だからです。
 
 ```bash
 pownforge engagement add lab-targets --targets metasploitable2,juice-shop
-pownforge campaign list
-pownforge campaign show lab-sweep
-pownforge campaign run lab-sweep
+pownforge attack-session create lab-sweep --engagement lab-targets
+
+for t in metasploitable2 juice-shop; do
+  pownforge playbook run network-baseline --target "$t"
+  # 出力されたrun-idを都度 attack-session add-stage で追加する
+done
+
+pownforge attack-session report lab-sweep --format markdown
 ```
 
-**認可モデルは一切拡張されない**: `run_campaign()`は`Engagement`の
-targetを1つずつ`run_playbook()`に渡すだけで、これは`pownforge playbook
-run`を対象ごとに手で繰り返すのと完全に同じ`ScanRunner`/`ScopePolicy`
-経路です。CampaignもEngagementも、各targetの`allowed_plugins`が既に
-許可している範囲を超える実行権限を一切与えません。PownForgeが
-あるtargetのrunから別のtargetへ勝手にpivotすることもありません
-(`ScopePolicy.authorize_pivot()`参照)。これは
-[[feedback-exploitation-scope-middle-path]]で確認した「既存の一線
-(one-target-one-authorization)を壊さない範囲で価値を追加する」設計と
-同じ考え方です。
-
-あるtargetのPlaybook実行が(部分的に、あるいは全体が)失敗しても
-Campaign全体は止まりません。各targetは独立した実行であり、失敗した
-targetの後続targetが失敗の影響を受ける理由がないためです
-(`Playbook`が「失敗したステップで止めない」のと同じ理由、前掲参照)。
-
-**実行後、自動でAttackSessionが作成されます**。全target×全stepの
-成功したrunが、`<campaign名>-<UTC timestamp>`(または`--session-name`で
-指定した名前)のAttackSessionに、`"<target名>: <plugin名>"`という
-ラベル付きstageとしてまとめて登録されます。人間が`attack-session
-add-stage`を対象ごとに手で繰り返す必要がなくなり、既存の
-`attack-session report`(§13)がそのまま複数target分の経路レポートとして
-使えます。
-
-**実機検証**: [pownforge-vulnerable-lab](https://github.com/ac1965/pownforge-vulnerable-lab)
-の`metasploitable2`/`juice-shop`を`lab-targets`Engagementとして登録し、
-`network-baseline`(networkプラグイン1ステップのみのPlaybook)を対象に
-`pownforge campaign run lab-sweep`をCLI・Web UI双方から実行した。
-両target×1stepの計2runが成功し、AttackSessionが自動作成され
-(`attack-session show`でengagement/stageラベルが正しく記録されている
-ことを確認)、`attack-session report --format markdown`で2target分の
-経路レポートが生成されることを確認した。
-
-### Web UI/API対応
-
-`pownforge campaign list/show/run`と同じ操作は、Web UI(Campaignsページ)
-からも行えます。`POST /api/campaigns/{name}/run`でジョブを投入し、
-`WS /api/ws/campaigns/{job_id}`でtarget×step単位の進捗
-(`step_start`/`step_done`/`step_skipped`/`step_failed`/`target_failed`)
-をライブ表示します。Engagementのメンバー一覧はCampaignsページで
-表示するためだけに`GET /api/engagements`(読み取り専用、Engagement自体の
-作成・編集APIはまだ無く`pownforge engagement add`のみ)を追加しました。
+(過去に`Campaign`という専用コマンドを実装したことがあるが、実行ロジックは
+「Engagementの各targetに対しplaybook runを繰り返し、run-idをAttackSession
+に登録するだけ」で、上記のシェルループと完全に同じ結果を返す薄いラッパー
+だったため、重複実装として削除した。自動化したい場合はこのシェルループを
+そのままスクリプト化すればよい)
 
 ## 9. Web UI / API
 
@@ -1340,11 +1290,6 @@ medium/青=low/灰=info)付きで、検証状態(確認済み/要確認/誤検�
 | `GET /api/playbooks/{name}` | Playbookのステップ内容 |
 | `POST /api/playbooks/{name}/run` | Playbookをジョブとして投入。`{"job_id": ..., "status": "pending"}`を返す |
 | `WS /api/ws/playbooks/{job_id}` | Playbookの各ステップの開始/完了/スキップ/失敗をストリーミング(詳細は[§8](#8-playbook-複数プラグインの連続実行)) |
-| `GET /api/engagements` | Engagementの一覧(読み取り専用、作成/編集APIはまだ無く`pownforge engagement add`のみ) |
-| `GET /api/campaigns` | 利用可能なCampaignの一覧(`config/campaigns/*.yaml`) |
-| `GET /api/campaigns/{name}` | CampaignのEngagement/Playbook参照 |
-| `POST /api/campaigns/{name}/run` | Campaignをジョブとして投入。`{"job_id": ..., "status": "pending"}`を返す |
-| `WS /api/ws/campaigns/{job_id}` | target×stepごとの開始/完了/スキップ/失敗をストリーミング。完了時にAttackSession自動作成の結果(`session_name`/`stage_count`)を含む(詳細は[§8](#8-playbook-複数プラグインの連続実行)「Campaign」) |
 | `GET /api/attack-sessions` | AttackSessionの一覧 |
 | `GET /api/attack-sessions/{name}` | AttackSessionのステージ一覧(JSON) |
 | `POST /api/attack-sessions` | 空のAttackSessionを作成(何も実行しない) |
@@ -2157,13 +2102,15 @@ generate`をその場限りの出力から、ラベル付きで保存・再参�
 承認)を第一級オブジェクトとして追加したもの。承認済み`scan`種別の
 Actionのみ既存の`ScanRunner`経由で実行でき、`manual`/`pivot`はモデル化・
 承認はできても実行プロバイダを有効化していない。詳細は
-[§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)を参照)、
-`Campaign`による複数targetへのPlaybook一括実行(既存の`Engagement`
-(複数targetの名前付きグループ)と`Playbook`(1targetに対する静的な
-プラグイン連続実行)を組み合わせるだけの薄い参照層で、認可モデルは
-一切拡張していない。実行後は成功した全runを新規`AttackSession`に
-自動登録する。詳細は[§8](#8-playbook-複数プラグインの連続実行)
-「Campaign」を参照)。
+[§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)を参照)。
+
+**実装したが重複と判断し削除したもの**: `Campaign`(既存の
+`Engagement`(複数targetの名前付きグループ)と`Playbook`(1targetに対する
+静的なプラグイン連続実行)を組み合わせるだけの薄い参照層として実装した
+専用コマンド)。実行ロジックが「Engagementの各targetに対しplaybook run
+を繰り返し、run-idをAttackSessionに登録するだけ」で、既存コンポーネント
+をシェルループで組み合わせるのと完全に同じ結果を返すことが分かったため、
+重複実装として削除した(§8「複数targetへの適用(運用パターン)」参照)。
 
 **既知の未実装項目**:
 
@@ -2191,7 +2138,7 @@ Actionのみ既存の`ScanRunner`経由で実行でき、`manual`/`pivot`はモ�
 「実際に動くか」を体系的に確認するため、`network`/`vulncheck`/`web`/
 `nuclei`/`sqlmap`/`kubernetes`/`kubernetes-audit`/`kube-bench`/
 `container`(discovery〜vuln-confirm相当のプラグイン群、T01〜T08)と
-`playbook`/`campaign`/`attack-session`/`evidence`/`report`(横断機能、
+`playbook`/`engagement`/`attack-session`/`evidence`/`report`(横断機能、
 T09〜T12)からなるテストマトリクスを組み、
 [pownforge-vulnerable-lab](https://github.com/ac1965/pownforge-vulnerable-lab)
 として固定ラボ化しました([§7](#7-ラボネットワーク)「再現可能な固定
@@ -2199,7 +2146,7 @@ T09〜T12)からなるテストマトリクスを組み、
 
 | 段階 | 内容 | 状況 |
 | --- | --- | --- |
-| **第1段階** | PownForgeが現在実行できる範囲(discovery/vuln-confirm相当、T01〜T12)を固定ラボとして再現可能にする | ✅ 完了。T01〜T12すべて実機検証済み。副次的にM6の未検証項目だった kube-bench実機検証(ランタイムイメージのarm64ネイティブ化により解消)と、M1のCLIを拡張する形での`Campaign`機能(T09)を実装した |
+| **第1段階** | PownForgeが現在実行できる範囲(discovery/vuln-confirm相当、T01〜T12)を固定ラボとして再現可能にする | ✅ 完了。T01〜T12すべて実機検証済み。副次的にM6の未検証項目だった kube-bench実機検証(ランタイムイメージのarm64ネイティブ化により解消)を完了させた。T09(複数targetへの適用)は当初専用の`Campaign`コマンドを実装したが、既存の`Engagement`/`Playbook`/`AttackSession`の組み合わせと重複すると判断し削除、運用パターンとして§8に記録した |
 | **第2段階** | L1〜L4の脆弱環境を攻撃チェーン(Discovery〜Impactの8フェーズ)検証用ラボとして拡張する | ✅ 完了。`pownforge-vulnerable-lab`の`chain/`にL1(Initial Access)〜L4(Persistence/Impact)を実装し実機検証済み |
 
 **第2段階は新しいマイルストーンではありません。** PownForge自身が

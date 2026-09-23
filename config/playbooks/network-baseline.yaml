@@ -1,6 +1,7 @@
 # 最小構成の1ステップPlaybook: networkプラグインのみ。allowed_pluginsが
 # targetごとに異なっていても、network(nmap)だけは大抵のtargetで許可されて
-# いるため、複数targetを横断するCampaignの動作確認に向く。
+# いるため、複数targetへの一括適用(docs/handbook.md §8「複数targetへの
+# 適用(運用パターン)」参照)の動作確認に向く。
 #
 # Usage:
 #   pownforge playbook run network-baseline --target <name>
