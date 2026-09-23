@@ -30,6 +30,36 @@ RUN nuclei -update-templates
 # bust their build cache. Needed by the `kubernetes` plugin (`trivy k8s`).
 RUN pacman -Sy --noconfirm trivy && pacman -Scc --noconfirm
 
+# curl/tar: needed only to fetch and unpack kube-bench's source tarball below.
+# kubectl: needed by the `kubernetes-audit`/`kube-bench` plugins (unlike the
+# `kubernetes` plugin, which only shells out to trivy). Separate RUN (not
+# folded into the first pacman block) so this doesn't bust the go-install
+# layer cache above.
+RUN pacman -Sy --noconfirm curl tar kubectl && pacman -Scc --noconfirm
+
+# kube-bench (CIS Kubernetes Benchmark) -- built from source, not `go
+# install`, because its cfg/ directory (the actual CIS benchmark check
+# definitions) isn't included in the compiled binary and has to be copied
+# out of the source tree separately. Building with the current Arch `go`
+# (rather than using the upstream release binary/image) avoids the stale
+# embedded Go stdlib CVEs that a frozen release build carries -- same
+# rationale as building ffuf/nuclei/subfinder from source above. Used by the
+# `kube-bench` plugin's in-cluster Job (docs/handbook.md).
+ARG KUBE_BENCH_VERSION=0.16.0
+RUN set -eux; \
+    curl -sSL -o /tmp/kube-bench-src.tar.gz \
+      "https://github.com/aquasecurity/kube-bench/archive/refs/tags/v${KUBE_BENCH_VERSION}.tar.gz"; \
+    mkdir -p /tmp/kube-bench-src; \
+    tar -xzf /tmp/kube-bench-src.tar.gz -C /tmp/kube-bench-src --strip-components=1; \
+    cd /tmp/kube-bench-src; \
+    CGO_ENABLED=0 go build \
+      -ldflags "-X github.com/aquasecurity/kube-bench/cmd.KubeBenchVersion=${KUBE_BENCH_VERSION}" \
+      -o /usr/local/bin/kube-bench .; \
+    mkdir -p /opt/kube-bench; \
+    cp -r cfg /opt/kube-bench/cfg; \
+    cd /; \
+    rm -rf /tmp/kube-bench-src /tmp/kube-bench-src.tar.gz "$(go env GOCACHE)" "$(go env GOMODCACHE)"
+
 WORKDIR /app
 COPY pyproject.toml README.md /app/
 COPY src /app/src

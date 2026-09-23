@@ -9,7 +9,9 @@ from pownforge.core.models import Target, TargetKind
 from pownforge.core.registry import default_registry
 from pownforge.plugins.base import PluginError
 from pownforge.plugins.container import ContainerPlugin
+from pownforge.plugins.kube_bench import KubeBenchPlugin
 from pownforge.plugins.kubernetes import KubernetesPlugin
+from pownforge.plugins.kubernetes_audit import KubernetesAuditPlugin
 from pownforge.plugins.network import NetworkPlugin
 from pownforge.plugins.nuclei import NucleiPlugin
 from pownforge.plugins.recon import ReconPlugin
@@ -762,6 +764,8 @@ def test_all_registered_plugins_satisfy_the_base_contract() -> None:
         (WebPlugin, TargetKind.URL),
         (NucleiPlugin, TargetKind.URL),
         (KubernetesPlugin, TargetKind.HOST),
+        (KubernetesAuditPlugin, TargetKind.HOST),
+        (KubeBenchPlugin, TargetKind.HOST),
         (ContainerPlugin, TargetKind.HOST),
         (SqlmapPlugin, TargetKind.URL),
         (ReconPlugin, TargetKind.HOST),
@@ -778,6 +782,8 @@ def test_plugin_declares_expected_kind(plugin_cls: type, expected: TargetKind | 
         (WebPlugin, TargetKind.HOST),
         (NucleiPlugin, TargetKind.HOST),
         (KubernetesPlugin, TargetKind.URL),
+        (KubernetesAuditPlugin, TargetKind.URL),
+        (KubeBenchPlugin, TargetKind.URL),
         (ContainerPlugin, TargetKind.URL),
         (SqlmapPlugin, TargetKind.HOST),
         (ReconPlugin, TargetKind.URL),

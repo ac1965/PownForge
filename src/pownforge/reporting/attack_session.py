@@ -3,6 +3,7 @@ from __future__ import annotations
 import html as html_escape
 
 from pownforge.core.models import AttackSession, Finding, FindingStatus, RunRecord, Severity
+from pownforge.reporting import kubernetes_dashboard
 
 _SEVERITY_ORDER = {
     Severity.CRITICAL: 0,
@@ -113,7 +114,7 @@ dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; wor
 .severity-info .badge { background: #95a5a6; }
 .source { font-size: .75rem; opacity: .7; margin-right: .4rem; }
 .stage-label { font-style: italic; color: #555; }
-"""
+""" + kubernetes_dashboard.EXTRA_STYLE
 
 
 def _esc(value: object) -> str:
@@ -153,6 +154,10 @@ def render_html(session: AttackSession, records: list[RunRecord]) -> str:
                 f"{phase}{label} (<code>{_esc(record.run_id)}</code>)</li>"
             )
         parts.append("</ol>")
+
+    dashboard = kubernetes_dashboard.render_section(records)
+    if dashboard:
+        parts.append(dashboard)
 
     for i, (stage, record) in enumerate(zip(session.stages, records), start=1):
         parts.append(f"<h2>Stage {i}: {_esc(record.target)} / {_esc(record.plugin)}</h2>")

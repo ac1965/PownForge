@@ -656,6 +656,42 @@ def scan_kubernetes(
     _run_scan("kubernetes", target, option, config, workdir, live)
 
 
+@scan_app.command("kubernetes-audit")
+def scan_kubernetes_audit(
+    target: str = typer.Option(
+        ..., "--target", help="Registered target whose address is a kubeconfig context name."
+    ),
+    option: list[str] = typer.Option(
+        [], "--option", help="key=value, may repeat; supports namespaces= (trivy vulnerability scan scope)"
+    ),
+    live: bool = typer.Option(
+        False, "--live", help="Stream the underlying tool's stdout line-by-line as it runs."
+    ),
+    config: Path = typer.Option(DEFAULT_CONFIG),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+) -> None:
+    """One-shot RBAC/Pod Security/Network/Image attack-chain audit (kubectl + trivy k8s) against a registered target."""
+    _run_scan("kubernetes-audit", target, option, config, workdir, live)
+
+
+@scan_app.command("kube-bench")
+def scan_kube_bench(
+    target: str = typer.Option(
+        ..., "--target", help="Registered target whose address is a kubeconfig context name."
+    ),
+    option: list[str] = typer.Option(
+        [], "--option", help="key=value, may repeat; supports image= (default: pownforge-pownforge:latest), timeout="
+    ),
+    live: bool = typer.Option(
+        False, "--live", help="Stream the underlying tool's stdout line-by-line as it runs."
+    ),
+    config: Path = typer.Option(DEFAULT_CONFIG),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+) -> None:
+    """Run kube-bench (CIS Kubernetes Benchmark) as an in-cluster Job against a registered target."""
+    _run_scan("kube-bench", target, option, config, workdir, live)
+
+
 @scan_app.command("sqlmap")
 def scan_sqlmap(
     target: str = typer.Option(

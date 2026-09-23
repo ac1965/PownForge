@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pownforge.plugins.base import Plugin
 from pownforge.plugins.container import ContainerPlugin
+from pownforge.plugins.kube_bench import KubeBenchPlugin
 from pownforge.plugins.kubernetes import KubernetesPlugin
+from pownforge.plugins.kubernetes_audit import KubernetesAuditPlugin
 from pownforge.plugins.network import NetworkPlugin
 from pownforge.plugins.nuclei import NucleiPlugin
 from pownforge.plugins.recon import ReconPlugin
@@ -39,6 +41,8 @@ def default_registry() -> PluginRegistry:
     registry.register(WebPlugin())
     registry.register(NucleiPlugin())
     registry.register(KubernetesPlugin())
+    registry.register(KubernetesAuditPlugin())
+    registry.register(KubeBenchPlugin())
     registry.register(SqlmapPlugin())
     registry.register(ContainerPlugin())
     registry.register(VulncheckPlugin())

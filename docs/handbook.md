@@ -285,6 +285,8 @@ pownforge analyze <run-id>
 | `pownforge scan web --target <name> --option wordlist=<path> [--live]` | webプラグイン(ffuf)を実行 |
 | `pownforge scan nuclei --target <name> [--option tags=... --option severity=... --option templates=...] [--live]` | nucleiプラグイン(テンプレートベースの脆弱性検出)を実行。検出結果はfinding(`source: "tool"`)として記録 |
 | `pownforge scan kubernetes --target <name> [--option namespaces=... --option severity=...] [--live]` | kubernetesプラグイン(`trivy k8s`)を実行。対象の`address`はkubeconfigのcontext名 |
+| `pownforge scan kubernetes-audit --target <name> [--option namespaces=...] [--live]` | kubernetes-auditプラグイン(kubectl+trivy k8s、RBAC/Pod Security/Network/Imageの攻撃チェーン検出)を実行 |
+| `pownforge scan kube-bench --target <name> [--option image=... --option timeout=...] [--live]` | kube-benchプラグイン(CIS Kubernetes Benchmark、control-planeノード上のJobとして実行)を実行 |
 | `pownforge scan sqlmap --target <name> [--option risk=... --option level=... --option dump=true ...] [--live]` | sqlmapプラグイン(SQLインジェクション検出/抽出)を実行。安全設計は[§6](#6-プラグイン)参照 |
 | `pownforge scan container --target <name> [--option severity=... --option ignore-unfixed=true --option scanners=...] [--live]` | containerプラグイン(`trivy image`)を実行。対象の`address`はコンテナイメージの参照 |
 | `pownforge scan vulncheck --target <name> --option script=<許可されたNSEスクリプト名> [--option port=...] [--live]` | vulncheckプラグイン(nmapの許可リスト済み`vuln safe`スクリプト1本による既知CVE検証)を実行 |
@@ -446,6 +448,112 @@ pownforge scan kubernetes --target kind-lab \
 `kube-system`namespaceに対する`--option severity=CRITICAL,HIGH`実行で
 136件のfindingが正しく記録されることを確認、コード上の問題は
 見つからなかった。
+
+### kubernetes-audit(kubectl + `trivy k8s`)
+
+`kubernetes`プラグインが`trivy k8s`の個別findingをそのまま流すのに対し、
+`kubernetes-audit`は**単体では見過ごされがちな所見同士が組み合わさると
+実際に悪用できてしまう経路(攻撃チェーン)**を検出する専用プラグインです。
+元は別リポジトリ(KubeForge、意図的に脆弱なkindラボを提供する診断ツール)の
+`scripts/`配下にPythonスクリプトとして実装されていたRBAC/Pod Security/
+Network/Imageの4種の監査ロジックを、チェーン検出アルゴリズムごと本プラグイン
+(`src/pownforge/plugins/kubernetes_audit.py`)へ移植したものです。
+KubeForge自体は今後「再現可能な脆弱Kubernetesラボの構築」に専念し、
+監査・可視化はPownForge側で行う役割分担になっています([§7](#7-ラボネットワーク)参照)。
+
+`Target.address`は`kubernetes`プラグインと同様kubeconfigのcontext名。
+`expected_kind`は`host`。1回の実行で以下をまとめて検出します。
+
+| チェーン | 検出内容 |
+| --- | --- |
+| RBAC | `serviceaccounts/token`のcreate権限を持つServiceAccountが、同じnamespace内のcluster-admin付きServiceAccountへ`kubectl create token`でなりすませる経路 |
+| Pod Security | privileged/特権capability + hostPathマウント、または + hostPIDによるノード乗っ取りチェーン |
+| Network | NetworkPolicyのルールにfrom/toが無く実質全許可になっているケース、hostNetworkによるNetworkPolicyバイパス |
+| Image | `trivy k8s --report all`が検出したCRITICAL/HIGH脆弱性を持つイメージが、同じPodのノード脱出手段(privileged/hostPath/hostNetwork等)と組み合わさっているケース |
+
+**KubeForge本家との実装上の違い**: KubeForgeは`image_audit.py`で
+Podごとの`container.image`に対し個別に`trivy image`を呼んでいましたが、
+本プラグインは`build_command`が返す1コマンド(`kubectl get ... && trivy
+k8s ...`)で完結させるため、`trivy k8s --report all`が返すPod単位の
+Vulnerabilities集計をそのまま使います(個別`trivy image`呼び出しは
+行いません)。イメージ単位ではなくPod単位の粒度になりますが、
+このラボの構成(1コンテナ1Pod)では実質的に同じ結果になります。
+
+**誤検出対策**: RBAC/Pod Security/Network/Imageのすべてで、CNI/CSIの
+DaemonSet等が正当に必要とするprivileged/hostPath/hostNetworkを
+system namespace(`kube-system`/`kube-public`/`kube-node-lease`/
+`tigera-operator`/`calico-system`/`calico-apiserver`)ごと除外する
+`EXEMPT_NAMESPACES`を全チェーン検出で共有しています(移植元のKubeForge
+AGENTS.mdに記録された「新しいチェーン検出を追加するときは最初から
+除外フィルタを組み込むこと」という教訓をそのまま踏襲)。
+
+```bash
+pownforge target add kubeforge-lab --address kind-kubeforge-lab \
+  --kind host --type kubernetes --allowed-plugins kubernetes,kubernetes-audit,kube-bench
+
+docker compose run --rm \
+  -e KUBECONFIG=/app/config/kubeforge-lab.kubeconfig \
+  pownforge scan kubernetes-audit --target kubeforge-lab \
+  --option namespaces=vulnerable-lab
+```
+
+**実機検証**: KubeForgeの`vulnerable-lab`namespace(`privileged-host-breakout`
+Pod: privileged+hostPath+hostPID+hostNetwork+hostIPC、`root-no-limits`
+Pod、過剰権限ServiceAccount一式)に対して`docker compose run`経由
+(`pownforge-lab`ネットワークに加えて`kind`ネットワークにも接続した
+コンテナから)で実行。RBACトークン昇格チェーン1件、Pod Securityブレイク
+アウトチェーン2件(hostPath/hostPID)、Networkの実効性のないルール1件+
+hostNetworkバイパス1件、findings合計32件が正しく検出されることを確認した。
+`kubectl get pod ... -o jsonpath='{.spec.hostNetwork} {.spec.hostPID}
+{.spec.hostIPC}'`で実際の値が`true true true`であることを突き合わせ、
+誤検出でないことも検証済み。Imageチェーンは0件だったが、対象Pod
+(`alpine:3.20`)にCRITICAL/HIGH脆弱性が無かったことが原因で、ロジックの
+不具合ではないことを確認した(`nginx:1.27`ベースの`root-no-limits`には
+多数のCVEがあるが、ノード脱出手段を持たないためチェーンとしては
+検出されない、という判定も期待通り)。
+
+### kube-bench(CIS Kubernetes Benchmark)
+
+Hardening施策(kind-config.yamlの`kubeadmConfigPatches`でapiserver/
+controller-manager/schedulerのフラグを変更する等)の効果を、変更前後で
+`pownforge scan kube-bench`を2回実行しPASS/FAIL/WARN件数を比較すること
+で測定するためのプラグインです。`kube-bench`自体はcontrol-planeノード上の
+Job(`src/pownforge/plugins/_kube_bench_job.yaml`、KubeForgeの
+`manifests/audits/kube-bench-job.yaml`を移植)として実行され、
+標準出力のサマリー行(`== Summary total ==`)とFAIL行(`[FAIL] <id>
+<desc>`)を正規表現で集計します。
+
+Jobのコンテナイメージは、PownForgeのランタイムイメージ自身
+(既定: `pownforge-pownforge:latest`、`--option image=...`で上書き可)を
+使います。公式のkube-bench配布物(GitHub Releases/Docker Hub)は
+リリース時点のGoバージョンのまま固定されており埋め込まれたstdlib由来の
+脆弱性をTrivyが検出することがあるため、`docker/Dockerfile.runtime`で
+ソースからビルドしています(`ffuf`/`nuclei`/`subfinder`と同じ理由。
+kube-benchはcfg/ディレクトリ(CIS Benchmarkのチェック定義)がビルド済み
+バイナリに含まれないため、`go install`ではなくソースtarballを取得して
+`go build`する必要がある点に注意)。実行前に対象のkindクラスタへ
+`kind load docker-image pownforge-pownforge:latest --name <cluster>`
+でイメージを読み込ませておくこと。
+
+**既知の制約(Apple Silicon)**: `docker/Dockerfile.runtime`は
+`archlinux:base`が公式にarm64マニフェストを提供していないため
+amd64限定でビルドされています(`compose.yaml`の`platform:
+linux/amd64`)。kindクラスタのノードがホストのネイティブアーキテクチャ
+(Apple Siliconではarm64)で動く場合、Jobのコンテナはノードのcontainerdが
+「no match for platform in manifest」でイメージを解決できず起動できません
+(`kind load docker-image`自体もBuildKitのattestationマニフェスト付き
+イメージで失敗することがあり、その場合は`docker save | docker exec -i
+<node> ctr --namespace=k8s.io images import -`への切り替えが必要 --
+`kubernetes-audit`実機検証時にも同じ回避策が必要だった)。`kubectl`/
+`build_command`/`normalize`のロジック自体はJobが正しく作成・スケジュール
+・wait・ログ取得まで進むことを実機で確認済みだが、このarm64制約により
+Jobコンテナの起動(=実際のCIS Benchmark実行)そのものは本セッションでは
+検証できていない。KubeForge本家はALARM(Arch Linux ARM)のrootfsを使う
+マルチステージDockerfileでこの問題を回避しているため、Apple Siliconの
+kindクラスタでkube-benchを使いたい場合は同様のarm64ネイティブビルドを
+`docker/Dockerfile.runtime`に追加するか、amd64のkindクラスタ(x86_64ホスト、
+またはRosetta/QEMUエミュレーション込みの明示的なamd64ノード)を使う必要が
+ある。
 
 ### container(`trivy image`)
 
@@ -1649,6 +1757,48 @@ initial-access`→`result import --phase privilege-escalation`という
 されることを確認した。存在しないrun-idを指定した場合に拒否されること、
 同名セッションの重複作成が拒否されることも確認済み。
 
+#### Kubernetesダッシュボード(攻撃チェーン + kube-benchの可視化)
+
+`attack-session report --format html`は、stageに`kubernetes-audit`
+プラグインのrunが含まれる場合、そのまま自動でKPIカード・攻撃チェーン
+カード・トポロジー図(`reporting/kubernetes_dashboard.py`)を追加描画
+します。`kube-bench`プラグインのrunも同じsessionに含まれていれば、
+CIS BenchmarkのPASS/FAIL/WARNバーとFAIL一覧も合わせて1枚に集約されます。
+どちらのプラグインのrunも無いsessionでは、この節自体が出力されず
+既存のレポート表示は変わりません(新しいCLIコマンドを追加するのではなく、
+既存の`AttackSession`report機構をKubernetes向けに拡張したもの)。
+
+```bash
+pownforge scan kubernetes-audit --target kubeforge-lab --option namespaces=vulnerable-lab
+pownforge scan kube-bench --target kubeforge-lab
+
+pownforge attack-session create k8s-hardening-check
+pownforge attack-session add-stage k8s-hardening-check <kubernetes-audit run-id>
+pownforge attack-session add-stage k8s-hardening-check <kube-bench run-id>
+pownforge attack-session report k8s-hardening-check --format html
+```
+
+トポロジー図は`kubernetes-audit`のoutputに既に含まれる`resources.pods`
+(kubectl get podsで取得済みの`(namespace, name) -> nodeName`)をそのまま
+使って組み立てるため、可視化のために追加のkubectl呼び出しは発生しません
+(KubeForge本家の`generate_dashboard.py`は専用のkubectl呼び出しを別途
+行っていましたが、本実装では監査実行時に取得済みのデータを再利用します)。
+
+**実機検証**: KubeForgeの`vulnerable-lab`に対する実際の`kubernetes-audit`
+run(前掲、findings 32件)をstageに追加し`attack-session report --format
+html`を実行、生成されたHTMLをブラウザで実際に開いて確認した。KPIカード
+(RBAC 1 / Pod Security 2 / Network 2 / Image 0 chain)、トポロジー図
+(`vulnerable-lab`namespaceから侵害ノード`kubeforge-lab-worker`への
+breakout/hostNetwork矢印2本)、RBAC/Pod Security/Network/Imageの各
+チェーンカードが文字化けや`<br>`の二重エスケープ無く正しく描画される
+ことを確認した(移植元のKubeForge AGENTS.mdに記録されていた
+「HTML生成は実際にブラウザで開いて確認しないと分からない」という
+教訓を踏襲した検証)。`kube-bench`との組み合わせ表示は、ユニットテスト
+(`tests/test_kubernetes_dashboard.py`)でCISベンチマークのサマリー行を
+模したデータを使って検証済みだが、実クラスタでの`kube-bench`自体の
+実機検証はApple Siliconのアーキテクチャ制約([§6](#6-プラグイン)
+kube-bench節参照)により未実施。
+
 #### Web UI / Emacsからの利用
 
 `pownforge attack-session create/add-stage/list/show/report`と同じ操作は、
@@ -1794,7 +1944,7 @@ findingsが正しく記録・表示されることを確認してから完了と
 | **M3** | Evidence + Markdown Report | 🟡 部分完了(保存構造・検証コマンドが当初案と異なる) |
 | **M4** | Web/API Plugin | 🟡 部分完了(`web`/`nuclei`/`sqlmap`実装済み、API専用プラグインは未着手) |
 | **M5** | Ollama Analysis | ✅ 完了 |
-| **M6** | Kubernetes Lab | 🟡 部分完了(誤設定/RBAC/イメージ脆弱性検出は実装済み、専用k8sラボ構成は未着手) |
+| **M6** | Kubernetes Lab | 🟡 部分完了(誤設定/RBAC/イメージ脆弱性検出に加え、攻撃チェーン検出(`kubernetes-audit`)・kube-bench連携・ダッシュボード可視化を実装。`pownforge lab`からのkindクラスタ起動は未着手) |
 | **M7** | Emacs Integration + SDK | 🟡 部分完了(Emacs連携は実装済み、SDKは`Plugin` ABCのみ) |
 
 **当初計画に無かった追加実装**: Web UI(FastAPIバックエンド + React SPA、
@@ -1838,8 +1988,10 @@ Actionのみ既存の`ScanRunner`経由で実行でき、`manual`/`pivot`はモ�
   `normalize()`戻り値の型スキーマ)
 - `identity`系プラグイン(認証情報を扱うため、`core/secrets.py::
   mask_command()`のマスキング対象になる想定)
-- 専用Kubernetesラボ構成(kube-bench連携、`pownforge lab`からのクラスタ
-  起動)
+- `pownforge lab`からのkindクラスタ起動(現状はKubeForgeリポジトリ側で
+  `make cluster-up`する運用。kube-bench連携自体は`kube-bench`プラグイン
+  として実装済み([§6](#6-プラグイン))だが、Apple Siliconではアーキテクチャ
+  制約により実機未検証)
 - Target modelの「除外対象」「対象ごとの同時実行数制限」(具体的な利用者が
   無いまま拡張するのは時期尚早、という判断を維持)
 - `AttackOperation`の`add-node`/`add-edge`(グラフ構築)のCLI公開、
