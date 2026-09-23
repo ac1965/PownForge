@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import urlparse
 from xml.etree import ElementTree
 
-from pownforge.core.models import Target, TargetKind
+from pownforge.core.models import PluginOption, Target, TargetKind
 from pownforge.plugins.base import Plugin, PluginError
 
 
@@ -30,6 +30,10 @@ class NetworkPlugin(Plugin):
     description = "TCP/service discovery via nmap."
     required_tool = "nmap"
     expected_kind = None  # nmap works against either a host/IP or a URL's host
+
+    options_schema = (
+        PluginOption(name="ports", description="nmap -p, e.g. 22,80,443 or 1-1024."),
+    )
 
     def __init__(self) -> None:
         self._xml_path: Path | None = None

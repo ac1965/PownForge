@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from pownforge.core.models import Target, TargetKind
+from pownforge.core.models import PluginOption, Target, TargetKind
 from pownforge.plugins.base import Plugin, PluginError
 
 
@@ -17,6 +17,10 @@ class WebPlugin(Plugin):
     description = "Content and endpoint discovery via ffuf."
     required_tool = "ffuf"
     expected_kind = TargetKind.URL
+
+    options_schema = (
+        PluginOption(name="wordlist", description="ffuf -w wordlist path.", required=True),
+    )
 
     def __init__(self) -> None:
         self._json_path: Path | None = None

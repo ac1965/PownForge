@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from pownforge.core.models import Target, TargetKind
+from pownforge.core.models import PluginOption, Target, TargetKind
 from pownforge.plugins.base import Plugin, PluginError
 
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
@@ -21,6 +21,11 @@ class ReconPlugin(Plugin):
     required_tool = "subfinder"
     expected_kind = TargetKind.HOST
     kind_hint = "address must be a bare domain name, e.g. example.com."
+
+    options_schema = (
+        PluginOption(name="sources", description="subfinder -s, comma-separated sources."),
+        PluginOption(name="exclude_sources", description="subfinder -es, comma-separated sources."),
+    )
 
     def __init__(self) -> None:
         self._jsonl_path: Path | None = None

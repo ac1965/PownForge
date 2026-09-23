@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from pownforge.core.models import Target, TargetKind
+from pownforge.core.models import PluginOption, Target, TargetKind
 from pownforge.plugins.base import Plugin, PluginError
 
 # sqlmap flags that escalate beyond SQL injection detection/extraction into
@@ -78,6 +78,12 @@ class SqlmapPlugin(Plugin):
     required_tool = "sqlmap"
     expected_kind = TargetKind.URL
     kind_hint = "The address should include an injectable parameter, e.g. http://host/product?id=1."
+
+    accepts_extra_options = True
+    options_schema = (
+        PluginOption(name="risk", description="sqlmap --risk (1-3).", default="1", choices=["1", "2", "3"]),
+        PluginOption(name="level", description="sqlmap --level (1-5).", default="1", choices=["1", "2", "3", "4", "5"]),
+    )
 
     def __init__(self) -> None:
         self._output_dir: Path | None = None

@@ -102,6 +102,7 @@ class ScanRunner:
                 f"(see docs/handbook.md #3) which already includes it."
             )
 
+        plugin.validate_options(options)
         tool_version = _tool_version(plugin)
 
         command = plugin.build_command(target, options)

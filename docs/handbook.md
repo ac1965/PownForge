@@ -303,7 +303,8 @@ pownforge analyze <run-id>
 | `pownforge engagement list` | 登録済みEngagementの一覧 |
 | `pownforge engagement add <name> --targets a,b[,c...] [--notes <text>]` | 既存Targetをグループ化したEngagementを登録。横展開の記録・ウォークスルーでのみ使う。詳細は[§12](#12-target-modelとスコープ制御) |
 | `pownforge plugin list` | 利用可能なプラグインと外部ツールの有無 |
-| `pownforge plugin info <name>` | プラグインの詳細(`expected kind`は`host\|url\|any`のうちそのプラグインが前提とするaddress形式) |
+| `pownforge plugin info <name>` | プラグインの詳細(`expected kind`は`host\|url\|any`のうちそのプラグインが前提とするaddress形式)。受け付ける`--option`(必須/既定値/候補)と提供元(`builtin`または外部パッケージ名)も表示 |
+| `pownforge scan run <plugin> --target <name> [--option k=v ...] [--live]` | 任意の登録済みプラグイン(外部プラグインを含む)を名前で実行。個別の`scan <plugin>`コマンドと同じ`ScanRunner`経路 |
 | `pownforge scan recon --target <name> [--option sources=... --option exclude_sources=...] [--live]` | reconプラグイン(subfinder、受動的サブドメイン列挙)を実行。対象へトラフィックは送らない |
 | `pownforge scan network --target <name> [--option k=v ...] [--live]` | networkプラグイン(nmap)を実行 |
 | `pownforge scan web --target <name> --option wordlist=<path> [--live]` | webプラグイン(ffuf)を実行 |
@@ -834,6 +835,76 @@ Metasploitable2のSamba相手に実行)を実行。この検証で**実バグを
   失敗してもfindingが誤って生成されないことを確認した
 
 これで許可リスト15本全てについて、実際のnmapでの実行結果を確認済み。
+
+### 外部プラグイン(Plugin SDK)
+
+リポジトリ外のPythonパッケージとしてプラグインを配布できます。公開APIは
+`pownforge.sdk`(`Plugin`、`PluginError`、`PluginOption`、`PluginMetadata`、
+`FindingDict`、`Target`、`TargetKind`、`Severity`、`ENTRY_POINT_GROUP`)
+で、それ以外の`pownforge.*`は予告なく変わりうる内部実装です。
+
+**登録方法**: パッケージの`pyproject.toml`でentry pointグループ
+`pownforge.plugins`に`Plugin`サブクラスを公開します。`default_registry()`
+が組み込みプラグインの後に読み込みます。
+
+```toml
+[project.entry-points."pownforge.plugins"]
+http-title = "pownforge_plugin_example:HttpTitlePlugin"
+```
+
+```bash
+pip install -e examples/pownforge-plugin-example
+pownforge plugin list            # 外部プラグインは末尾に[配布パッケージ名]付きで表示
+pownforge plugin info http-title
+pownforge scan run http-title --target <登録済みのurl対象>
+```
+
+完全な例は`examples/pownforge-plugin-example/`(テスト付き)。
+
+**安全上の前提**:
+
+- 外部プラグインも組み込みと同じく`build_command()`でargvを返すだけで、
+  実行は`ScanRunner`が`ScopePolicy`の認可後に行う。`allowed_plugins`、
+  除外対象、同時実行数制限、拒否時の`AuditStore`記録はすべてそのまま適用
+  される
+- 組み込みプラグインや先に読み込まれたプラグインと**同じ名前の外部
+  プラグインは登録しない**(組み込みの置き換えはできない)。読み込みに
+  失敗したもの・`Plugin`サブクラスでないものも登録せず、`plugin list`
+  が警告として表示する(CLI全体は止めない)
+- ただしプラグインはPythonコードなので、パッケージをインストールする
+  こと自体がそのコードを信頼することを意味する。`subprocess`を直接呼ばず
+  `build_command()`でargvを返すという規約(AGENTS.md)は外部プラグインでも
+  守る前提で、PownForge側では強制できない。信頼できる配布元のものだけを
+  入れること
+
+**オプションスキーマ**: `options_schema`に`PluginOption`(`name`、
+`description`、`required`、`default`、`choices`)を宣言すると、
+`ScanRunner`が`build_command()`の前に`validate_options()`で検証する
+(未知のキー、必須キーの欠落、`choices`外の値(大文字小文字は無視)を
+実行前に拒否)。組み込み12プラグインはすべて宣言済み。`sqlmap`のように
+未宣言のキーをツールへ素通しするプラグインは`accepts_extra_options = True`
+で宣言済みキーだけを検証する(sqlmapの危険オプション拒否リストは別途
+`build_command()`で従来どおり適用)。`options_schema = None`(既定)の
+プラグインは検証しない。同梱Playbookの全ステップがスキーマ検証を通る
+ことはテストで確認している。
+
+**`normalize()`の戻り値**: 自由形式の`dict`(JSONシリアライズ可能)で、
+慣例として`target`/`tool`/`raw_stdout`/`raw_stderr`を含める。
+`_findings`キーは`FindingDict`(`title`必須、`severity`は
+`info|low|medium|high|critical`、`detail`)のリストで、`ScanRunner`が
+`Finding`(`source: "tool"`、`needs-review`)に変換する。
+
+**テスト**: `pownforge.sdk.testing`の`assert_plugin_contract(plugin)`
+(名前・バージョン・`version_command`・オプションスキーマの整合性等)と
+`assert_findings_shape(result)`をプラグイン側のテストから呼べる。
+
+**実機検証**: 2026-09-23、サンプルを`.venv`に`pip install -e`し、
+`plugin list`/`plugin info`に`[pownforge-plugin-example]`付きで現れること、
+`127.0.0.1`上のローカルHTTPサーバーに`scan run http-title`を実行して
+`<title>`が証跡に記録されること、未知のオプションが実行前に拒否される
+こと、`allowed_plugins`外のプラグインが拒否され監査ログに記録される
+ことを確認した。Web UIのNew Scan画面で選択したプラグインのオプション
+一覧が表示されることもブラウザで確認した。
 
 ## 7. ラボネットワーク
 
@@ -1393,7 +1464,7 @@ medium/青=low/灰=info)付きで、検証状態(確認済み/要確認/誤検�
 | `DELETE /api/targets/{name}` | 対象を削除 |
 | `POST /api/targets/{name}/exclude` | 対象を一時的にスキャン対象外にする(body: `{"reason": <text>}`、詳細は[§12](#12-target-modelとスコープ制御)) |
 | `POST /api/targets/{name}/include` | 対象の除外を解除 |
-| `GET /api/plugins` | プラグイン一覧と外部ツールの有無 |
+| `GET /api/plugins` | プラグイン一覧(`PluginMetadata`: 外部ツールの有無`tool_available`、`options`スキーマ、`source`等) |
 | `GET /api/lab` | 稼働中/停止中のラボホスト一覧 |
 | `POST /api/lab` | ラボホストを起動(既定でスコープにも自動登録) |
 | `DELETE /api/lab/{name}?purge=true` | ラボホストを削除 |
@@ -2258,7 +2329,7 @@ findingsが正しく記録・表示されることを確認してから完了と
 | **M4** | Web/API Plugin | ✅ 完了(`web`/`nuclei`/`sqlmap`/`api`(curl)実装済み) |
 | **M5** | Ollama Analysis | ✅ 完了 |
 | **M6** | Kubernetes Lab | 🟡 部分完了(誤設定/RBAC/イメージ脆弱性検出に加え、攻撃チェーン検出(`kubernetes-audit`)・kube-bench連携・ダッシュボード可視化・`pownforge lab kind`によるkindクラスタ起動/登録を実装。Web UIからのkind操作は未対応) |
-| **M7** | Emacs Integration + SDK | 🟡 部分完了(Emacs連携は実装済み、SDKは`Plugin` ABCのみ) |
+| **M7** | Emacs Integration + SDK | ✅ 完了(Emacs連携、`pownforge.sdk`・entry pointによる外部プラグイン読み込み・オプションスキーマ検証を実装) |
 
 **当初計画に無かった追加実装**: Web UI(FastAPIバックエンド + React SPA、
 ライブ進捗WebSocket)、`pownforge lab`による攻撃対象コンテナの動的管理、
@@ -2309,8 +2380,6 @@ Target modelの除外対象(`excluded`)と対象ごとの同時実行数制限
 
 - projectdiscovery `httpx`による複数URLの一括プローブ(`api`プラグインは
   curlで1URL・1リクエストのみ)、sqlmap以外のPhase 5候補
-- Plugin SDKの正式なパッケージ化(`PluginMetadata`の完全な形、`options`/
-  `normalize()`戻り値の型スキーマ)
 - 認証情報を扱う`identity`系プラグイン(`identity`プラグインは公開
   discovery文書の取得のみで、認証情報は扱わない)
 - Web UI/Web APIからのkindクラスタ操作(`pownforge lab kind`はCLIのみ、

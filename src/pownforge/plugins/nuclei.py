@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from pownforge.core.models import Target, TargetKind
+from pownforge.core.models import PluginOption, Target, TargetKind
 from pownforge.plugins.base import Plugin, PluginError
 
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
@@ -20,6 +20,12 @@ class NucleiPlugin(Plugin):
     description = "Template-based vulnerability detection via nuclei."
     required_tool = "nuclei"
     expected_kind = TargetKind.URL
+
+    options_schema = (
+        PluginOption(name="tags", description="nuclei -tags, comma-separated."),
+        PluginOption(name="severity", description="nuclei -severity, comma-separated."),
+        PluginOption(name="templates", description="nuclei -t, template path."),
+    )
 
     def __init__(self) -> None:
         self._jsonl_path: Path | None = None

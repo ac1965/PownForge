@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from pownforge.core.models import Target, TargetKind
+from pownforge.core.models import PluginOption, Target, TargetKind
 from pownforge.plugins.base import Plugin, PluginError
 
 JOB_NAME = "kube-bench"
@@ -41,6 +41,11 @@ class KubeBenchPlugin(Plugin):
     required_tool = "kubectl"
     expected_kind = TargetKind.HOST
     kind_hint = "address should be a kubeconfig context name, e.g. kind-kubeforge-lab."
+
+    options_schema = (
+        PluginOption(name="image", description="Image the in-cluster kube-bench Job runs.", default=DEFAULT_IMAGE),
+        PluginOption(name="timeout", description="kubectl wait --timeout for the Job.", default="120s"),
+    )
 
     def __init__(self) -> None:
         self._manifest_path: Path | None = None

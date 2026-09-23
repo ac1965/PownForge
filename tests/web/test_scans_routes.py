@@ -56,7 +56,10 @@ def test_list_plugins_reflects_overridden_registry(tmp_path: Path) -> None:
     with TestClient(_app(tmp_path)) as client:
         resp = client.get("/api/plugins")
     assert resp.status_code == 200
-    assert [p["name"] for p in resp.json()] == ["echo"]
+    body = resp.json()
+    assert [p["name"] for p in body] == ["echo"]
+    assert body[0]["source"] == "builtin"
+    assert "tool_available" in body[0] and "options" in body[0]
 
 
 def test_scan_lifecycle_streams_and_creates_run(tmp_path: Path) -> None:

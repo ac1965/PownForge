@@ -18,7 +18,7 @@ from pownforge.plugins.recon import ReconPlugin
 from pownforge.plugins.sqlmap import SqlmapPlugin
 from pownforge.plugins.vulncheck import VulncheckPlugin
 from pownforge.plugins.web import WebPlugin
-from plugin_contract import assert_plugin_contract
+from pownforge.sdk.testing import assert_plugin_contract
 
 NMAP_XML = """<?xml version="1.0"?>
 <nmaprun>

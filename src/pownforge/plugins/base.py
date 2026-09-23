@@ -1,13 +1,23 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, ClassVar, TypedDict
 
-from pownforge.core.models import Target, TargetKind
+from pownforge.core.models import PluginMetadata, PluginOption, Target, TargetKind
 
 
 class PluginError(RuntimeError):
     """Raised when a plugin cannot run or its required tool is missing."""
+
+
+class FindingDict(TypedDict, total=False):
+    """One entry of normalize()'s optional "_findings" list. `title` is
+    required in practice; severity falls back to "info" when missing or
+    invalid (core/finding_utils.py)."""
+
+    title: str
+    severity: str
+    detail: str
 
 
 class Plugin(ABC):
@@ -30,6 +40,20 @@ class Plugin(ABC):
     """Optional extra guidance appended to require_kind()'s error message,
     for a plugin whose address format needs more than "host" or "url" to
     explain (e.g. SqlmapPlugin's "include an injectable parameter")."""
+
+    options_schema: ClassVar[tuple[PluginOption, ...] | None] = None
+    """The `--option` keys this plugin reads. When declared, ScanRunner calls
+    validate_options() before build_command(), so an unknown key, a missing
+    required key, or a value outside `choices` fails before anything runs.
+    None = undeclared (not validated), e.g. an external plugin that predates
+    the schema."""
+
+    accepts_extra_options: ClassVar[bool] = False
+    """True for a plugin that passes undeclared keys through to its tool
+    (sqlmap), so validate_options() only checks the declared ones."""
+
+    source: str = "builtin"
+    """Set by the registry to the distribution name of an external plugin."""
 
     @abstractmethod
     def check(self) -> bool:
@@ -79,3 +103,42 @@ class Plugin(ABC):
                 f"{self.name} plugin requires a {self.expected_kind.value} target "
                 f"(got {target.kind.value}); register with --kind {self.expected_kind.value}.{hint}"
             )
+
+    def validate_options(self, options: dict[str, Any]) -> None:
+        """Raise PluginError if OPTIONS don't match options_schema. A no-op
+        when the plugin declares no schema."""
+        if self.options_schema is None:
+            return
+        declared = {opt.name: opt for opt in self.options_schema}
+        if not self.accepts_extra_options:
+            unknown = sorted(set(options) - set(declared))
+            if unknown:
+                known = ", ".join(sorted(declared)) or "(none)"
+                raise PluginError(
+                    f"{self.name} plugin: unknown option(s) {', '.join(unknown)}; accepted: {known}"
+                )
+        for opt in self.options_schema:
+            value = options.get(opt.name)
+            if value is None or value == "":
+                if opt.required:
+                    raise PluginError(f"{self.name} plugin requires --option {opt.name}=<value>")
+                continue
+            if opt.choices is not None and str(value).lower() not in {c.lower() for c in opt.choices}:
+                raise PluginError(
+                    f"{self.name} plugin: option {opt.name}={value} is not one of "
+                    f"{', '.join(opt.choices)}"
+                )
+
+    def metadata(self) -> PluginMetadata:
+        return PluginMetadata(
+            name=self.name,
+            version=self.version,
+            description=self.description,
+            required_tool=self.required_tool,
+            expected_kind=self.expected_kind,
+            kind_hint=self.kind_hint,
+            options=list(self.options_schema) if self.options_schema is not None else None,
+            accepts_extra_options=self.accepts_extra_options,
+            tool_available=self.check(),
+            source=self.source,
+        )

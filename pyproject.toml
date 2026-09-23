@@ -37,3 +37,5 @@ packages = ["src/pownforge"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+# examples/ are separate packages with their own tests (need `pip install -e` first).
+testpaths = ["tests"]

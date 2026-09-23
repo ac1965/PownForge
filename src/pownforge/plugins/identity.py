@@ -5,7 +5,7 @@ import shutil
 from typing import Any
 from urllib.parse import urlparse
 
-from pownforge.core.models import Target, TargetKind
+from pownforge.core.models import PluginOption, Target, TargetKind
 from pownforge.plugins.api import parse_http_response, require_same_origin
 from pownforge.plugins.base import Plugin, PluginError
 
@@ -42,6 +42,16 @@ class IdentityPlugin(Plugin):
     required_tool = "curl"
     expected_kind = TargetKind.URL
     kind_hint = "Use the identity provider's base URL (issuer), e.g. http://lab-idp:8080/realms/lab."
+
+    options_schema = (
+        PluginOption(
+            name="document",
+            description="Which public discovery document to fetch.",
+            default="openid-configuration",
+            choices=sorted(_DOCUMENTS),
+        ),
+        PluginOption(name="timeout", description="curl --max-time, seconds.", default=str(_DEFAULT_TIMEOUT_SECONDS)),
+    )
 
     def __init__(self) -> None:
         self._url: str | None = None

@@ -4,7 +4,7 @@ import shutil
 from typing import Any
 from urllib.parse import urlparse
 
-from pownforge.core.models import Target, TargetKind
+from pownforge.core.models import PluginOption, Target, TargetKind
 from pownforge.plugins.base import Plugin, PluginError
 
 # State-changing methods (POST/PUT/PATCH/DELETE) are deliberately excluded:
@@ -62,6 +62,12 @@ class ApiPlugin(Plugin):
     description = "Single HTTP request to an API endpoint via curl; passive header checks."
     required_tool = "curl"
     expected_kind = TargetKind.URL
+
+    options_schema = (
+        PluginOption(name="path", description="Absolute path appended to the target URL.", default="/"),
+        PluginOption(name="method", description="HTTP method.", default="GET", choices=sorted(_ALLOWED_METHODS)),
+        PluginOption(name="timeout", description="curl --max-time, seconds.", default=str(_DEFAULT_TIMEOUT_SECONDS)),
+    )
 
     def __init__(self) -> None:
         self._request: dict[str, str] | None = None

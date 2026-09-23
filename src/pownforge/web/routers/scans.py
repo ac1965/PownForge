@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
+from pownforge.core.models import PluginMetadata
 from pownforge.core.registry import PluginRegistry
 from pownforge.core.runner import ScanRunner
 from pownforge.web.deps import get_job_manager, get_registry, get_runner
@@ -29,19 +30,9 @@ class ScanStatus(BaseModel):
     error: str | None = None
 
 
-@router.get("/plugins")
-def list_plugins(registry: PluginRegistry = Depends(get_registry)) -> list[dict[str, object]]:
-    return [
-        {
-            "name": plugin.name,
-            "version": plugin.version,
-            "description": plugin.description,
-            "required_tool": plugin.required_tool,
-            "available": plugin.check(),
-            "expected_kind": plugin.expected_kind.value if plugin.expected_kind else None,
-        }
-        for plugin in registry.list()
-    ]
+@router.get("/plugins", response_model=list[PluginMetadata])
+def list_plugins(registry: PluginRegistry = Depends(get_registry)) -> list[PluginMetadata]:
+    return [plugin.metadata() for plugin in registry.list()]
 
 
 @router.post("/scans", response_model=ScanCreated, status_code=202)

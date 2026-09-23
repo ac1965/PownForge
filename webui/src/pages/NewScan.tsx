@@ -35,6 +35,8 @@ export default function NewScan() {
       ? plugins.filter((p) => selectedTarget.allowed_plugins.includes(p.name))
       : plugins;
 
+  const selectedPlugin = plugins.find((p) => p.name === pluginName);
+
   const updateOption = (index: number, field: "key" | "value", value: string) => {
     setOptions((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
   };
@@ -91,10 +93,10 @@ export default function NewScan() {
               const kindMismatch =
                 !!selectedTarget && !!p.expected_kind && p.expected_kind !== selectedTarget.kind;
               return (
-                <option key={p.name} value={p.name} disabled={!p.available || kindMismatch}>
+                <option key={p.name} value={p.name} disabled={!p.tool_available || kindMismatch}>
                   {p.name}
-                  {!p.available ? `（${p.required_tool} が見つかりません）` : ""}
-                  {p.available && kindMismatch ? `（--kind ${p.expected_kind} の対象が必要）` : ""}
+                  {!p.tool_available ? `（${p.required_tool} が見つかりません）` : ""}
+                  {p.tool_available && kindMismatch ? `（--kind ${p.expected_kind} の対象が必要）` : ""}
                 </option>
               );
             })}
@@ -102,7 +104,20 @@ export default function NewScan() {
         </label>
 
         <div>
-          <p>options（webプラグインは wordlist=&lt;path&gt; が必須）</p>
+          <p>options</p>
+          {selectedPlugin?.options && selectedPlugin.options.length > 0 && (
+            <ul className="muted">
+              {selectedPlugin.options.map((o) => (
+                <li key={o.name}>
+                  <code>{o.name}</code>
+                  {o.required ? "（必須）" : ""}: {o.description}
+                  {o.default !== null ? ` 既定: ${o.default}` : ""}
+                  {o.choices ? ` 候補: ${o.choices.join(" | ")}` : ""}
+                </li>
+              ))}
+            </ul>
+          )}
+          {selectedPlugin?.options?.length === 0 && <p className="muted">このプラグインにoptionはありません。</p>}
           {options.map((row, i) => (
             <div key={i} className="option-row">
               <input

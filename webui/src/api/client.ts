@@ -74,13 +74,25 @@ export interface RunRecord {
   kill_chain_phase: KillChainPhase | null;
 }
 
+export interface PluginOption {
+  name: string;
+  description: string;
+  required: boolean;
+  default: string | null;
+  choices: string[] | null;
+}
+
 export interface PluginInfo {
   name: string;
   version: string;
   description: string;
   required_tool: string;
-  available: boolean;
+  tool_available: boolean;
   expected_kind: TargetKind | null;
+  kind_hint: string | null;
+  options: PluginOption[] | null;
+  accepts_extra_options: boolean;
+  source: string;
 }
 
 export interface PolicyViolation {

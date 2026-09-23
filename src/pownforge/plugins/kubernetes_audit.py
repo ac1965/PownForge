@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from pownforge.core.models import Target, TargetKind
+from pownforge.core.models import PluginOption, Target, TargetKind
 from pownforge.plugins.base import Plugin, PluginError
 
 # CNI/CSI などクラスタ運用上 privileged/hostPath/hostNetwork が正当に必要な
@@ -581,6 +581,10 @@ class KubernetesAuditPlugin(Plugin):
     required_tool = "kubectl"
     expected_kind = TargetKind.HOST
     kind_hint = "address should be a kubeconfig context name, e.g. kind-kubeforge-lab."
+
+    options_schema = (
+        PluginOption(name="namespaces", description="trivy --include-namespaces, comma-separated."),
+    )
 
     def __init__(self) -> None:
         self._resources_path: Path | None = None

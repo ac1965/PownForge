@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
 
-from pownforge.core.models import Target
+from pownforge.core.models import PluginOption, Target
 from pownforge.plugins.base import Plugin, PluginError
 
 # Only nmap NSE scripts nmap itself categorizes as both "vuln" and "safe"
@@ -64,6 +64,11 @@ class VulncheckPlugin(Plugin):
     )
     required_tool = "nmap"
     expected_kind = None  # like NetworkPlugin, works against a host or a url's host
+
+    options_schema = (
+        PluginOption(name="script", description="Allowlisted nmap NSE 'vuln safe' script.", required=True, choices=sorted(_ALLOWED_SCRIPTS)),
+        PluginOption(name="port", description="nmap -p."),
+    )
 
     def __init__(self) -> None:
         self._xml_path: Path | None = None
