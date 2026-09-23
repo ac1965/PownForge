@@ -635,10 +635,15 @@ boolean-based blind/error-based/time-based blind/UNION queryの4手法が
 検出され、`severity: critical`のfindingとして記録されることを確認。
 `--option os-shell=true`指定時にsqlmapを実行せずエラーになることも確認済み。
 **再検証**(別セッション、最小限のSQLite製Flaskアプリ)でも
-boolean-based blind/error-based/UNION queryが検出され(この検証環境では
-DBMSがSQLiteのためtime-based blindは対象外)、DBMS判定(`SQLite`)を含め
-`output.dbms`/`output.injection_points`が正しく記録されることを確認、
-コード上の問題は見つからなかった。
+boolean-based blind/error-based/UNION queryが検出され、DBMS判定
+(`SQLite`)を含め`output.dbms`/`output.injection_points`が正しく
+記録されることを確認、コード上の問題は見つからなかった。この時点では
+「DBMSがSQLiteのためtime-based blindは対象外」と判断していたが誤りで、
+**再々検証**([pownforge-vulnerable-lab](https://github.com/ac1965/pownforge-vulnerable-lab)
+の`flask-sqli`、§7参照)でtime-based blindも`RANDOMBLOB`を使った
+heavy query技法で検出されることを確認した(`MySQL`の`SLEEP()`の
+ような専用関数が無くても、負荷の大きいクエリで応答を遅延させる手法は
+SQLiteでも機能する)。4手法すべてが検出されることを前提にしてよい。
 
 ### vulncheck(`nmap` NSEスクリプト)
 
@@ -734,8 +739,8 @@ Metasploitable2のSamba相手に実行)を実行。この検証で**実バグを
   脆弱イメージ」と同じイメージ)
 - `flask-sqli`: sqlmap検証用に新規追加した、生の文字列結合でSQLを
   組み立てる最小Flask+SQLiteアプリ(boolean-based blind/error-based/
-  UNION queryの3手法が検出できる。DBMSがSQLiteのためtime-based blind
-  は対象外)
+  time-based blind/UNION queryの4手法すべてが検出できる。実機検証で
+  確認済み、§6「sqlmap」の実機検証記録参照)
 - `kind/`: `kubernetes`/`kubernetes-audit`/`kube-bench`プラグインの
   基本動作確認用に絞った最小kindクラスタ + 脆弱ワークロード
   (privileged pod、過剰権限RBAC等)
@@ -752,6 +757,18 @@ KubeForge側にあり、下記「KubeForge(kindクラスタ)への接続」の�
   `pownforge-vulnerable-lab`
 - Calico込みのNetworkPolicy検証やkube-bench比較など、より本格的な
   K8sセキュリティ診断ラボが必要 → KubeForge
+
+**実機検証記録(2026-09-23)**: `pownforge-vulnerable-lab`の
+`./scripts/up.sh`でmetasploitable2/juice-shop/flask-sqliを起動し、
+既存のビルド済み`pownforge`イメージ・`pownforge-lab`/`kind`ネットワーク
+から実際にnetwork/vulncheck/web/nuclei/sqlmapの5プラグインを実行して
+再現できることを確認した(結果の詳細は下記「実機検証記録
+(Metasploitable2)」「実機検証記録(OWASP Juice Shop)」、および§6
+「sqlmap」の実機検証記録を参照)。`sqlmap`のみ、PownForgeランタイム
+イメージに含まれずホスト側venvからの実行が必要な既存の制約により、
+`pownforge-lab`(`--internal`)上のflask-sqliへホストから到達するための
+一時的なポート公開コンテナが必要だった(`pownforge-vulnerable-lab`の
+README.md「PownForgeからのscan例」参照)。
 
 ### 安全設計
 
