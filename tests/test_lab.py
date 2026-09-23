@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from pownforge.core.lab import LabError, LabManager
+from pownforge.core.lab import KindClusterManager, LabError, LabManager
 
 
 @dataclass
@@ -110,3 +110,77 @@ def test_list_parses_docker_ps_json_lines() -> None:
     hosts = manager.list()
     assert [h.name for h in hosts] == ["target1", "target2"]
     assert hosts[0].image == "vulnerable/image"
+
+
+class FakeKind:
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+        self.clusters: list[str] = []
+        self.fail_on: set[str] = set()
+
+    def __call__(self, command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        self.calls.append(command)
+        if command[:3] == ["kind", "create", "cluster"]:
+            if "create" in self.fail_on:
+                return FakeResult(returncode=1, stderr="node(s) already exist")  # type: ignore[return-value]
+            self.clusters.append(command[command.index("--name") + 1])
+            return FakeResult()  # type: ignore[return-value]
+        if command[:3] == ["kind", "get", "kubeconfig"]:
+            name = command[command.index("--name") + 1]
+            return FakeResult(stdout=f"server: https://{name}-control-plane:6443\n")  # type: ignore[return-value]
+        if command[:3] == ["kind", "delete", "cluster"]:
+            if "delete" in self.fail_on:
+                return FakeResult(returncode=1, stderr="boom")  # type: ignore[return-value]
+            return FakeResult()  # type: ignore[return-value]
+        if command[:3] == ["kind", "get", "clusters"]:
+            return FakeResult(stdout="".join(f"{c}\n" for c in self.clusters))  # type: ignore[return-value]
+        raise AssertionError(f"unexpected kind command: {command}")
+
+
+def test_kind_create_exports_internal_kubeconfig(tmp_path) -> None:
+    kind = FakeKind()
+    path = tmp_path / "config" / "lab1.kubeconfig"
+    cluster = KindClusterManager(runner=kind).create("lab1", path)
+    assert cluster.context == "kind-lab1"
+    assert ["kind", "get", "kubeconfig", "--internal", "--name", "lab1"] in kind.calls
+    assert "lab1-control-plane:6443" in path.read_text()
+    assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_kind_create_passes_cluster_config(tmp_path) -> None:
+    kind = FakeKind()
+    KindClusterManager(runner=kind).create("lab1", tmp_path / "k", tmp_path / "kind.yaml")
+    assert kind.calls[0] == [
+        "kind", "create", "cluster", "--name", "lab1", "--config", str(tmp_path / "kind.yaml")
+    ]
+
+
+def test_kind_create_failure_writes_no_kubeconfig(tmp_path) -> None:
+    kind = FakeKind()
+    kind.fail_on.add("create")
+    path = tmp_path / "lab1.kubeconfig"
+    with pytest.raises(LabError, match="already exist"):
+        KindClusterManager(runner=kind).create("lab1", path)
+    assert not path.exists()
+
+
+def test_kind_delete_raises_on_failure() -> None:
+    kind = FakeKind()
+    kind.fail_on.add("delete")
+    with pytest.raises(LabError):
+        KindClusterManager(runner=kind).delete("lab1")
+
+
+def test_kind_list_parses_cluster_names() -> None:
+    kind = FakeKind()
+    kind.clusters = ["a", "b"]
+    clusters = KindClusterManager(runner=kind).list()
+    assert [(c.name, c.context) for c in clusters] == [("a", "kind-a"), ("b", "kind-b")]
+
+
+def test_kind_missing_binary_raises_clear_error(tmp_path) -> None:
+    def missing(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        raise FileNotFoundError(command[0])
+
+    with pytest.raises(LabError, match="kind"):
+        KindClusterManager(runner=missing).list()

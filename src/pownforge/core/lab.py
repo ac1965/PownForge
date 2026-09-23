@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable
 
 from pownforge.core.models import TargetKind
@@ -116,3 +117,78 @@ class LabManager:
                 )
             )
         return hosts
+
+
+def kind_context_name(cluster: str) -> str:
+    """kubeconfig context name kind generates for a cluster; the `kubernetes`
+    family of plugins use it as the target address."""
+    return f"kind-{cluster}"
+
+
+@dataclass
+class KindCluster:
+    name: str
+    context: str
+    kubeconfig: Path | None = None
+
+
+class KindClusterManager:
+    """Creates/deletes kind clusters and exports their in-docker-network kubeconfig.
+
+    Like LabManager, this is the only place `kind` is shelled out to. The
+    kubeconfig written by create() is `kind get kubeconfig --internal`,
+    whose server is `<cluster>-control-plane:6443` on kind's docker network,
+    not the host-facing 127.0.0.1 address -- the pownforge container can't
+    reach the host from pownforge-lab (see docs/handbook.md §7).
+    """
+
+    def __init__(self, runner: Runner = subprocess.run) -> None:
+        self._runner = runner
+
+    def _run(self, command: list[str]) -> subprocess.CompletedProcess[str]:
+        try:
+            return self._runner(command, capture_output=True, text=True, check=False)
+        except FileNotFoundError as exc:
+            raise LabError(
+                f"'{command[0]}' is required for `pownforge lab kind` but was not found on PATH. "
+                "Install kind (https://kind.sigs.k8s.io/) and make sure it's on PATH."
+            ) from exc
+
+    def create(
+        self, name: str, kubeconfig_path: Path, kind_config: Path | None = None
+    ) -> KindCluster:
+        command = ["kind", "create", "cluster", "--name", name]
+        if kind_config is not None:
+            command += ["--config", str(kind_config)]
+        result = self._run(command)
+        if result.returncode != 0:
+            raise LabError(f"failed to create kind cluster '{name}': {result.stderr.strip()}")
+
+        self.export_kubeconfig(name, kubeconfig_path)
+        return KindCluster(name=name, context=kind_context_name(name), kubeconfig=kubeconfig_path)
+
+    def export_kubeconfig(self, name: str, kubeconfig_path: Path) -> None:
+        result = self._run(["kind", "get", "kubeconfig", "--internal", "--name", name])
+        if result.returncode != 0:
+            raise LabError(
+                f"failed to export kubeconfig for kind cluster '{name}': {result.stderr.strip()}"
+            )
+        kubeconfig_path.parent.mkdir(parents=True, exist_ok=True)
+        kubeconfig_path.write_text(result.stdout)
+        # Contains the cluster's admin client key.
+        kubeconfig_path.chmod(0o600)
+
+    def delete(self, name: str) -> None:
+        result = self._run(["kind", "delete", "cluster", "--name", name])
+        if result.returncode != 0:
+            raise LabError(f"failed to delete kind cluster '{name}': {result.stderr.strip()}")
+
+    def list(self) -> list[KindCluster]:
+        result = self._run(["kind", "get", "clusters"])
+        if result.returncode != 0:
+            raise LabError(f"failed to list kind clusters: {result.stderr.strip()}")
+        return [
+            KindCluster(name=line.strip(), context=kind_context_name(line.strip()))
+            for line in result.stdout.splitlines()
+            if line.strip()
+        ]

@@ -325,6 +325,9 @@ pownforge analyze <run-id>
 | `pownforge config show` / `pownforge config set [--model <name>] [--language ja\|en]` | `analyze`/`walkthrough generate`が使う既定モデル・出力言語を表示/更新(詳細は[§11](#11-aiによる分析ウォークスルー提案)) |
 | `pownforge lab add <name> --image <image> [--kind host\|url] [--port <n>] [--scheme http\|https] [--env k=v ...] [--allowed-plugins a,b] [--no-register] [--network <name>]` | 隔離ネットワーク上に攻撃対象ホストを起動 |
 | `pownforge lab list [--network <name>]` | 稼働中/停止中のラボホスト一覧 |
+| `pownforge lab kind create <name> [--kind-config <yaml>] [--kubeconfig-dir config] [--allowed-plugins ...] [--no-register]` | kindクラスタを作成し、kindのDockerネットワーク内向けkubeconfig(`kind get kubeconfig --internal`)を`<kubeconfig-dir>/<name>.kubeconfig`(0600)に書き出し、`address: kind-<name>`・`type: kubernetes`のTargetとして`ScopePolicy`経由で登録(詳細は[§7](#kubeforgekind-クラスタへの接続)) |
+| `pownforge lab kind delete <name> [--purge]` | kindクラスタとkubeconfigを削除。`--purge`で登録済みTargetも削除 |
+| `pownforge lab kind list` | ホスト上のkindクラスタとcontext名の一覧 |
 | `pownforge lab remove <name> [--purge] [--network <name>]` | ラボホストを停止・削除 |
 | `pownforge playbook list [--playbooks-dir <dir>]` | 利用可能なPlaybookの一覧 |
 | `pownforge playbook show <name> [--playbooks-dir <dir>]` | Playbookのステップ内容を表示 |
@@ -1008,6 +1011,26 @@ docker compose run --rm \
   -e KUBECONFIG=/app/config/kubeforge-lab.kubeconfig \
   pownforge scan kubernetes --target kubeforge-lab \
   --option namespaces=vulnerable-lab --option severity=CRITICAL,HIGH,MEDIUM
+```
+
+**`pownforge lab kind`による自動化**: 上記の`kind create cluster`→
+`kind get kubeconfig --internal`→`target add --address kind-<name>`は
+`pownforge lab kind create <name>`1コマンドにまとめられる(`kind`の実行は
+`core/lab.py::KindClusterManager`に閉じ込め、登録は`lab add`と同じく
+`ScopePolicy.add_target()`経由)。既定の`allowed_plugins`は
+`kubernetes,kubernetes-audit,kube-bench`。KubeForge等、ノード構成や
+デプロイ済みワークロードを持つ既存クラスタは従来どおりそのリポジトリ側で
+作成し、`pownforge lab kind create`は素のクラスタ(`--kind-config`で
+ノード構成指定可)を用意する用途を想定している。kindのネットワーク(`kind`)
+は`--internal`ではない点は上記と同じ。2026-09-23に実機で
+`lab kind create`→内部kubeconfigで`kind`ネットワーク上のコンテナから
+`kubectl get nodes`到達→`lab kind delete --purge`までを確認済み。
+
+```bash
+pownforge lab kind create pf-k8s
+docker compose run --rm -e KUBECONFIG=/app/config/pf-k8s.kubeconfig \
+  pownforge scan kubernetes --target pf-k8s
+pownforge lab kind delete pf-k8s --purge
 ```
 
 **実機検証記録**: `make cluster-up`でKubeForgeのkindクラスタ
@@ -2147,7 +2170,7 @@ findingsが正しく記録・表示されることを確認してから完了と
 | **M3** | Evidence + Markdown Report | 🟡 部分完了(保存構造・検証コマンドが当初案と異なる。Markdown/HTMLに加えPDF出力(`--format pdf`、Noto Sans JP埋め込み)も実装済み) |
 | **M4** | Web/API Plugin | 🟡 部分完了(`web`/`nuclei`/`sqlmap`実装済み、API専用プラグインは未着手) |
 | **M5** | Ollama Analysis | ✅ 完了 |
-| **M6** | Kubernetes Lab | 🟡 部分完了(誤設定/RBAC/イメージ脆弱性検出に加え、攻撃チェーン検出(`kubernetes-audit`)・kube-bench連携・ダッシュボード可視化を実装。`pownforge lab`からのkindクラスタ起動は未着手) |
+| **M6** | Kubernetes Lab | 🟡 部分完了(誤設定/RBAC/イメージ脆弱性検出に加え、攻撃チェーン検出(`kubernetes-audit`)・kube-bench連携・ダッシュボード可視化・`pownforge lab kind`によるkindクラスタ起動/登録を実装。Web UIからのkind操作は未対応) |
 | **M7** | Emacs Integration + SDK | 🟡 部分完了(Emacs連携は実装済み、SDKは`Plugin` ABCのみ) |
 
 **当初計画に無かった追加実装**: Web UI(FastAPIバックエンド + React SPA、
@@ -2202,12 +2225,8 @@ Target modelの除外対象(`excluded`)と対象ごとの同時実行数制限
   `normalize()`戻り値の型スキーマ)
 - `identity`系プラグイン(認証情報を扱うため、`core/secrets.py::
   mask_command()`のマスキング対象になる想定)
-- `pownforge lab`からのkindクラスタ起動(現状はKubeForgeまたは
-  [pownforge-vulnerable-lab](https://github.com/ac1965/pownforge-vulnerable-lab)
-  リポジトリ側で`kind create cluster`する運用。kube-bench連携自体は
-  `kube-bench`プラグインとして実装済み([§6](#6-プラグイン))で、
-  2026-09-23にランタイムイメージをarm64ネイティブ化してApple Silicon
-  でも実機検証済み)
+- Web UI/Web APIからのkindクラスタ操作(`pownforge lab kind`はCLIのみ、
+  [§7](#kubeforgekind-クラスタへの接続)参照)
 - Web UI/Emacsからの`AttackOperation`操作(CLIのみ対応。`add-node`/
   `add-edge`のCLI公開とmanual/pivot実行プロバイダは実装済み、
   [§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)参照)
