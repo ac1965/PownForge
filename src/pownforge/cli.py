@@ -376,8 +376,59 @@ def operation_show(name: str, workdir: Path = typer.Option(DEFAULT_WORKDIR)) -> 
         f"nodes={len(operation.nodes)} edges={len(operation.edges)} "
         f"actions={len(operation.actions)} approvals={len(operation.approvals)}"
     )
+    for node in operation.nodes:
+        typer.echo(f"  node {node.id}\ttarget={node.target}\tstate={node.state}\t{node.label}")
+    for edge in operation.edges:
+        caps = ",".join(c.value for c in edge.capabilities)
+        typer.echo(f"  edge {edge.source} -> {edge.destination}\t{edge.relationship}\t[{caps}]")
     for action in operation.actions:
-        typer.echo(f"  {action.id}\t{action.phase.value}\t{action.kind.value}\t{action.target}\t{action.status.value}")
+        typer.echo(f"  action {action.id}\t{action.phase.value}\t{action.kind.value}\t{action.target}\t{action.status.value}")
+
+
+@operation_app.command("add-node")
+def operation_add_node(
+    name: str,
+    node_id: str,
+    target: str = typer.Option(..., "--target"),
+    label: str = typer.Option("", "--label"),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+    config: Path = typer.Option(DEFAULT_CONFIG),
+) -> None:
+    """Add a node (an already-registered target) to an attack operation's graph.
+
+    Purely descriptive bookkeeping -- this never authorizes anything beyond
+    what TARGET's own allowed_plugins already permits."""
+    try:
+        add_node(_operations(workdir), _policy(config), name, node_id, target, label)
+    except OperationError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"added node '{node_id}' ({target})")
+
+
+@operation_app.command("add-edge")
+def operation_add_edge(
+    name: str,
+    source: str = typer.Option(..., "--source"),
+    destination: str = typer.Option(..., "--destination"),
+    capabilities: str = typer.Option(
+        "", "--capabilities", help="Comma-separated Capability values; default: network-pivot."
+    ),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+    config: Path = typer.Option(DEFAULT_CONFIG),
+) -> None:
+    """Add an edge between two graph nodes (SOURCE, DESTINATION already added
+    via `add-node`). Purely descriptive: recording an edge grants no
+    execution or pivot right on its own -- a PIVOT action still needs its
+    own approval and, at `execute` time, an Engagement that both targets
+    belong to (see ScopePolicy.authorize_pivot())."""
+    caps = [Capability(c.strip()) for c in capabilities.split(",") if c.strip()] or None
+    try:
+        add_edge(_operations(workdir), _policy(config), name, source, destination, caps)
+    except OperationError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"added edge '{source}' -> '{destination}'")
 
 
 @operation_app.command("add-action")
@@ -423,14 +474,40 @@ def operation_approve(
 def operation_execute(
     name: str,
     action_id: str,
+    command: Optional[str] = typer.Option(
+        None, "--command", help="MANUAL/PIVOT only: what was actually run (defaults to the action's name)."
+    ),
+    output: Optional[str] = typer.Option(
+        None,
+        "--output",
+        help="MANUAL/PIVOT only: transcript of the external tool's output. Required for these kinds -- "
+        "PownForge never executes them itself, only records what a human already ran "
+        "(same as `pownforge result import`).",
+    ),
+    tool: Optional[str] = typer.Option(None, "--tool", help="MANUAL/PIVOT only: external tool used."),
+    tool_version: Optional[str] = typer.Option(None, "--tool-version"),
+    returncode: int = typer.Option(0, "--returncode"),
     workdir: Path = typer.Option(DEFAULT_WORKDIR),
     config: Path = typer.Option(DEFAULT_CONFIG),
 ) -> None:
-    """Execute an approved action through the existing scan runner."""
+    """Execute an approved action.
+
+    SCAN actions run through the existing ScanRunner, same as `pownforge
+    scan <plugin>`. MANUAL/PIVOT actions never execute anything -- --output
+    must already be the transcript of what a human ran with an external
+    tool; this only records it (a PIVOT action additionally requires the
+    operation to have an --engagement and a graph edge ending at the
+    action's target, see `operation add-edge`)."""
     try:
         operation = _operations(workdir).load(name)
         updated = OperationRunner(_policy(config), default_registry(), _store(workdir), _audit(workdir)).execute(
-            operation, action_id
+            operation,
+            action_id,
+            manual_command=command,
+            manual_output=output,
+            manual_tool=tool,
+            manual_tool_version=tool_version,
+            manual_returncode=returncode,
         )
         _operations(workdir).save(updated)
     except OperationError as exc:

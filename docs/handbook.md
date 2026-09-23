@@ -1991,7 +1991,11 @@ stage追加→Markdown/HTMLレポート表示までブラウザから一気通�
 ### CLI
 
 ```bash
-pownforge operation create op1 --objective "lab engagement"
+pownforge operation create op1 --objective "lab engagement" --engagement eng1
+pownforge operation add-node op1 n-a --target lab-a --label "initial foothold"
+pownforge operation add-node op1 n-b --target lab-b --label "pivot target"
+pownforge operation add-edge op1 --source lab-a --destination lab-b
+
 pownforge operation add-action op1 a1 "network scan" \
   --target lab-web --phase discovery --plugin network
 pownforge operation approve op1 a1 --approved-by operator
@@ -1999,40 +2003,49 @@ pownforge operation execute op1 a1
 pownforge operation show op1
 ```
 
-**実行できるのは承認済み(`approve`済み)の`scan`種別のActionのみです。**
-`OperationRunner.execute()`は次の順に検証します。
+**実行できるのは承認済み(`approve`済み)のActionのみです。**
+`OperationRunner.execute()`はActionの`kind`によって次のいずれかの経路で
+処理します(`status`が`approved`でなければ、どちらの経路も`approved`済み
+であることの検証で`OperationError`になる点は共通)。
 
-1. Actionの`status`が`approved`でなければ`OperationError`(未承認では実行不可)
-2. `kind`が`scan`以外(`manual`/`pivot`)であれば`OperationError`
-   (「モデル化・承認はできるが、このリファクタリングでは実行プロバイダを
-   有効化しない」という設計方針をコードでも強制している)
-3. 検証を通った`scan`種別のActionのみ、既存の`ScanRunner`(`ScopePolicy`
-   による認可を経由)に委譲して実行し、結果の`run_id`をActionに記録して
-   `status`を`completed`にする
+- **`scan`**: 既存の`ScanRunner`(`ScopePolicy`による認可を経由)に委譲して
+  実際にツールを実行し、結果の`run_id`をActionに記録して`status`を
+  `completed`にする(§6のプラグインと同じ経路)
+- **`manual`/`pivot`**: **PownForge自身は何も実行しません。**
+  `execute`に`--output`(人間が外部ツールで実行した結果の貼り付け)を
+  渡すと、`pownforge result import`と同じ`import_manual_run()`経路で
+  EvidenceStoreに記録するだけです。`--output`を渡さないと
+  「PownForge never executes it itself」という理由付きで拒否されます。
+  `pivot`はさらに、(1)`operation create --engagement`でEngagementが
+  設定されていること、(2)対象を`destination`とする`operation add-edge`
+  済みのedgeが存在すること、の両方を要求し、edgeの`source`を
+  `via_target`として`ScopePolicy.authorize_pivot()`込みで記録します
+  (`result import --engagement --via`と同じ認可経路)。`Action.phase`
+  (`AttackPhase`)は`KillChainPhase`にマッピングして記録します
+  (`EXECUTION`/`CREDENTIAL_ACCESS`は対応する値が無いため`None`のまま)
 
-`manual`/`pivot`のActionは`add-action --kind manual`(または`pivot`)で
-モデル化・`approve`まではできますが、`execute`は常に拒否されます。AIが
-`AttackOperation`やActionを直接操作する経路は追加していません(すべて
-人間がCLI/将来のフロントエンドから操作する想定)。
+「モデル化・承認はできるが実行プロバイダは無い」という当初の制約は、
+manual/pivotについては「記録専用プロバイダ」という形で解消しました。
+scan種別と異なり、manual/pivotの`execute`はコマンドを一切実行しない
+(=exploitation-scope-middle-pathの一線をそのまま維持する)点は変わって
+いません。AIが`AttackOperation`やActionを直接操作する経路は追加して
+いません(すべて人間がCLI/将来のフロントエンドから操作する想定)。
 
 ### 既知の未実装項目
 
-`core/operation.py`の`add_node`/`add_edge`(`AttackNode`/`AttackEdge`に
-よるグラフ構築)は実装済みですが、**CLIサブコマンドとしては未公開**
-です(`pownforge operation`には`create`/`add-action`/`approve`/`execute`/
-`show`のみがあり、`add-node`/`add-edge`に相当するコマンドはありません)。
-現時点では`operation show`の`nodes=0 edges=0`が常に表示され、グラフ機能は
-Pythonから直接`core.operation`を呼ぶテスト(`tests/test_attack_operation.py`)
-経由でのみ検証されています。Web UI/Emacsからの操作も未対応です
-(`AttackSession`と異なり、CLIのみ)。
+Web UI/Emacsからの操作は未対応です(`AttackSession`と異なり、CLIのみ)。
 
-**実機検証**: `operation create` → `operation add-action`(`network`
-プラグイン) → `operation approve` → `operation execute` → `operation show`
-を実際に実行し、`execute`が既存の`ScanRunner`経由で実nmapスキャンを
-最後まで走らせ、`run_id`が正しくActionに記録されることを確認した。
-未承認Actionへの`execute`が拒否されること、`manual`種別のActionは
-`add-action --kind manual`で登録・承認まではできるが`execute`は常に
-拒否されることも確認済み。
+**実機検証**: `operation create --engagement` → `add-node`(2件) →
+`add-edge` → `add-action --kind manual`/`--kind pivot` → `approve` →
+`execute --output ...`を実際に実行し、(1)`manual`種別が`--output`無しで
+拒否されること、(2)`--output`付きで`import_manual_run()`経由の
+`RunRecord`が作成され`Action.run_id`/`status`に反映されること、
+(3)`pivot`種別がEngagement未設定・edge未登録それぞれで正しく拒否
+されること、(4)`pivot`成功時に生成された`RunRecord`の`via_target`/
+`engagement`が期待通り(`operation add-edge`の`source`/
+`operation create --engagement`の値)であることを確認した。`scan`種別の
+既存経路(`execute`が実nmapスキャンを実行し`run_id`を記録)も
+リグレッションが無いことを再確認済み。
 
 ## 15. テスト
 
@@ -2128,9 +2141,9 @@ Actionのみ既存の`ScanRunner`経由で実行でき、`manual`/`pivot`はモ�
   でも実機検証済み)
 - Target modelの「除外対象」「対象ごとの同時実行数制限」(具体的な利用者が
   無いまま拡張するのは時期尚早、という判断を維持)
-- `AttackOperation`の`add-node`/`add-edge`(グラフ構築)のCLI公開、
-  `manual`/`pivot`種別Actionの実行プロバイダ、Web UI/Emacsからの
-  `AttackOperation`操作([§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)参照)
+- Web UI/Emacsからの`AttackOperation`操作(CLIのみ対応。`add-node`/
+  `add-edge`のCLI公開とmanual/pivot実行プロバイダは実装済み、
+  [§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)参照)
 
 ### ラボ検証ロードマップ: M1〜M7の実装を実機で裏付ける
 
