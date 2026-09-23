@@ -47,6 +47,18 @@ class Target(BaseModel):
     notes: str | None = None
     type: TargetType | None = None
     environment: TargetEnvironment = TargetEnvironment.LOCAL_LAB
+    # A registered target that's temporarily off-limits (e.g. a maintenance
+    # window, a stakeholder asked to pause). Distinct from allowed_plugins
+    # (which plugin names are authorized) -- this blocks every plugin,
+    # including "manual"/pivot recording, until `target include` clears it.
+    # See ScopePolicy.authorize() and docs/handbook.md §12.
+    excluded: bool = False
+    exclusion_reason: str | None = None
+    # How many scans against this target ScanRunner will let run at once,
+    # across every process (CLI invocations and the Web UI both go through
+    # the same file-lock-based ConcurrencyGuard). None = unlimited (the
+    # existing, unrestricted behavior). See core/concurrency.py.
+    max_concurrent: int | None = None
 
 
 class Engagement(BaseModel):

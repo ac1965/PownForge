@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from pownforge.core.concurrency import ConcurrencyGuard
 from pownforge.core.manual_evidence import import_manual_run
 from pownforge.core.models import KillChainPhase
 from pownforge.core.policy import PolicyError, ScopePolicy
@@ -284,11 +285,13 @@ class OperationRunner:
         registry: PluginRegistry,
         store: EvidenceStore,
         audit: AuditStore | None = None,
+        concurrency: ConcurrencyGuard | None = None,
     ) -> None:
         self._policy = policy
         self._registry = registry
         self._store = store
         self._audit = audit
+        self._concurrency = concurrency
 
     def execute(
         self,
@@ -317,6 +320,7 @@ class OperationRunner:
                     registry=self._registry,
                     store=self._store,
                     audit=self._audit,
+                    concurrency=self._concurrency,
                 ).run(action.target, action.plugin, action.options)
             except (PolicyError, RunnerError) as exc:
                 action.status = ActionStatus.REJECTED

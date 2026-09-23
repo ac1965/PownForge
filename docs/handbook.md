@@ -296,8 +296,10 @@ pownforge analyze <run-id>
 | --- | --- |
 | `pownforge init` | 作業ディレクトリ(`.pownforge/`)と空のスコープファイルを作成 |
 | `pownforge target list` | 登録済み対象の一覧 |
-| `pownforge target add <name> --address <addr> [--kind host\|url] [--type network\|web\|api\|kubernetes\|container] [--environment local-lab\|staging\|production] [--allowed-plugins a,b] [--notes <text>]` | 対象を登録。`type`は分類用の任意項目(スキャン許可判定には使わない)。`--environment production`は`--notes`(認可/契約の参照)が必須、無いと登録は拒否される |
+| `pownforge target add <name> --address <addr> [--kind host\|url] [--type network\|web\|api\|kubernetes\|container] [--environment local-lab\|staging\|production] [--allowed-plugins a,b] [--notes <text>] [--max-concurrent <n>]` | 対象を登録。`type`は分類用の任意項目(スキャン許可判定には使わない)。`--environment production`は`--notes`(認可/契約の参照)が必須、無いと登録は拒否される。`--max-concurrent`省略時は無制限(詳細は[§12](#12-target-modelとスコープ制御)) |
 | `pownforge target remove <name>` | 対象の登録を解除。in-place編集(address/allowed_plugins等の変更)は無く、変更したい場合は一度`remove`してから`add`し直す |
+| `pownforge target exclude <name> [--reason <text>]` | 対象を削除せず一時的にスキャン対象外にする(全プラグインを拒否、詳細は[§12](#12-target-modelとスコープ制御)) |
+| `pownforge target include <name>` | 対象の除外を解除 |
 | `pownforge engagement list` | 登録済みEngagementの一覧 |
 | `pownforge engagement add <name> --targets a,b[,c...] [--notes <text>]` | 既存Targetをグループ化したEngagementを登録。横展開の記録・ウォークスルーでのみ使う。詳細は[§12](#12-target-modelとスコープ制御) |
 | `pownforge plugin list` | 利用可能なプラグインと外部ツールの有無 |
@@ -1279,6 +1281,8 @@ medium/青=low/灰=info)付きで、検証状態(確認済み/要確認/誤検�
 | `GET /api/targets` | 登録済み対象の一覧 |
 | `POST /api/targets` | 対象を登録(`ScopePolicy.add_target`) |
 | `DELETE /api/targets/{name}` | 対象を削除 |
+| `POST /api/targets/{name}/exclude` | 対象を一時的にスキャン対象外にする(body: `{"reason": <text>}`、詳細は[§12](#12-target-modelとスコープ制御)) |
+| `POST /api/targets/{name}/include` | 対象の除外を解除 |
 | `GET /api/plugins` | プラグイン一覧と外部ツールの有無 |
 | `GET /api/lab` | 稼働中/停止中のラボホスト一覧 |
 | `POST /api/lab` | ラボホストを起動(既定でスコープにも自動登録) |
@@ -1646,6 +1650,9 @@ class Target(BaseModel):
     notes: str | None
     type: TargetType | None       # network | web | api | kubernetes | container（分類用、任意）
     environment: TargetEnvironment  # local-lab(既定) | staging | production
+    excluded: bool                # 既定False。Trueの間は全プラグインを拒否
+    exclusion_reason: str | None
+    max_concurrent: int | None    # 既定None(無制限)。対象単位の同時実行数上限
 ```
 
 `type`は`kind`(address形式)とは独立した、レポート/一覧表示用の分類軸です。
@@ -1661,6 +1668,57 @@ class Target(BaseModel):
 `kubernetes`タイプの対象は`address`にkubeconfigのcontext名を、`container`
 タイプの対象は`address`にコンテナイメージの参照を格納します
 ([§6](#6-プラグイン)参照)。
+
+### 除外対象(`excluded`)
+
+登録済みの対象を、削除せずに一時的にスキャン対象外にする機能です。
+メンテナンス期間や、関係者から「今は止めてほしい」と言われた場合を
+想定しています。
+
+```bash
+pownforge target exclude lab-web --reason "メンテナンス期間中"
+pownforge scan network --target lab-web   # error: target 'lab-web' is excluded ...
+pownforge target include lab-web          # 解除
+```
+
+`--allowed-plugins`(許可リスト方式で特定のプラグインだけを許可する)とは
+独立した仕組みで、`excluded`は`manual`/`pivot`を含む**全てのプラグイン**を
+一律で拒否します。`ScopePolicy.authorize()`の先頭でチェックされるため、
+`ScanRunner`/`Playbook`/`AttackOperation`のどの経路からスキャンしても
+同じ理由で拒否されます。Web UI(Targetsページ)からも除外理由付きで
+操作できます。
+
+### 対象ごとの同時実行数制限(`max_concurrent`)
+
+同一対象に対して同時に走らせてよいスキャン数の上限です。既定は`None`
+(無制限、これまでの挙動のまま)。
+
+```bash
+pownforge target add lab-web --address 127.0.0.1 --max-concurrent 1
+```
+
+CLIの1回の呼び出しは1プロセスなので、プロセス内のカウンタでは複数の
+CLI呼び出しやWeb UIをまたいだ制限になりません。`core/concurrency.py::
+ConcurrencyGuard`が`<workdir>/active/<target>/`配下のロックファイルで
+**プロセスをまたいで**アクティブなrun数を管理します(`ScanRunner`が
+`policy.authorize()`の直後、実際にツールを起動する前にこのガードを
+経由する)。ロックファイルには保持プロセスのPIDを書き込み、上限判定の
+たびに生存確認(`os.kill(pid, 0)`)することで、クラッシュしたプロセスが
+残したロックが制限を永久に塞ぐことを防いでいます。上限に達している間は
+`RunnerError`(`max_concurrent limit reached`)で即座に拒否され、
+キューイングはしません(呼び出し側が必要ならリトライしてください)。
+
+**実機検証**: CLIから2つの別プロセスで同じ対象(`max_concurrent=1`)に
+対して同時にscanを試み、片方が`RunnerError`で拒否されること、解放後は
+再度成功することを確認した。Web UI経由でも同じ`ConcurrencyGuard`
+(`<workdir>/active/`)を共有しており、別プロセスがロックを保持している
+間はHTTP polling・WebSocket通知の両方で正しく拒否メッセージが届くことを
+実機のuvicornサーバー(`pownforge web serve`)に対して確認した(pytestの
+`TestClient`は各リクエストごとに独立したイベントループを使うため、
+`with TestClient(app) as client:`のようにコンテキストマネージャ内で
+使わないと、バックグラウンドスレッドからのコールバックが届かず
+永久にハングする -- `tests/web/test_scans_routes.py`の既存コメント
+参照)。
 
 ### Engagementと横展開の記録
 
@@ -2112,10 +2170,14 @@ generate`をその場限りの出力から、ラベル付きで保存・再参�
 発展させたもの。`add-stage`は既存run-idの存在確認のみで、実行・生成は
 一切しない)、`AttackOperation`による攻撃経路の事前モデル化と人間承認
 フロー(既存の`ScanRunner`の上位に、Action(実行候補)とApproval(人間の
-承認)を第一級オブジェクトとして追加したもの。承認済み`scan`種別の
-Actionのみ既存の`ScanRunner`経由で実行でき、`manual`/`pivot`はモデル化・
-承認はできても実行プロバイダを有効化していない。詳細は
-[§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)を参照)。
+承認)を第一級オブジェクトとして追加したもの。`scan`種別は既存の
+`ScanRunner`経由で実行し、`manual`/`pivot`種別は`import_manual_run()`
+経由の記録専用プロバイダで実行する。詳細は
+[§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)を参照)、
+Target modelの除外対象(`excluded`)と対象ごとの同時実行数制限
+(`max_concurrent`、`core/concurrency.py::ConcurrencyGuard`によるロック
+ファイルベースのクロスプロセス制御)。詳細は
+[§12](#12-target-modelとスコープ制御)を参照。
 
 **実装したが重複と判断し削除したもの**: `Campaign`(既存の
 `Engagement`(複数targetの名前付きグループ)と`Playbook`(1targetに対する
@@ -2139,8 +2201,6 @@ Actionのみ既存の`ScanRunner`経由で実行でき、`manual`/`pivot`はモ�
   `kube-bench`プラグインとして実装済み([§6](#6-プラグイン))で、
   2026-09-23にランタイムイメージをarm64ネイティブ化してApple Silicon
   でも実機検証済み)
-- Target modelの「除外対象」「対象ごとの同時実行数制限」(具体的な利用者が
-  無いまま拡張するのは時期尚早、という判断を維持)
 - Web UI/Emacsからの`AttackOperation`操作(CLIのみ対応。`add-node`/
   `add-edge`のCLI公開とmanual/pivot実行プロバイダは実装済み、
   [§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)参照)

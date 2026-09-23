@@ -199,3 +199,62 @@ def test_save_and_load_roundtrip_preserves_engagements(tmp_path: Path) -> None:
     source, dest = reloaded.authorize_pivot("eng1", "host-a", "host-b")
     assert source.name == "host-a"
     assert dest.name == "host-b"
+
+
+def test_exclude_target_blocks_authorize_even_for_previously_allowed_plugins() -> None:
+    policy = ScopePolicy(targets={})
+    policy.add_target(Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1", allowed_plugins=["network"]))
+    policy.authorize("lab", "network")  # allowed before exclusion
+
+    policy.exclude_target("lab", "maintenance window")
+
+    with pytest.raises(PolicyError, match="excluded"):
+        policy.authorize("lab", "network")
+
+
+def test_exclude_target_reason_is_included_in_the_error() -> None:
+    policy = ScopePolicy(targets={})
+    policy.add_target(Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1"))
+    policy.exclude_target("lab", "stakeholder asked to pause")
+
+    with pytest.raises(PolicyError, match="stakeholder asked to pause"):
+        policy.authorize("lab", "network")
+
+
+def test_include_target_clears_exclusion() -> None:
+    policy = ScopePolicy(targets={})
+    policy.add_target(Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1"))
+    policy.exclude_target("lab", "temporary")
+
+    policy.include_target("lab")
+
+    policy.authorize("lab", "network")  # no longer raises
+
+
+def test_exclude_unknown_target_raises() -> None:
+    policy = ScopePolicy(targets={})
+    with pytest.raises(PolicyError):
+        policy.exclude_target("nope")
+
+
+def test_save_and_load_roundtrip_preserves_exclusion(tmp_path: Path) -> None:
+    config = tmp_path / "targets.yaml"
+    policy = ScopePolicy(targets={})
+    policy.add_target(Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1"))
+    policy.exclude_target("lab", "audit pending")
+    policy.save(config)
+
+    reloaded = ScopePolicy.load(config)
+    target = reloaded.resolve("lab")
+    assert target.excluded is True
+    assert target.exclusion_reason == "audit pending"
+
+
+def test_save_and_load_roundtrip_preserves_max_concurrent(tmp_path: Path) -> None:
+    config = tmp_path / "targets.yaml"
+    policy = ScopePolicy(targets={})
+    policy.add_target(Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1", max_concurrent=3))
+    policy.save(config)
+
+    reloaded = ScopePolicy.load(config)
+    assert reloaded.resolve("lab").max_concurrent == 3

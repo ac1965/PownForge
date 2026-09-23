@@ -10,6 +10,7 @@ const emptyForm = {
   environment: "local-lab" as TargetEnvironment,
   allowedPlugins: "",
   notes: "",
+  maxConcurrent: "",
 };
 
 export default function Targets() {
@@ -17,6 +18,7 @@ export default function Targets() {
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [submitting, setSubmitting] = useState(false);
+  const [excludeReason, setExcludeReason] = useState<Record<string, string>>({});
 
   const load = () => api.listTargets().then(setTargets).catch((e) => setError(String(e)));
 
@@ -40,6 +42,9 @@ export default function Targets() {
           .map((p) => p.trim())
           .filter(Boolean),
         notes: form.notes || null,
+        excluded: false,
+        exclusion_reason: null,
+        max_concurrent: form.maxConcurrent ? Number(form.maxConcurrent) : null,
       })
       .then(() => {
         setForm(emptyForm);
@@ -57,6 +62,20 @@ export default function Targets() {
       .catch((e) => setError(String(e)));
   };
 
+  const exclude = (name: string) => {
+    api
+      .excludeTarget(name, excludeReason[name] ?? "")
+      .then(load)
+      .catch((e) => setError(String(e)));
+  };
+
+  const include = (name: string) => {
+    api
+      .includeTarget(name)
+      .then(load)
+      .catch((e) => setError(String(e)));
+  };
+
   return (
     <div>
       <h2>Targets</h2>
@@ -70,7 +89,9 @@ export default function Targets() {
             <th>type</th>
             <th>environment</th>
             <th>allowed plugins</th>
+            <th>max concurrent</th>
             <th>notes</th>
+            <th>status</th>
             <th></th>
           </tr>
         </thead>
@@ -83,9 +104,34 @@ export default function Targets() {
               <td>{t.type ?? "-"}</td>
               <td>{t.environment}</td>
               <td>{t.allowed_plugins.join(", ") || "any"}</td>
+              <td>{t.max_concurrent ?? "unlimited"}</td>
               <td>{t.notes ?? ""}</td>
               <td>
+                {t.excluded ? (
+                  <span className="error">
+                    EXCLUDED{t.exclusion_reason ? `: ${t.exclusion_reason}` : ""}
+                  </span>
+                ) : (
+                  <span className="muted">active</span>
+                )}
+              </td>
+              <td>
                 <Link to={`/scan/new?target=${encodeURIComponent(t.name)}`}>Scan</Link>{" "}
+                {t.excluded ? (
+                  <button onClick={() => include(t.name)}>含める</button>
+                ) : (
+                  <span className="option-row">
+                    <input
+                      type="text"
+                      placeholder="除外理由(任意)"
+                      value={excludeReason[t.name] ?? ""}
+                      onChange={(e) =>
+                        setExcludeReason((prev) => ({ ...prev, [t.name]: e.target.value }))
+                      }
+                    />
+                    <button onClick={() => exclude(t.name)}>除外</button>
+                  </span>
+                )}{" "}
                 <button onClick={() => remove(t.name)}>削除</button>
               </td>
             </tr>
@@ -152,6 +198,16 @@ export default function Targets() {
             placeholder="network,web"
             value={form.allowedPlugins}
             onChange={(e) => setForm({ ...form, allowedPlugins: e.target.value })}
+          />
+        </label>
+        <label>
+          max concurrent scans (任意、空=無制限)
+          <input
+            type="number"
+            min={1}
+            placeholder="unlimited"
+            value={form.maxConcurrent}
+            onChange={(e) => setForm({ ...form, maxConcurrent: e.target.value })}
           />
         </label>
         <label>

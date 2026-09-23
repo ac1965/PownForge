@@ -10,6 +10,9 @@ export interface Target {
   notes: string | null;
   type: TargetType | null;
   environment: TargetEnvironment;
+  excluded: boolean;
+  exclusion_reason: string | null;
+  max_concurrent: number | null;
 }
 
 export interface LabHost {
@@ -204,6 +207,13 @@ export const api = {
     request<Target>("/targets", { method: "POST", body: JSON.stringify(target) }),
   removeTarget: (name: string) =>
     request<void>(`/targets/${encodeURIComponent(name)}`, { method: "DELETE" }),
+  excludeTarget: (name: string, reason: string) =>
+    request<Target>(`/targets/${encodeURIComponent(name)}/exclude`, {
+      method: "POST",
+      body: JSON.stringify({ reason: reason || null }),
+    }),
+  includeTarget: (name: string) =>
+    request<Target>(`/targets/${encodeURIComponent(name)}/include`, { method: "POST" }),
 
   listPlugins: () => request<PluginInfo[]>("/plugins"),
 

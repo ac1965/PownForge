@@ -5,6 +5,7 @@ import threading
 from datetime import datetime, timezone
 from typing import Any, Callable
 
+from pownforge.core.concurrency import ConcurrencyError, ConcurrencyGuard
 from pownforge.core.finding_utils import coerce_finding
 from pownforge.core.models import Evidence, Finding, RunRecord, Target
 from pownforge.core.policy import PolicyError, ScopePolicy
@@ -19,7 +20,10 @@ OnLine = Callable[[str], None]
 
 
 class RunnerError(RuntimeError):
-    """Raised when a scan cannot be executed."""
+    """Raised when a scan cannot be executed. Also raised (wrapping the
+    original ConcurrencyError, see core/concurrency.py) when a target's
+    max_concurrent limit is already reached -- callers that already catch
+    RunnerError don't need to learn a second exception type."""
 
 
 def _drain(stream, sink: list[str], on_line: OnLine | None) -> None:
@@ -49,12 +53,14 @@ class ScanRunner:
         store: EvidenceStore,
         audit: AuditStore | None = None,
         timeout: int = 300,
+        concurrency: ConcurrencyGuard | None = None,
     ) -> None:
         self._policy = policy
         self._registry = registry
         self._store = store
         self._audit = audit
         self._timeout = timeout
+        self._concurrency = concurrency
 
     def run(
         self,
@@ -69,6 +75,25 @@ class ScanRunner:
             if self._audit is not None:
                 self._audit.record(target=target_name, plugin=plugin_name, reason=str(exc))
             raise
+
+        if self._concurrency is None:
+            return self._run_locked(target, plugin_name, options, on_line)
+        try:
+            with self._concurrency.acquire(target_name, target.max_concurrent):
+                return self._run_locked(target, plugin_name, options, on_line)
+        except ConcurrencyError as exc:
+            if self._audit is not None:
+                self._audit.record(target=target_name, plugin=plugin_name, reason=str(exc))
+            raise RunnerError(str(exc)) from exc
+
+    def _run_locked(
+        self,
+        target: Target,
+        plugin_name: str,
+        options: dict[str, Any],
+        on_line: OnLine | None,
+    ) -> RunRecord:
+        target_name = target.name
         plugin = self._registry.get(plugin_name)
         if not plugin.check():
             raise RunnerError(

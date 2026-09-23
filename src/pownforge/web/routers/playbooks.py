@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
+from pownforge.core.concurrency import ConcurrencyGuard
 from pownforge.core.models import Playbook
 from pownforge.core.orchestrator import PlaybookError, list_playbooks, resolve_playbook
 from pownforge.core.policy import ScopePolicy
@@ -11,6 +12,7 @@ from pownforge.evidence.audit import AuditStore
 from pownforge.evidence.store import EvidenceStore
 from pownforge.web.deps import (
     get_audit_store,
+    get_concurrency_guard,
     get_playbooks_dir,
     get_policy,
     get_registry,
@@ -53,13 +55,14 @@ async def run_playbook_route(
     registry: PluginRegistry = Depends(get_registry),
     store: EvidenceStore = Depends(get_store),
     audit: AuditStore = Depends(get_audit_store),
+    concurrency: ConcurrencyGuard = Depends(get_concurrency_guard),
     jobs: JobManager = Depends(get_job_manager),
 ) -> PlaybookRunCreated:
     try:
         playbook = resolve_playbook(playbooks_dir, name)
     except PlaybookError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    job_id = jobs.submit_playbook(playbook, body.target, policy, registry, store, audit=audit)
+    job_id = jobs.submit_playbook(playbook, body.target, policy, registry, store, audit=audit, concurrency=concurrency)
     return PlaybookRunCreated(job_id=job_id, status="pending")
 
 

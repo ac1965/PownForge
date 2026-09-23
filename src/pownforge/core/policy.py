@@ -74,11 +74,26 @@ class ScopePolicy:
 
     def authorize(self, name: str, plugin: str) -> Target:
         target = self.resolve(name)
+        if target.excluded:
+            reason = f": {target.exclusion_reason}" if target.exclusion_reason else ""
+            raise PolicyError(f"target '{name}' is excluded from scanning{reason} (run `pownforge target include` to clear it)")
         if target.allowed_plugins and plugin not in target.allowed_plugins:
             raise PolicyError(
                 f"plugin '{plugin}' is not authorized for target '{name}' "
                 f"(allowed: {', '.join(target.allowed_plugins)})"
             )
+        return target
+
+    def exclude_target(self, name: str, reason: str | None = None) -> Target:
+        target = self.resolve(name)
+        target.excluded = True
+        target.exclusion_reason = reason
+        return target
+
+    def include_target(self, name: str) -> Target:
+        target = self.resolve(name)
+        target.excluded = False
+        target.exclusion_reason = None
         return target
 
     def add_engagement(self, engagement: Engagement) -> None:

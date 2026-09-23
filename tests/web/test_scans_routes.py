@@ -9,6 +9,7 @@ pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient
 
+from pownforge.core.concurrency import ConcurrencyGuard
 from pownforge.core.models import Target
 from pownforge.core.registry import PluginRegistry
 from pownforge.plugins.base import Plugin
@@ -110,3 +111,32 @@ def test_ws_for_unknown_job_returns_error(tmp_path: Path) -> None:
         with client.websocket_connect("/api/ws/scans/does-not-exist") as ws:
             message = ws.receive_json()
     assert message["type"] == "error"
+
+
+def test_scan_rejects_when_target_is_at_its_max_concurrent_limit(tmp_path: Path) -> None:
+    with TestClient(_app(tmp_path)) as client:
+        client.post(
+            "/api/targets",
+            json={"name": "lab", "kind": "host", "address": "127.0.0.1", "max_concurrent": 1},
+        )
+
+        # Simulate another process already running a scan against "lab".
+        guard = ConcurrencyGuard(tmp_path / "state" / "active")
+        with guard.acquire("lab", 1):
+            resp = client.post("/api/scans", json={"target": "lab", "plugin": "echo", "options": {}})
+            job_id = resp.json()["job_id"]
+            with client.websocket_connect(f"/api/ws/scans/{job_id}") as ws:
+                message = ws.receive_json()
+
+        assert message["type"] == "error"
+        assert "max_concurrent" in message["message"]
+
+        # Once released, a normal scan against the same target succeeds again.
+        resp = client.post("/api/scans", json={"target": "lab", "plugin": "echo", "options": {}})
+        job_id = resp.json()["job_id"]
+        with client.websocket_connect(f"/api/ws/scans/{job_id}") as ws:
+            while True:
+                message = ws.receive_json()
+                if message["type"] in ("done", "error"):
+                    break
+        assert message["type"] == "done"

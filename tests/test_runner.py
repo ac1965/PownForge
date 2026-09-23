@@ -3,10 +3,11 @@ from typing import Any
 
 import pytest
 
+from pownforge.core.concurrency import ConcurrencyGuard
 from pownforge.core.models import Target, TargetKind
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.core.registry import PluginRegistry
-from pownforge.core.runner import ScanRunner
+from pownforge.core.runner import RunnerError, ScanRunner
 from pownforge.evidence.audit import AuditStore
 from pownforge.evidence.store import EvidenceStore
 from pownforge.plugins.base import Plugin
@@ -223,3 +224,50 @@ def test_runner_masks_evidence_command_but_still_runs_unmasked(tmp_path: Path) -
 
     reloaded = EvidenceStore(tmp_path / "runs").load(record.run_id)
     assert reloaded.evidence.command == ["echo", "--token", "***", "127.0.0.1"]
+
+
+def test_runner_rejects_when_target_is_at_its_max_concurrent_limit(tmp_path: Path) -> None:
+    policy = ScopePolicy(targets={})
+    policy.add_target(Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1", max_concurrent=1))
+    registry = PluginRegistry()
+    registry.register(EchoPlugin())
+    store = EvidenceStore(tmp_path / "runs")
+    guard = ConcurrencyGuard(tmp_path / "active")
+    runner = ScanRunner(policy=policy, registry=registry, store=store, concurrency=guard)
+
+    # Simulate another run already in flight against "lab".
+    with guard.acquire("lab", 1):
+        with pytest.raises(RunnerError, match="max_concurrent"):
+            runner.run("lab", "echo", {})
+
+    # Once released, a normal run succeeds again.
+    record = runner.run("lab", "echo", {})
+    assert record.evidence.returncode == 0
+
+
+def test_runner_without_a_concurrency_guard_ignores_max_concurrent(tmp_path: Path) -> None:
+    # concurrency=None (the default) means no limit is enforced, even if the
+    # target itself sets max_concurrent -- matches pre-existing behavior for
+    # any caller that doesn't wire a ConcurrencyGuard up.
+    policy = ScopePolicy(targets={})
+    policy.add_target(Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1", max_concurrent=1))
+    registry = PluginRegistry()
+    registry.register(EchoPlugin())
+    store = EvidenceStore(tmp_path / "runs")
+    runner = ScanRunner(policy=policy, registry=registry, store=store)
+
+    record = runner.run("lab", "echo", {})
+    assert record.evidence.returncode == 0
+
+
+def test_runner_with_a_guard_but_no_max_concurrent_is_unrestricted(tmp_path: Path) -> None:
+    policy = ScopePolicy(targets={})
+    policy.add_target(Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1"))  # max_concurrent=None
+    registry = PluginRegistry()
+    registry.register(EchoPlugin())
+    store = EvidenceStore(tmp_path / "runs")
+    guard = ConcurrencyGuard(tmp_path / "active")
+    runner = ScanRunner(policy=policy, registry=registry, store=store, concurrency=guard)
+
+    record = runner.run("lab", "echo", {})
+    assert record.evidence.returncode == 0

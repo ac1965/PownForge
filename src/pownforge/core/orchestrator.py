@@ -6,6 +6,7 @@ from typing import Callable
 
 import yaml
 
+from pownforge.core.concurrency import ConcurrencyGuard
 from pownforge.core.models import Playbook, PlaybookStep, PlaybookStepCondition, RunRecord, Severity
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.core.registry import PluginRegistry
@@ -92,6 +93,7 @@ def run_playbook(
     store: EvidenceStore,
     audit: AuditStore | None = None,
     on_step: OnStep | None = None,
+    concurrency: ConcurrencyGuard | None = None,
 ) -> list[PlaybookStepResult]:
     """Run every step of PLAYBOOK against TARGET_NAME in order, via the same
     ScanRunner/ScopePolicy path `pownforge scan <plugin>` uses for a single
@@ -112,7 +114,7 @@ def run_playbook(
     still reported in the returned results (never silently dropped) -- see
     PlaybookStepResult.error."""
     _validate_steps(playbook.steps)
-    runner = ScanRunner(policy=policy, registry=registry, store=store, audit=audit)
+    runner = ScanRunner(policy=policy, registry=registry, store=store, audit=audit, concurrency=concurrency)
     results: list[PlaybookStepResult] = []
     total = len(playbook.steps)
     for index, step in enumerate(playbook.steps, start=1):

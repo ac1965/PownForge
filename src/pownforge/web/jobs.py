@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
+from pownforge.core.concurrency import ConcurrencyGuard
 from pownforge.core.models import Playbook
 from pownforge.core.orchestrator import run_playbook
 from pownforge.core.policy import PolicyError, ScopePolicy
@@ -91,6 +92,7 @@ class JobManager:
         registry: PluginRegistry,
         store: EvidenceStore,
         audit: AuditStore | None = None,
+        concurrency: ConcurrencyGuard | None = None,
     ) -> str:
         job_id = uuid.uuid4().hex[:12]
         job = PlaybookJob(job_id=job_id)
@@ -106,7 +108,7 @@ class JobManager:
         def work() -> None:
             job.status = "running"
             results = run_playbook(
-                playbook, target, policy, registry, store, audit=audit, on_step=on_step
+                playbook, target, policy, registry, store, audit=audit, on_step=on_step, concurrency=concurrency
             )
             for index, result in enumerate(results, start=1):
                 if result.skipped:

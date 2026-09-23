@@ -10,6 +10,7 @@ import typer
 from pownforge.ai.ollama import OllamaAdapter
 from pownforge.core.analysis import AnalysisError, run_analysis
 from pownforge.core.attack_session import AttackSessionError, AttackSessionStore, add_stage, create_attack_session
+from pownforge.core.concurrency import ConcurrencyGuard
 from pownforge.core.findings import FindingNotFoundError, add_finding, review_finding
 from pownforge.core.lab import LAB_NETWORK, LabError, LabManager, resolve_lab_target_address
 from pownforge.core.manual_evidence import import_manual_run
@@ -112,6 +113,10 @@ def _audit(workdir: Path) -> AuditStore:
     return AuditStore(workdir / "violations")
 
 
+def _concurrency(workdir: Path) -> ConcurrencyGuard:
+    return ConcurrencyGuard(workdir / "active")
+
+
 def _attack_sessions(workdir: Path) -> AttackSessionStore:
     return AttackSessionStore(workdir / "attack_sessions")
 
@@ -141,10 +146,16 @@ def target_list(config: Path = typer.Option(DEFAULT_CONFIG)) -> None:
     for target in targets:
         allowed = ", ".join(target.allowed_plugins) or "any"
         type_ = target.type.value if target.type else "-"
-        typer.echo(
+        line = (
             f"{target.name}\t{target.kind.value}\t{target.address}\tplugins={allowed}"
             f"\ttype={type_}\tenv={target.environment.value}"
         )
+        if target.max_concurrent is not None:
+            line += f"\tmax_concurrent={target.max_concurrent}"
+        if target.excluded:
+            reason = f" ({target.exclusion_reason})" if target.exclusion_reason else ""
+            line += f"\tEXCLUDED{reason}"
+        typer.echo(line)
 
 
 @target_app.command("add")
@@ -164,6 +175,9 @@ def target_add(
         "", help="Comma-separated plugin names allowed for this target; empty = all."
     ),
     notes: str = typer.Option("", help="Free-text notes, e.g. engagement/authorization reference."),
+    max_concurrent: Optional[int] = typer.Option(
+        None, "--max-concurrent", help="Cap simultaneous scans against this target across every process; unset = unlimited."
+    ),
     config: Path = typer.Option(DEFAULT_CONFIG),
 ) -> None:
     """Register a new authorized target."""
@@ -177,6 +191,7 @@ def target_add(
         notes=notes or None,
         type=type,
         environment=environment,
+        max_concurrent=max_concurrent,
     )
     try:
         policy.add_target(target)
@@ -199,6 +214,39 @@ def target_remove(name: str, config: Path = typer.Option(DEFAULT_CONFIG)) -> Non
         raise typer.Exit(code=1) from exc
     policy.save(config)
     typer.echo(f"removed target '{name}'")
+
+
+@target_app.command("exclude")
+def target_exclude(
+    name: str,
+    reason: str = typer.Option("", "--reason", help="Why this target is temporarily off-limits."),
+    config: Path = typer.Option(DEFAULT_CONFIG),
+) -> None:
+    """Temporarily block every scan/manual/pivot against a registered target
+    (e.g. a maintenance window, a stakeholder asked to pause) without
+    unregistering it. Blocks every plugin, unlike --allowed-plugins which
+    only narrows which ones are permitted."""
+    policy = _policy(config)
+    try:
+        policy.exclude_target(name, reason or None)
+    except PolicyError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    policy.save(config)
+    typer.echo(f"excluded target '{name}'" + (f": {reason}" if reason else ""))
+
+
+@target_app.command("include")
+def target_include(name: str, config: Path = typer.Option(DEFAULT_CONFIG)) -> None:
+    """Clear a target's exclusion, restoring its normal allowed_plugins scope."""
+    policy = _policy(config)
+    try:
+        policy.include_target(name)
+    except PolicyError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    policy.save(config)
+    typer.echo(f"included target '{name}'")
 
 
 @engagement_app.command("list")
@@ -301,7 +349,14 @@ def playbook_run(
         typer.echo(f"[{index}/{total}] running {step.plugin}...")
 
     results = run_playbook(
-        playbook, target, policy, registry, store, audit=_audit(workdir), on_step=on_step
+        playbook,
+        target,
+        policy,
+        registry,
+        store,
+        audit=_audit(workdir),
+        on_step=on_step,
+        concurrency=_concurrency(workdir),
     )
 
     run_ids: list[str] = []
@@ -500,7 +555,10 @@ def operation_execute(
     action's target, see `operation add-edge`)."""
     try:
         operation = _operations(workdir).load(name)
-        updated = OperationRunner(_policy(config), default_registry(), _store(workdir), _audit(workdir)).execute(
+        runner = OperationRunner(
+            _policy(config), default_registry(), _store(workdir), _audit(workdir), concurrency=_concurrency(workdir)
+        )
+        updated = runner.execute(
             operation,
             action_id,
             manual_command=command,
@@ -629,7 +687,9 @@ def _run_scan(
     policy = _policy(config)
     registry = default_registry()
     store = _store(workdir)
-    runner = ScanRunner(policy=policy, registry=registry, store=store, audit=_audit(workdir))
+    runner = ScanRunner(
+        policy=policy, registry=registry, store=store, audit=_audit(workdir), concurrency=_concurrency(workdir)
+    )
     on_line = (lambda line: typer.echo(f"| {line}")) if live else None
     try:
         record = runner.run(target, plugin_name, options, on_line=on_line)
