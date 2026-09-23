@@ -319,9 +319,9 @@ pownforge analyze <run-id>
 | `pownforge result import --target <name> --command <text> --output <text> [--tool ... --tool-version ... --returncode ... --engagement <name> --via <target>]` | 人間が別ツールで実施した工程の証跡を記録(PownForgeは`--command`を実行しない)。`--engagement`/`--via`は横展開の記録用(両方同時に指定、詳細は[§12](#12-target-modelとスコープ制御))。詳細は[§13](#13-証跡とレポート) |
 | `pownforge result add-finding <run-id> --title <text> [--severity ... --detail ...]` | 人間が観測したfinding(`source: "manual"`)をrunに追加。既定`needs-review` |
 | `pownforge result review <run-id> <finding-id> <needs-review\|confirmed\|false-positive>` | findingの検証状態を更新 |
-| `pownforge report generate <run-id> [--format markdown\|html]` | レポートを`.pownforge/reports/<run-id>.{md,html}`に生成 |
+| `pownforge report generate <run-id> [--format markdown\|html\|pdf]` | レポートを`.pownforge/reports/<run-id>.{md,html,pdf}`に生成。`pdf`は`pip install -e '.[pdf]'`(reportlab、Noto Sans JP埋め込みでCJK文字化けなし)が必要 |
 | `pownforge analyze <run-id> [--model ...] [--language ja\|en]` | LLMによる分析草案を出力。`--model`/`--language`省略時は`pownforge config`の保存値を使う |
-| `pownforge walkthrough generate <run-id>... \| --target <name> \| --engagement <name> [--model ...] [--language ja\|en] [--format markdown\|html]` | 複数runをまたぐ物語調ウォークスルーを生成。読み取り専用(詳細は[§11](#11-aiによる分析ウォークスルー提案))。`--engagement`はEngagement全メンバーのrunをまとめて選択(詳細は[§12](#12-target-modelとスコープ制御)) |
+| `pownforge walkthrough generate <run-id>... \| --target <name> \| --engagement <name> [--model ...] [--language ja\|en] [--format markdown\|html]` | 複数runをまたぐ物語調ウォークスルーを生成。読み取り専用(詳細は[§11](#11-aiによる分析ウォークスルー提案))。`--engagement`はEngagement全メンバーのrunをまとめて選択(詳細は[§12](#12-target-modelとスコープ制御))。PDF出力は未対応(単一runの`report generate`/AttackSessionの`attack-session report`のみ) |
 | `pownforge config show` / `pownforge config set [--model <name>] [--language ja\|en]` | `analyze`/`walkthrough generate`が使う既定モデル・出力言語を表示/更新(詳細は[§11](#11-aiによる分析ウォークスルー提案)) |
 | `pownforge lab add <name> --image <image> [--kind host\|url] [--port <n>] [--scheme http\|https] [--env k=v ...] [--allowed-plugins a,b] [--no-register] [--network <name>]` | 隔離ネットワーク上に攻撃対象ホストを起動 |
 | `pownforge lab list [--network <name>]` | 稼働中/停止中のラボホスト一覧 |
@@ -333,7 +333,7 @@ pownforge analyze <run-id>
 | `pownforge attack-session add-stage <name> <run-id> [--label <text>]` | 既存のrun-idをAttackSessionの次のステージとして追加 |
 | `pownforge attack-session list` | AttackSessionの一覧 |
 | `pownforge attack-session show <name>` | AttackSessionのステージを順に表示 |
-| `pownforge attack-session report <name> [--format markdown\|html]` | AttackSessionを経路レポートとして`<workdir>/reports/`に出力(詳細は[§13](#13-証跡とレポート)) |
+| `pownforge attack-session report <name> [--format markdown\|html\|pdf]` | AttackSessionを経路レポートとして`<workdir>/reports/`に出力(詳細は[§13](#13-証跡とレポート))。`pdf`はKubernetes攻撃チェーンのHTML専用ダッシュボードを含まない(reportlab生成のため) |
 | `pownforge operation create <name> [--objective <text>] [--engagement <name>]` | 空のAttackOperationを作成(何も実行しない) |
 | `pownforge operation add-action <name> <action-id> <action-name> --target <target> --phase <phase> [--kind scan\|manual\|pivot] [--plugin <name>]` | Actionを追加。`--kind scan`(既定)は`--plugin`必須、`manual`/`pivot`は`--plugin`を指定できない |
 | `pownforge operation approve <name> <action-id> --approved-by <operator> [--note <text>]` | Actionに人間の承認を記録 |
@@ -1298,10 +1298,10 @@ medium/青=low/灰=info)付きで、検証状態(確認済み/要確認/誤検�
 | `GET /api/attack-sessions/{name}` | AttackSessionのステージ一覧(JSON) |
 | `POST /api/attack-sessions` | 空のAttackSessionを作成(何も実行しない) |
 | `POST /api/attack-sessions/{name}/stages` | 既存run-idを次のステージとして追加(run-id未検出時は404) |
-| `GET /api/attack-sessions/{name}/report[?format=markdown\|html]` | 経路レポート文字列を返す(詳細は[§13](#13-証跡とレポート)の`AttackSession`節) |
+| `GET /api/attack-sessions/{name}/report[?format=markdown\|html\|pdf]` | 経路レポート文字列(または`format=pdf`時は`application/pdf`のバイナリ)を返す(詳細は[§13](#13-証跡とレポート)の`AttackSession`節)。`pdf`はreportlab未インストール時`501`を返す |
 | `GET /api/runs` | 実行結果の一覧 |
 | `GET /api/runs/{run_id}` | 実行結果の詳細(JSON) |
-| `GET /api/runs/{run_id}/report[?format=markdown\|html]` | レポート文字列を返す |
+| `GET /api/runs/{run_id}/report[?format=markdown\|html\|pdf]` | レポート文字列(または`format=pdf`時は`application/pdf`のバイナリ)を返す。`pdf`はreportlab未インストール時`501`を返す |
 | `POST /api/runs/{run_id}/analyze[?model=...&language=ja\|en]` | LLMで分析・分類し、結果を永続化。省略時は`config/settings.yaml`の値を使う |
 | `PATCH /api/runs/{run_id}/findings/{finding_id}` | findingの検証状態を更新 |
 | `GET /api/runs/{run_id}/verify` | 証跡のハッシュと一致するか確認 |
@@ -1809,9 +1809,17 @@ detail画面の確認ボタン) / `PATCH /api/runs/{id}/findings/{id}`のいず�
 状態遷移できます。レポートも検証状態別(確認済み/要確認/誤検知として却下)に
 見出しを分けて出力します。
 
-レポートはMarkdown(既定)またはHTML(`--format html`、Web UIと同じ
-severity配色のスタンドアロンページ)で生成できます。詳細は
-[§5](#5-cliコマンドリファレンス)を参照してください。
+レポートはMarkdown(既定)、HTML(`--format html`、Web UIと同じ
+severity配色のスタンドアロンページ)、またはPDF(`--format pdf`)で生成できます。
+PDF出力はoptional extra `pdf`(`pip install -e '.[pdf]'`、reportlab)が
+必要で、未インストール時はCLIが分かりやすいエラーで終了し、Web APIは
+`501`を返します。日本語を含む全文字がreportlabの組み込みCIDフォント
+(`HeiseiKakuGo-W5`)ではPDFビューア側のCJKフォント代替に依存し環境に
+よって空白グリフになるため、Noto Sans JP(OFLライセンス、
+`src/pownforge/reporting/fonts/`に同梱)をTrueTypeフォントとして実際に
+埋め込んでいます。AttackSessionのPDFレポートはKubernetes攻撃チェーンの
+HTML専用ダッシュボード(`walkthrough.py`のMermaid図等)を含みません。
+詳細は[§5](#5-cliコマンドリファレンス)を参照してください。
 
 ### 手動で実施した工程の証跡取り込み(`result import`)
 

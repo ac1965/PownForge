@@ -1060,12 +1060,22 @@ def evidence_verify(run_id: str, workdir: Path = typer.Option(DEFAULT_WORKDIR)) 
 class ReportFormat(str, Enum):
     MARKDOWN = "markdown"
     HTML = "html"
+    PDF = "pdf"
+
+
+def _pdf_module():  # noqa: ANN202
+    try:
+        from pownforge.reporting import pdf as pdf_report
+    except ImportError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    return pdf_report
 
 
 @report_app.command("generate")
 def report_generate(
     run_id: str,
-    format: ReportFormat = typer.Option(ReportFormat.MARKDOWN, "--format", help="markdown or html"),
+    format: ReportFormat = typer.Option(ReportFormat.MARKDOWN, "--format", help="markdown, html, or pdf"),
     workdir: Path = typer.Option(DEFAULT_WORKDIR),
 ) -> None:
     """Render a report for a run into <workdir>/reports/."""
@@ -1075,7 +1085,11 @@ def report_generate(
     except FileNotFoundError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
-    if format == ReportFormat.HTML:
+    if format == ReportFormat.PDF:
+        report_path = workdir / "reports" / f"{run_id}.pdf"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_bytes(_pdf_module().render(record))
+    elif format == ReportFormat.HTML:
         report_path = workdir / "reports" / f"{run_id}.html"
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(html_report.render(record))
@@ -1089,7 +1103,7 @@ def report_generate(
 @attack_session_app.command("report")
 def attack_session_report(
     name: str,
-    format: ReportFormat = typer.Option(ReportFormat.MARKDOWN, "--format", help="markdown or html"),
+    format: ReportFormat = typer.Option(ReportFormat.MARKDOWN, "--format", help="markdown, html, or pdf"),
     workdir: Path = typer.Option(DEFAULT_WORKDIR),
 ) -> None:
     """Render an attack session's stages (in order) into <workdir>/reports/."""
@@ -1105,7 +1119,11 @@ def attack_session_report(
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
-    if format == ReportFormat.HTML:
+    if format == ReportFormat.PDF:
+        report_path = workdir / "reports" / f"attack-session-{name}.pdf"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_bytes(_pdf_module().render_attack_session(session, records))
+    elif format == ReportFormat.HTML:
         report_path = workdir / "reports" / f"attack-session-{name}.html"
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(attack_session_rendering.render_html(session, records))

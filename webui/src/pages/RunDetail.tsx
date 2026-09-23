@@ -87,6 +87,11 @@ export default function RunDetail() {
   return (
     <div>
       <h2>Run {record.run_id}</h2>
+      <p>
+        <a href={api.runReportPdfUrl(record.run_id)} target="_blank" rel="noreferrer">
+          PDFレポートをダウンロード
+        </a>
+      </p>
       <dl>
         <dt>Target</dt>
         <dd>{record.target}</dd>

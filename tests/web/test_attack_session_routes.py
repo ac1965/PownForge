@@ -118,3 +118,17 @@ def test_attack_session_report_unknown_session_returns_404(tmp_path: Path) -> No
     with TestClient(_app(tmp_path)) as client:
         resp = client.get("/api/attack-sessions/nope/report")
     assert resp.status_code == 404
+
+
+def test_attack_session_report_pdf(tmp_path: Path) -> None:
+    pytest.importorskip("reportlab")
+    run_id = _seed_run(tmp_path)
+    with TestClient(_app(tmp_path)) as client:
+        client.post("/api/attack-sessions", json={"name": "op-1"})
+        client.post("/api/attack-sessions/op-1/stages", json={"run_id": run_id, "label": "recon"})
+
+        resp = client.get("/api/attack-sessions/op-1/report?format=pdf")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "application/pdf"
+        assert resp.content.startswith(b"%PDF-")
+        assert "op-1" in resp.headers["content-disposition"]

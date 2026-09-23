@@ -226,6 +226,9 @@ export const api = {
   listRuns: () => request<RunRecord[]>("/runs"),
   getRun: (runId: string) => request<RunRecord>(`/runs/${runId}`),
   getRunReport: (runId: string) => request<{ markdown: string }>(`/runs/${runId}/report`),
+  // PDF is binary, not JSON -- the browser downloads it directly from this
+  // URL (e.g. via an <a href> or window.open) rather than through fetch().
+  runReportPdfUrl: (runId: string) => `/api/runs/${encodeURIComponent(runId)}/report?format=pdf`,
   analyzeRun: (runId: string) => request<RunRecord>(`/runs/${runId}/analyze`, { method: "POST" }),
   reviewFinding: (runId: string, findingId: string, status: FindingStatus) =>
     request<RunRecord>(`/runs/${runId}/findings/${findingId}`, {
@@ -269,6 +272,8 @@ export const api = {
     request<{ markdown?: string; html?: string }>(
       `/attack-sessions/${encodeURIComponent(name)}/report?format=${format}`,
     ),
+  attackSessionReportPdfUrl: (name: string) =>
+    `/api/attack-sessions/${encodeURIComponent(name)}/report?format=pdf`,
 
   getSettings: () => request<AppSettings>("/settings"),
   updateSettings: (body: AppSettings) =>

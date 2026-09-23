@@ -94,7 +94,7 @@ WORKDIR /app
 COPY pyproject.toml README.md /app/
 COPY src /app/src
 
-RUN pip install --break-system-packages .
+RUN pip install --break-system-packages '.[pdf]'
 
 ENTRYPOINT ["pownforge"]
 CMD ["--help"]

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 
 from pownforge.core.attack_session import AttackSessionError, AttackSessionStore, add_stage, create_attack_session
@@ -67,7 +67,7 @@ def get_attack_session_report(
     format: str = "markdown",
     store: AttackSessionStore = Depends(get_attack_sessions),
     evidence: EvidenceStore = Depends(get_store),
-) -> dict[str, str]:
+):
     try:
         session = store.load(name)
     except AttackSessionError as exc:
@@ -76,6 +76,16 @@ def get_attack_session_report(
         records = [evidence.load(stage.run_id) for stage in session.stages]
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if format == "pdf":
+        try:
+            from pownforge.reporting import pdf as pdf_report
+        except ImportError as exc:
+            raise HTTPException(status_code=501, detail=str(exc)) from exc
+        return Response(
+            content=pdf_report.render_attack_session(session, records),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="attack-session-{name}.pdf"'},
+        )
     if format == "html":
         return {"html": render_html(session, records)}
     return {"markdown": render_markdown(session, records)}

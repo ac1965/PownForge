@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 
 from pownforge.ai.ollama import OllamaAdapter
@@ -30,13 +30,21 @@ def get_run(run_id: str, store: EvidenceStore = Depends(get_store)) -> RunRecord
 
 
 @router.get("/runs/{run_id}/report")
-def get_run_report(
-    run_id: str, format: str = "markdown", store: EvidenceStore = Depends(get_store)
-) -> dict[str, str]:
+def get_run_report(run_id: str, format: str = "markdown", store: EvidenceStore = Depends(get_store)):
     try:
         record = store.load(run_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if format == "pdf":
+        try:
+            from pownforge.reporting import pdf as pdf_report
+        except ImportError as exc:
+            raise HTTPException(status_code=501, detail=str(exc)) from exc
+        return Response(
+            content=pdf_report.render(record),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{run_id}.pdf"'},
+        )
     if format == "html":
         return {"html": render_html(record)}
     return {"markdown": render_markdown(record)}

@@ -195,6 +195,11 @@ export default function AttackSessions() {
             <button type="button" onClick={loadReport} disabled={loadingReport || detail.stages.length === 0}>
               {loadingReport ? "生成中..." : "レポート表示"}
             </button>
+            {detail.stages.length > 0 && (
+              <a href={api.attackSessionReportPdfUrl(detail.name)} target="_blank" rel="noreferrer">
+                PDFをダウンロード
+              </a>
+            )}
           </div>
 
           {report?.markdown && (

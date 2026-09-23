@@ -15,10 +15,14 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "pypdf>=4.0",  # tests/test_reporting_pdf.py extracts text to assert on
 ]
 web = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
+]
+pdf = [
+    "reportlab>=4.0",
 ]
 
 [project.scripts]

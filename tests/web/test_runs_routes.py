@@ -118,6 +118,17 @@ def test_get_run_report_renders_html_when_requested(tmp_path: Path) -> None:
     assert f"Run {record.run_id}" in body["html"]
 
 
+def test_get_run_report_renders_pdf_when_requested(tmp_path: Path) -> None:
+    pytest.importorskip("reportlab")
+    record = _seed_record(tmp_path)
+    client = _client(tmp_path)
+    resp = client.get(f"/api/runs/{record.run_id}/report?format=pdf")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/pdf"
+    assert resp.content.startswith(b"%PDF-")
+    assert record.run_id in resp.headers["content-disposition"]
+
+
 def test_verify_run_reports_mismatch_for_bogus_seeded_hashes(tmp_path: Path) -> None:
     # _seed_record uses placeholder hashes ("abc"/"def") that don't match the
     # seeded output, so this exercises the MISMATCH path end to end.
