@@ -324,6 +324,7 @@ pownforge analyze <run-id>
 | `pownforge result add-finding <run-id> --title <text> [--severity ... --detail ...]` | 人間が観測したfinding(`source: "manual"`)をrunに追加。既定`needs-review` |
 | `pownforge result review <run-id> <finding-id> <needs-review\|confirmed\|false-positive>` | findingの検証状態を更新 |
 | `pownforge report generate <run-id> [--format markdown\|html\|pdf]` | レポートを`.pownforge/reports/<run-id>.{md,html,pdf}`に生成。`pdf`は`pip install -e '.[pdf]'`(reportlab、Noto Sans JP埋め込みでCJK文字化けなし)が必要 |
+| `pownforge report engagement [--target <name> \| --engagement <name>] [--format markdown\|html\|pdf]` | スキャン/手動run(`RunRecord`)と検証プリミティブrun(`PrimitiveRunRecord`)を横断した1つのエンゲージメント・レポートを生成(詳細は[§13](#13-証跡とレポート))。スコープ省略時は全run。`--engagement`は`--config`が必要 |
 | `pownforge analyze <run-id> [--model ...] [--language ja\|en]` | LLMによる分析草案を出力。`--model`/`--language`省略時は`pownforge config`の保存値を使う |
 | `pownforge walkthrough generate <run-id>... \| --target <name> \| --engagement <name> [--model ...] [--language ja\|en] [--format markdown\|html]` | 複数runをまたぐ物語調ウォークスルーを生成。読み取り専用(詳細は[§11](#11-aiによる分析ウォークスルー提案))。`--engagement`はEngagement全メンバーのrunをまとめて選択(詳細は[§12](#12-target-modelとスコープ制御))。PDF出力は未対応(単一runの`report generate`/AttackSessionの`attack-session report`のみ) |
 | `pownforge config show` / `pownforge config set [--model <name>] [--language ja\|en]` | `analyze`/`walkthrough generate`が使う既定モデル・出力言語を表示/更新(詳細は[§11](#11-aiによる分析ウォークスルー提案)) |
@@ -2031,6 +2032,33 @@ Engagement外の対象への`result import --via`が拒否されること、Enga
 `EvidenceStore`が実行証跡(コマンド・タイムスタンプ・SHA-256ハッシュ)を
 1実行1JSONファイル(`.pownforge/runs/{run_id}.json`)として保存します。
 プラグインが独自形式で永続化することはありません。
+
+### 横断エンゲージメント・レポート(`report engagement`)
+
+`report generate`が1つの`RunRecord`のレポートなのに対し、
+`pownforge report engagement`は**スキャン/手動run(`RunRecord`)と検証
+プリミティブrun(`PrimitiveRunRecord`、§15)を横断**して1つの
+エンゲージメント像にまとめます。スコープは`--target`(1対象)、
+`--engagement`(Engagementのメンバー、`--config`が必要)、または省略時は
+全run。データ収集・フィルタは`core/engagement_report.py`、描画は
+`reporting/engagement.py`(Markdown/HTML)と`reporting/pdf.py::render_engagement()`
+(PDF)で、walkthroughと同じ「core=収集/reporting=描画」の分離です
+(読み取り専用、何も実行しない)。
+
+内容:
+
+- **エグゼクティブサマリー**: スキャン指摘の`summarize()`集計に加え、
+  確認済みの主張(primitive claims、confidence=confirmed)の件数、
+  クリーンアップ未検証の残留があるrun数を併記
+- **タイムライン**: 両方のrunを作成時刻で1本にマージ(scan/primitiveを
+  区別して表示)
+- **確認済みの指摘・主張**: 確認済みのスキャンFindingと、確認済みの
+  primitive Claimを同じ節に並べる(観測から導いた診断と、上位の主張を
+  1画面で)
+- **クリーンアップ未検証の残留リソース**: primitive runの
+  `residual_resources`を運用リスクとして集約
+
+出力は`<workdir>/reports/engagement-{target-<name>|engagement-<name>|all}.{md,html,pdf}`。
 
 Findingは`needs-review`(既定)/`confirmed`/`false-positive`のいずれかの
 状態を持ちます。

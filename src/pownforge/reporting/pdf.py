@@ -409,3 +409,107 @@ def render_primitive(record: PrimitiveRunRecord) -> bytes:
 
     doc.build(story)
     return buf.getvalue()
+
+
+def render_engagement(report: "EngagementReport") -> bytes:
+    """Render a cross-cutting EngagementReport (RunRecord + PrimitiveRunRecord)
+    as a PDF. Mirrors reporting/engagement.py's Markdown/HTML sections."""
+    from pownforge.core.models import ConfidenceLevel
+
+    styles = _stylesheet()
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        title=f"Engagement report — {report.scope_label}",
+        topMargin=18 * mm,
+        bottomMargin=18 * mm,
+    )
+    story: list = [
+        Paragraph(f"Engagement report — {escape(report.scope_label)}", styles["Title"]),
+        Spacer(1, 4 * mm),
+    ]
+
+    all_findings = [f for r in report.runs for f in r.findings]
+    summary = summarize(all_findings)
+    breakdown = (
+        " / ".join(f"{sev.value} {count}" for sev, count in summary.confirmed_by_severity)
+        if summary.confirmed_by_severity
+        else "0"
+    )
+    confirmed_claims = [
+        (p, c)
+        for p in report.primitive_runs
+        if p.evidence
+        for c in p.evidence.claims
+        if c.confidence == ConfidenceLevel.CONFIRMED
+    ]
+    residual = [p for p in report.primitive_runs if p.residual_resources]
+
+    story.append(
+        _kv_table(
+            [
+                ("Targets", ", ".join(report.targets()) or "(none)"),
+                ("Scan/manual runs", str(len(report.runs))),
+                ("Primitive runs", str(len(report.primitive_runs))),
+                ("確認済み指摘", breakdown),
+                ("要確認指摘", str(summary.needs_review)),
+                ("確認済みの主張", str(len(confirmed_claims))),
+                ("残留があるrun", str(len(residual))),
+            ],
+            styles,
+        )
+    )
+
+    story.append(Paragraph("タイムライン", styles["Heading2"]))
+    timeline = sorted(
+        [("scan", r.created_at, r) for r in report.runs]
+        + [("primitive", p.created_at, p) for p in report.primitive_runs],
+        key=lambda e: e[1],
+    )
+    for kind, when, record in timeline:
+        if kind == "scan":
+            text = (
+                f'<font face="Courier">{escape(when.isoformat())}</font> <b>scan</b> '
+                f"{escape(record.target)} / {escape(record.plugin)} "
+                f"(findings {len(record.findings)})"
+            )
+        else:
+            n_claims = len(record.evidence.claims) if record.evidence else 0
+            tag = " (residual)" if record.residual_resources else ""
+            text = (
+                f'<font face="Courier">{escape(when.isoformat())}</font> <b>primitive</b> '
+                f"{escape(record.target)} / {escape(record.primitive)} "
+                f"(reached {escape(record.level_reached.value)}, claims {n_claims}){tag}"
+            )
+        story.append(Paragraph(text, styles["Normal"]))
+
+    story.append(Paragraph("確認済みの指摘・主張", styles["Heading2"]))
+    confirmed_findings = [f for f in all_findings if f.status == FindingStatus.CONFIRMED]
+    if not confirmed_findings and not confirmed_claims:
+        story.append(Paragraph("確認済みの指摘・主張はまだありません。", styles["Normal"]))
+    for finding in confirmed_findings:
+        story.append(_render_finding(finding, styles))
+        story.append(Spacer(1, 1.5 * mm))
+    for prim, claim in confirmed_claims:
+        story.append(
+            Paragraph(
+                f"<b>[confirmed]</b> (primitive claim, {escape(prim.primitive)}) {escape(claim.statement)}",
+                styles["Normal"],
+            )
+        )
+
+    if residual:
+        story.append(Paragraph("クリーンアップ未検証の残留リソース", styles["Heading2"]))
+        for prim in residual:
+            for r in prim.residual_resources:
+                story.append(
+                    Paragraph(
+                        f'<font color="#c0392b">{escape(prim.run_id)} {escape(r.type)} '
+                        f"({escape(r.status.value)}): {escape(r.description)}</font>",
+                        styles["Normal"],
+                    )
+                )
+
+    doc.build(story)
+    return buf.getvalue()
