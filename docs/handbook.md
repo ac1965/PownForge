@@ -2144,7 +2144,7 @@ findingsが正しく記録・表示されることを確認してから完了と
 | --- | --- | --- |
 | **M1** | CLI + Target + Plugin Registry | ✅ 完了 |
 | **M2** | Network Plugin + Result Store | ✅ 完了 |
-| **M3** | Evidence + Markdown Report | 🟡 部分完了(保存構造・検証コマンドが当初案と異なる) |
+| **M3** | Evidence + Markdown Report | 🟡 部分完了(保存構造・検証コマンドが当初案と異なる。Markdown/HTMLに加えPDF出力(`--format pdf`、Noto Sans JP埋め込み)も実装済み) |
 | **M4** | Web/API Plugin | 🟡 部分完了(`web`/`nuclei`/`sqlmap`実装済み、API専用プラグインは未着手) |
 | **M5** | Ollama Analysis | ✅ 完了 |
 | **M6** | Kubernetes Lab | 🟡 部分完了(誤設定/RBAC/イメージ脆弱性検出に加え、攻撃チェーン検出(`kubernetes-audit`)・kube-bench連携・ダッシュボード可視化を実装。`pownforge lab`からのkindクラスタ起動は未着手) |
@@ -2198,7 +2198,6 @@ Target modelの除外対象(`excluded`)と対象ごとの同時実行数制限
 **既知の未実装項目**:
 
 - API専用プラグイン(curl/httpx)、sqlmap以外のPhase 5候補
-- PDFレポート出力
 - Plugin SDKの正式なパッケージ化(`PluginMetadata`の完全な形、`options`/
   `normalize()`戻り値の型スキーマ)
 - `identity`系プラグイン(認証情報を扱うため、`core/secrets.py::
