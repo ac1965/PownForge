@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from pownforge.core.concurrency import ConcurrencyGuard
 from pownforge.core.manual_evidence import import_manual_run
-from pownforge.core.models import KillChainPhase
+from pownforge.core.models import Capability, KillChainPhase
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.core.registry import PluginRegistry
 from pownforge.core.runner import RunnerError, ScanRunner
@@ -46,14 +46,6 @@ _KILL_CHAIN_PHASE_BY_ATTACK_PHASE: dict[AttackPhase, KillChainPhase | None] = {
     AttackPhase.PERSISTENCE: KillChainPhase.PERSISTENCE,
     AttackPhase.IMPACT: KillChainPhase.IMPACT,
 }
-
-
-class Capability(str, Enum):
-    READ_ONLY = "read-only"
-    STATE_CHANGING = "state-changing"
-    CREDENTIAL_RELATED = "credential-related"
-    NETWORK_PIVOT = "network-pivot"
-    PERSISTENCE = "persistence"
 
 
 class ActionKind(str, Enum):
@@ -374,3 +366,4 @@ class OperationRunner:
         action.run_id = record.run_id
         action.status = ActionStatus.COMPLETED
         return operation
+

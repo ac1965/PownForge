@@ -303,3 +303,17 @@ class EvidenceVerification(BaseModel):
     stdout: HashCheck
     stderr: HashCheck
     ok: bool
+
+
+class Capability(str, Enum):
+    """What effect an action can have, used both by the AttackOperation graph
+    and by a validation primitive's descriptor (core/operation.py). Ordered
+    loosely from least to most sensitive; PERSISTENCE/NETWORK_PIVOT are the
+    ones a SafetyPolicy gates explicitly."""
+
+    READ_ONLY = "read-only"
+    STATE_CHANGING = "state-changing"
+    CREDENTIAL_RELATED = "credential-related"
+    NETWORK_PIVOT = "network-pivot"
+    PERSISTENCE = "persistence"
+
