@@ -332,6 +332,12 @@ pownforge analyze <run-id>
 | `pownforge lab kind create <name> [--kind-config <yaml>] [--kubeconfig-dir config] [--allowed-plugins ...] [--no-register]` | kindクラスタを作成し、kindのDockerネットワーク内向けkubeconfig(`kind get kubeconfig --internal`)を`<kubeconfig-dir>/<name>.kubeconfig`(0600)に書き出し、`address: kind-<name>`・`type: kubernetes`のTargetとして`ScopePolicy`経由で登録(詳細は[§7](#kubeforgekind-クラスタへの接続)) |
 | `pownforge lab kind delete <name> [--purge]` | kindクラスタとkubeconfigを削除。`--purge`で登録済みTargetも削除 |
 | `pownforge lab kind list` | ホスト上のkindクラスタとcontext名の一覧 |
+| `pownforge lab provider list [--vulhub-dir <dir>]` | Vulhubチェックアウト配下のシナリオ(CVE環境)を一覧(詳細は[§7](#vulhubを外部lab-providerとして扱う)) |
+| `pownforge lab provider start <scenario> [--vulhub-dir <dir>] [--register]` | シナリオを起動(`docker compose up -d`)。`--register`で最初の公開ポートを`http://127.0.0.1:<port>`のurl対象として`ScopePolicy`経由で登録。意図的に脆弱な環境のため隔離ホストでのみ実行 |
+| `pownforge lab provider status <scenario>` | シナリオの稼働状態と公開ポート |
+| `pownforge lab provider stop <scenario>` | シナリオのコンテナを停止(`docker compose stop`) |
+| `pownforge lab provider reset <scenario>` | シナリオを作り直す(`docker compose down` + `up -d`) |
+| `pownforge lab provider cleanup <scenario> [--purge]` | シナリオをボリュームごと破棄(`docker compose down -v`)。`--purge`で自動登録した対象も削除 |
 | `pownforge lab remove <name> [--purge] [--network <name>]` | ラボホストを停止・削除 |
 | `pownforge playbook list [--playbooks-dir <dir>]` | 利用可能なPlaybookの一覧 |
 | `pownforge playbook show <name> [--playbooks-dir <dir>]` | Playbookのステップ内容を表示 |
@@ -1209,6 +1215,47 @@ pownforge lab kind delete pf-k8s --purge
 検出し、430件のfinding(`source: "tool"`)として永続化されることを
 確認した。検証に使ったkindクラスタは削除せず稼働したままにしている
 (継続してラボとして使う想定のため)。
+
+### Vulhubを外部Lab Providerとして扱う
+
+[Vulhub](https://github.com/vulhub/vulhub)(CVEごとの`docker-compose`脆弱
+環境の大規模カタログ)を、PownForgeの**検証対象環境カタログ**として
+ライフサイクル管理する層です。`core/lab.py`の`LabProvider`抽象と
+`VulhubProvider`実装が担い、CLIは`pownforge lab provider`から使います。
+
+```bash
+# Vulhubをクローンして参照(リポジトリには取り込まない=外部Provider)
+git clone https://github.com/vulhub/vulhub ../vulhub
+export POWNFORGE_VULHUB_DIR=../vulhub   # または各コマンドに --vulhub-dir
+
+pownforge lab provider list
+pownforge lab provider start log4j/CVE-2021-44228 --register
+pownforge lab provider status log4j/CVE-2021-44228
+# ここで通常のdiscovery/vuln-confirmプラグインや検証プリミティブで診断
+pownforge lab provider cleanup log4j/CVE-2021-44228 --purge
+```
+
+**設計と境界(重要)**:
+
+- Providerが行うのは**ライフサイクルのみ**(list/start/status/stop/reset/
+  cleanup)。PownForge自身はVulhub環境に対して**exploitを実行しない**
+  (AGENTS.mdの「PownForge自身はexploitを実行しない」不変条件)。診断は
+  既存のdiscovery/vuln-confirmプラグイン・検証プリミティブで行い、
+  exploit相当の工程は従来どおり人間が別ツールで実施し`result import`で
+  証跡化する
+- Vulhubは**外部Provider**として扱い、リポジトリには取り込まない。
+  `VulhubProvider(root)`はチェックアウトを指すだけで、シナリオidは
+  チェックアウト直下からの相対パス(例: `log4j/CVE-2021-44228`)。
+  パストラバーサル(`../`等でチェックアウト外を指す指定)は拒否する
+- **意図的に脆弱な環境**を起動する点に注意。Vulhubのcompose fileは
+  ポートをホスト側に公開する(全インターフェースにbindするものもある)
+  ため、隔離されたラボホストでのみ実行すること。`start`はこの旨を警告
+  として表示する。`--register`は最初の公開ポートを`127.0.0.1`のurl対象
+  として`ScopePolicy.add_target()`経由でのみ登録する(スコープ検証を
+  迂回しない)
+- `docker compose`の実行は`core/lab.py`の`VulhubProvider`に閉じ込め、
+  `LabManager`/`KindClusterManager`と同じくrunnerを注入可能にしてテスト
+  できるようにしている
 
 ## 8. Playbook: 複数プラグインの連続実行
 

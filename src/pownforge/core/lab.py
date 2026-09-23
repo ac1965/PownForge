@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import subprocess
-from dataclasses import dataclass
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
@@ -192,3 +193,179 @@ class KindClusterManager:
             for line in result.stdout.splitlines()
             if line.strip()
         ]
+
+
+# --------------------------------------------------------------------------
+# External lab providers (docs/handbook.md §7). A LabProvider manages the
+# *lifecycle* of externally-authored vulnerable environments (e.g. Vulhub's
+# per-CVE docker-compose scenarios) -- list/start/status/stop/reset/cleanup --
+# and nothing more. PownForge never runs an exploit against them: they are
+# started as controlled targets, then assessed with the ordinary
+# discovery/vuln-confirm plugins and validation primitives (see AGENTS.md's
+# "PownForge自身はexploitを実行しない" invariant). Starting a scenario runs a
+# deliberately-vulnerable container with whatever ports its compose file
+# publishes, so it is meant for an isolated lab host.
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class PublishedPort:
+    service: str
+    host_port: int
+    container_port: int
+
+
+@dataclass
+class LabScenario:
+    id: str  # provider-relative identifier, e.g. "log4j/CVE-2021-44228"
+    path: str  # absolute path to the scenario's compose directory
+    running: bool = False
+    published_ports: list[PublishedPort] = field(default_factory=list)
+
+
+class LabProvider(ABC):
+    """Lifecycle manager for an external catalogue of vulnerable
+    environments. Concrete providers shell out to their orchestrator (docker
+    compose, etc.) but never assess or exploit -- that stays with the plugins
+    and primitives operating on the registered Target."""
+
+    @abstractmethod
+    def list_scenarios(self) -> list[LabScenario]: ...
+
+    @abstractmethod
+    def start(self, scenario_id: str) -> LabScenario: ...
+
+    @abstractmethod
+    def status(self, scenario_id: str) -> LabScenario: ...
+
+    @abstractmethod
+    def stop(self, scenario_id: str) -> None: ...
+
+    @abstractmethod
+    def reset(self, scenario_id: str) -> LabScenario: ...
+
+    @abstractmethod
+    def cleanup(self, scenario_id: str) -> None: ...
+
+
+class VulhubProvider(LabProvider):
+    """LabProvider over a local Vulhub checkout (github.com/vulhub/vulhub).
+    Each scenario is a directory containing a docker-compose file; the
+    scenario id is its path relative to the checkout root (e.g.
+    "log4j/CVE-2021-44228"). Vulhub is treated as an external catalogue --
+    it is never vendored into PownForge, only pointed at."""
+
+    def __init__(self, root: Path, runner: Runner = subprocess.run) -> None:
+        self._root = root
+        self._runner = runner
+
+    def _run(self, command: list[str]) -> subprocess.CompletedProcess[str]:
+        try:
+            return self._runner(command, capture_output=True, text=True, check=False)
+        except FileNotFoundError as exc:
+            raise LabError(
+                f"'{command[0]}' is required for `pownforge lab provider` but was not found on PATH. "
+                "Install Docker (Desktop or Engine, which provides `docker compose`)."
+            ) from exc
+
+    def _compose_file(self, scenario_id: str) -> Path:
+        # Reject traversal so a scenario id can't point outside the checkout.
+        scenario_dir = (self._root / scenario_id).resolve()
+        if self._root.resolve() not in scenario_dir.parents and scenario_dir != self._root.resolve():
+            raise LabError(f"scenario '{scenario_id}' is outside the Vulhub root {self._root}")
+        for name in ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"):
+            candidate = scenario_dir / name
+            if candidate.exists():
+                return candidate
+        raise LabError(
+            f"no docker-compose file for scenario '{scenario_id}' under {self._root} "
+            "(is --vulhub-dir pointing at a Vulhub checkout?)"
+        )
+
+    def _compose(self, scenario_id: str, *args: str) -> subprocess.CompletedProcess[str]:
+        compose_file = self._compose_file(scenario_id)
+        return self._run(["docker", "compose", "-f", str(compose_file), *args])
+
+    def list_scenarios(self) -> list[LabScenario]:
+        if not self._root.exists():
+            raise LabError(
+                f"Vulhub root {self._root} does not exist; clone github.com/vulhub/vulhub "
+                "and pass --vulhub-dir (or set POWNFORGE_VULHUB_DIR)."
+            )
+        seen: set[str] = set()
+        scenarios: list[LabScenario] = []
+        for pattern in ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"):
+            for compose in self._root.rglob(pattern):
+                scenario_dir = compose.parent
+                scenario_id = str(scenario_dir.relative_to(self._root))
+                if scenario_id in seen:
+                    continue
+                seen.add(scenario_id)
+                scenarios.append(LabScenario(id=scenario_id, path=str(scenario_dir)))
+        return sorted(scenarios, key=lambda s: s.id)
+
+    def _parse_ports(self, scenario_id: str) -> tuple[bool, list[PublishedPort]]:
+        result = self._compose(scenario_id, "ps", "--format", "json")
+        if result.returncode != 0:
+            return False, []
+        ports: list[PublishedPort] = []
+        running = False
+        # `docker compose ps --format json` emits either a JSON array or one
+        # JSON object per line depending on the Compose version; handle both.
+        text = result.stdout.strip()
+        rows: list[dict[str, Any]] = []
+        if text.startswith("["):
+            try:
+                rows = json.loads(text)
+            except json.JSONDecodeError:
+                rows = []
+        else:
+            for line in text.splitlines():
+                if line.strip():
+                    try:
+                        rows.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+        for row in rows:
+            running = True
+            service = row.get("Service", "")
+            for pub in row.get("Publishers") or []:
+                published = pub.get("PublishedPort")
+                if published:
+                    ports.append(
+                        PublishedPort(
+                            service=service,
+                            host_port=int(published),
+                            container_port=int(pub.get("TargetPort", published)),
+                        )
+                    )
+        return running, ports
+
+    def status(self, scenario_id: str) -> LabScenario:
+        path = str(self._compose_file(scenario_id).parent)
+        running, ports = self._parse_ports(scenario_id)
+        return LabScenario(id=scenario_id, path=path, running=running, published_ports=ports)
+
+    def start(self, scenario_id: str) -> LabScenario:
+        result = self._compose(scenario_id, "up", "-d")
+        if result.returncode != 0:
+            raise LabError(f"failed to start scenario '{scenario_id}': {result.stderr.strip()}")
+        return self.status(scenario_id)
+
+    def stop(self, scenario_id: str) -> None:
+        result = self._compose(scenario_id, "stop")
+        if result.returncode != 0:
+            raise LabError(f"failed to stop scenario '{scenario_id}': {result.stderr.strip()}")
+
+    def reset(self, scenario_id: str) -> LabScenario:
+        # down (remove containers/networks) then up -d for a clean slate.
+        down = self._compose(scenario_id, "down")
+        if down.returncode != 0:
+            raise LabError(f"failed to reset scenario '{scenario_id}': {down.stderr.strip()}")
+        return self.start(scenario_id)
+
+    def cleanup(self, scenario_id: str) -> None:
+        # -v removes named volumes too, so no vulnerable state is left behind.
+        result = self._compose(scenario_id, "down", "-v", "--remove-orphans")
+        if result.returncode != 0:
+            raise LabError(f"failed to clean up scenario '{scenario_id}': {result.stderr.strip()}")
