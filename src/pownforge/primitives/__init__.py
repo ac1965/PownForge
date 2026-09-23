@@ -10,12 +10,24 @@ from pownforge.primitives.http_interaction import (
     ThreadedCallbackListener,
     UrllibSender,
 )
+from pownforge.primitives.jndi_lookup import (
+    JndiLookupProbePrimitive,
+    TcpCallbackListener,
+    TcpInteraction,
+    ThreadedTcpListener,
+    UrllibHeaderSender,
+)
 
 __all__ = [
     "CallbackListener",
     "HttpInteractionPrimitive",
     "HttpSender",
     "Interaction",
+    "JndiLookupProbePrimitive",
+    "TcpCallbackListener",
+    "TcpInteraction",
     "ThreadedCallbackListener",
+    "ThreadedTcpListener",
+    "UrllibHeaderSender",
     "UrllibSender",
 ]

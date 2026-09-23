@@ -2496,6 +2496,38 @@ safety:
 - `core/operation.py`: `ValidationPrimitive`(ABC)、`PrimitiveContext`、
   `ResourceRegistry`、`PrimitiveRunner`
 
+### 具体プリミティブ第2号: `jndi.oob-lookup-probe`
+
+Log4Shell(CVE-2021-44228)系の**露出指標**を、コード実行なしで検証する
+プリミティブ(`src/pownforge/primitives/jndi_lookup.py`)。制御入力に
+JNDIルックアップ風マーカー(`${jndi:ldap://<listener>/<token>}`)を注入し、
+対象がラボ内リスナーへ**外向き接続を試みるか**だけを観測します。第1号と
+同じく到達段階は`validation`止まりで、`requires_external_network=false`。
+
+**エクスプロイトではない(できない)**:
+
+- リスナーは**素のTCP accept-logger**。接続が来た事実と送信元・時刻を記録
+  して即座に閉じるだけで、LDAP/RMIを一切話さず、参照(referral)も
+  Javaクラスもペイロードも返さない。したがって観測できるのは「対象が
+  外向きルックアップを試みた」ことだけで、これはインデックス(指標)で
+  あって、これをコード実行に変える(悪性クラスを供給する)工程=エクスプロイトは
+  この框組みの対象外(§15冒頭・AGENTS.mdの不変条件)
+- nucleiやinteractshが行うOOB検出と同性質。Findingは`medium`で
+  「Log4Shell-class exposure indicator」、detailにも「no code was executed、
+  影響は`result import`等で別途確認」と明記する
+
+`--option`のキー: `header`(マーカーを載せるHTTPヘッダ、既定
+`X-Api-Version`)、`path`(既定`/`、先頭スラッシュ1個)、`timeout`
+(秒、既定5)。リスナー/送信は注入可能で、既定は実I/O
+(`ThreadedTcpListener`/`UrllibHeaderSender`、in-process)。
+
+**実機検証**: `127.0.0.1`上に、注入ヘッダから`${jndi:ldap://host:port/}`を
+取り出してそのhost:portへ生TCP接続するだけの「JNDIルックアップ疑似対象」を
+立て、`PrimitiveRunner`/CLI(`primitive run jndi.oob-lookup-probe`)から
+実行し、ループバックのコールバックが観測され`Finding`/`Claim`が生成される
+こと、リスナーが`verified_absent`まで片付くことを確認済み
+(`tests/test_jndi_lookup_primitive.py`)。
+
 ### 具体プリミティブ第1号: `http.oob-interaction`
 
 骨格の上に載せた最初の具体プリミティブ(`src/pownforge/primitives/`)。
