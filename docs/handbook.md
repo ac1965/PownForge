@@ -2180,3 +2180,30 @@ Actionのみ既存の`ScanRunner`経由で実行でき、`manual`/`pivot`はモ�
 - `AttackOperation`の`add-node`/`add-edge`(グラフ構築)のCLI公開、
   `manual`/`pivot`種別Actionの実行プロバイダ、Web UI/Emacsからの
   `AttackOperation`操作([§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)参照)
+
+### ラボ検証ロードマップ: M1〜M7の実装を実機で裏付ける
+
+上記M1〜M7は「何を実装したか」のサマリーです。2026-09-23、これが
+「実際に動くか」を体系的に確認するため、`network`/`vulncheck`/`web`/
+`nuclei`/`sqlmap`/`kubernetes`/`kubernetes-audit`/`kube-bench`/
+`container`(discovery〜vuln-confirm相当のプラグイン群、T01〜T08)と
+`playbook`/`campaign`/`attack-session`/`evidence`/`report`(横断機能、
+T09〜T12)からなるテストマトリクスを組み、
+[pownforge-vulnerable-lab](https://github.com/ac1965/pownforge-vulnerable-lab)
+として固定ラボ化しました([§7](#7-ラボネットワーク)「再現可能な固定
+ラボ」参照)。この検証は2段階に分かれます。
+
+| 段階 | 内容 | 状況 |
+| --- | --- | --- |
+| **第1段階** | PownForgeが現在実行できる範囲(discovery/vuln-confirm相当、T01〜T12)を固定ラボとして再現可能にする | ✅ 完了。T01〜T12すべて実機検証済み。副次的にM6の未検証項目だった kube-bench実機検証(ランタイムイメージのarm64ネイティブ化により解消)と、M1のCLIを拡張する形での`Campaign`機能(T09)を実装した |
+| **第2段階** | L1〜L4の脆弱環境を攻撃チェーン(Discovery〜Impactの8フェーズ)検証用ラボとして拡張する | ❌ 未着手 |
+
+**第2段階は新しいマイルストーンではありません。** PownForge自身が
+discovery/vuln-confirm相当を超えて実行する設計変更(README.mdに明記の
+一線)はせず、人間が外部ツールで実行した結果を`pownforge result import
+--phase <phase名>`(§13、[[feedback-exploitation-scope-middle-path]]で
+確認した「記録専用」の一線)で記録し、`AttackSession`で経路として可視化
+する、既に実装済みの記録専用パスをラボ環境側で使い切るための拡張です。
+つまりM1〜M7に対する新規実装ではなく、既存実装(特にM3のEvidence/
+Report、`AttackSession`)をより広いシナリオで検証する取り組みという
+位置づけになります。
