@@ -75,5 +75,10 @@ def render(record: RunRecord) -> str:
     else:
         lines.append("_`pownforge analyze` を実行すると、ここに分析草案が表示されます。_")
 
+    if record.artifacts:
+        lines += ["", "## Artifacts", ""]
+        for art in record.artifacts:
+            lines.append(f"- **{art.description}** — `{art.path}` (sha256 `{art.sha256}`)")
+
     lines += ["", "## Raw output", "", "```", str(record.output.get("raw_stdout", "")), "```"]
     return "\n".join(lines)

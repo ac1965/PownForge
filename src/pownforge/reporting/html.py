@@ -117,6 +117,15 @@ def render(record: RunRecord) -> str:
     else:
         parts.append("<p><em>`pownforge analyze` を実行すると、ここに分析草案が表示されます。</em></p>")
 
+    if record.artifacts:
+        parts.append("<h2>Artifacts</h2><ul>")
+        for art in record.artifacts:
+            parts.append(
+                f"<li><strong>{_esc(art.description)}</strong> — <code>{_esc(art.path)}</code> "
+                f"(sha256 <code>{_esc(art.sha256)}</code>)</li>"
+            )
+        parts.append("</ul>")
+
     parts += [
         "<h2>Raw output</h2>",
         f"<pre>{_esc(record.output.get('raw_stdout', ''))}</pre>",

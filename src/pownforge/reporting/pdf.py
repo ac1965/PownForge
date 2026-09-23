@@ -199,6 +199,18 @@ def render(record: RunRecord) -> bytes:
             )
         )
 
+    if record.artifacts:
+        story.append(Paragraph("Artifacts", styles["Heading2"]))
+        for art in record.artifacts:
+            story.append(
+                Paragraph(
+                    f"<b>{escape(art.description)}</b> — "
+                    f'<font face="Courier">{escape(art.path or "")}</font> '
+                    f"(sha256 {escape(art.sha256 or '')})",
+                    styles["Normal"],
+                )
+            )
+
     story.append(Paragraph("Raw output", styles["Heading2"]))
     raw = str(record.output.get("raw_stdout", ""))
     if len(raw) > _MAX_RAW_OUTPUT_CHARS:

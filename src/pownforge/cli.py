@@ -1214,6 +1214,12 @@ def result_import(
         "initial-access/privilege-escalation/lateral-movement/persistence/impact). Purely "
         "descriptive for reports/walkthroughs -- PownForge never executes anything based on it.",
     ),
+    artifact: list[Path] = typer.Option(
+        [],
+        "--artifact",
+        help="File to attach as proof (pcap, transcript, screenshot). May repeat. Copied into "
+        "the evidence store and hashed at import time.",
+    ),
     config: Path = typer.Option(DEFAULT_CONFIG),
     workdir: Path = typer.Option(DEFAULT_WORKDIR),
 ) -> None:
@@ -1237,11 +1243,17 @@ def result_import(
             engagement=engagement,
             via_target=via,
             kill_chain_phase=phase,
+            artifacts=list(artifact) or None,
         )
+    except FileNotFoundError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
     except PolicyError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(f"run {record.run_id} recorded (target={record.target}, plugin=manual)")
+    for art in record.artifacts:
+        typer.echo(f"  artifact: {art.description} -> {art.path} (sha256 {art.sha256})")
 
 
 @result_app.command("add-finding")

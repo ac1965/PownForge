@@ -2218,7 +2218,9 @@ HTML専用ダッシュボード(`walkthrough.py`のMermaid図等)を含みませ
 pownforge result import --target lab-web \
   --command "msfconsole -x 'use exploit/multi/http/apache_mod_cgi_bash_env_exec; run'" \
   --output "$(cat session.log)" \
-  --tool msfconsole --tool-version "Metasploit Framework 6.4"
+  --tool msfconsole --tool-version "Metasploit Framework 6.4" \
+  --phase exploit \
+  --artifact session.pcap --artifact screenshot.png
 
 pownforge result add-finding <run-id> --title "Shellshock RCEでシェル取得" \
   --severity critical --detail "CVE-2014-6271"
@@ -2226,7 +2228,17 @@ pownforge result add-finding <run-id> --title "Shellshock RCEでシェル取得"
 
 **PownForge自身は`--command`を一切実行しません**。あくまで「何を実行し、
 何が出力されたか」を記録するだけで、`evidence verify`による事後のハッシュ
-検証も他のプラグインと同じように機能します。`--command`は
+検証も他のプラグインと同じように機能します。
+
+**成果物の添付(`--artifact`)**: 人手のexploit工程の証拠(pcap、セッション
+記録、スクリーンショット等)を`--artifact <file>`(繰り返し可)で添付
+できます。ファイルは`EvidenceStore`が
+`<workdir>/runs/artifacts/<run-id>/<name>`へコピーし、取り込み時に
+SHA-256を計算して`RunRecord.artifacts`(`Artifact`: type/description/
+path/sha256)に記録します。存在しないパスは保存前に拒否されます。添付した
+成果物はrunレポート(Markdown/HTML/PDF)の「Artifacts」節にファイル名・
+相対パス・ハッシュ付きで表示されます。**PownForgeはこのバイト列を
+保存するだけで、生成はしません**(生成するのは人間のexploit工程)。`--command`は
 `core/secrets.py::mask_command()`でクレデンシャルらしきフラグの値を
 マスクした上で保存されます。
 

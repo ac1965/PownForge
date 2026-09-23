@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shlex
 from datetime import datetime, timezone
+from pathlib import Path
 
 from pownforge.core.models import Evidence, KillChainPhase, RunRecord, Target
 from pownforge.core.policy import PolicyError, ScopePolicy
@@ -28,6 +29,7 @@ def import_manual_run(
     engagement: str | None = None,
     via_target: str | None = None,
     kill_chain_phase: KillChainPhase | None = None,
+    artifacts: list[Path] | None = None,
 ) -> RunRecord:
     """Record evidence for a step a human performed with an external tool
     (e.g. Metasploit, a manual exploit against a single already-authorized
@@ -54,6 +56,13 @@ def import_manual_run(
     is always just "persist what the operator reports"."""
     if (engagement is None) != (via_target is None):
         raise PolicyError("engagement and via_target must be given together, or not at all")
+
+    # Validate artifact files up front so a bad path fails before anything is
+    # saved or copied.
+    artifact_paths = list(artifacts or [])
+    for path in artifact_paths:
+        if not path.is_file():
+            raise FileNotFoundError(f"artifact '{path}' does not exist or is not a file")
 
     try:
         target: Target = policy.authorize(target_name, MANUAL_PLUGIN_NAME)
@@ -90,5 +99,7 @@ def import_manual_run(
         engagement=engagement,
         kill_chain_phase=kill_chain_phase,
     )
+    for path in artifact_paths:
+        record.artifacts.append(store.import_artifact(record.run_id, path))
     store.save(record)
     return record

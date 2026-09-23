@@ -236,6 +236,12 @@ class RunRecord(BaseModel):
     # never set for a plugin-run scan). Purely descriptive metadata for
     # reports/walkthroughs -- see KillChainPhase.
     kill_chain_phase: KillChainPhase | None = None
+    # Files the operator attached on `pownforge result import --artifact`
+    # (e.g. a pcap, a session transcript, a screenshot of an exploit). Copied
+    # into the evidence store and hashed at import time; the bytes are the
+    # human-run exploit step's proof, which PownForge stores but never
+    # produces itself. Empty for ordinary plugin scans.
+    artifacts: list[Artifact] = Field(default_factory=list)
 
 
 class AttackSessionStage(BaseModel):

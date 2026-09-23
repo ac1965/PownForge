@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
-from pownforge.core.models import EvidenceVerification, HashCheck, RunRecord
-from pownforge.evidence.hashing import sha256_text
+from pownforge.core.models import Artifact, EvidenceVerification, HashCheck, RunRecord
+from pownforge.evidence.hashing import sha256_file, sha256_text
 
 
 class EvidenceStore:
@@ -28,6 +29,26 @@ class EvidenceStore:
             for path in sorted(self._runs_dir.glob("*.json"))
         ]
         return sorted(records, key=lambda r: r.created_at, reverse=True)
+
+    def import_artifact(self, run_id: str, source: Path, description: str = "") -> Artifact:
+        """Copy SOURCE into the store under artifacts/<run_id>/ and return an
+        Artifact referencing it, hashed at copy time. The stored `path` is
+        relative to the runs dir so the record stays portable. Used by
+        `result import --artifact` to retain a human-run exploit step's proof
+        (a pcap, transcript, screenshot); PownForge stores it, never produces
+        it."""
+        if not source.is_file():
+            raise FileNotFoundError(f"artifact '{source}' does not exist or is not a file")
+        dest_dir = self._runs_dir / "artifacts" / run_id
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / source.name
+        shutil.copy2(source, dest)
+        return Artifact(
+            type="manual-artifact",
+            description=description or source.name,
+            path=str(dest.relative_to(self._runs_dir)),
+            sha256=sha256_file(dest),
+        )
 
     def verify(self, run_id: str) -> EvidenceVerification:
         """Recompute stdout/stderr hashes from the stored output and compare
