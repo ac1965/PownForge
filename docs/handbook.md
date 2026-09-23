@@ -327,6 +327,7 @@ pownforge analyze <run-id>
 | `pownforge scan network --target <name> [--option k=v ...] [--live]` | networkプラグイン(nmap)を実行 |
 | `pownforge scan web --target <name> --option wordlist=<path> [--live]` | webプラグイン(ffuf)を実行 |
 | `pownforge scan api --target <name> [--option path=/... --option method=GET\|HEAD\|OPTIONS --option timeout=<秒>] [--live]` | apiプラグイン(curlで1リクエスト、ヘッダの受動チェック)を実行。`kind=url`の対象のみ。詳細は[§6](#6-プラグイン) |
+| `pownforge scan httpx --target <name> [--option paths=/,/admin,... --option paths_file=<file> --option timeout=<秒>] [--live]` | httpxプラグイン(projectdiscovery httpxで登録対象配下の複数パスを一括プローブ)を実行。`kind=url`の対象のみ。詳細は[§6](#6-プラグイン) |
 | `pownforge scan identity --target <name> [--option document=openid-configuration\|oauth-authorization-server --option timeout=<秒>] [--live]` | identityプラグイン(IdPの公開discovery文書を1回取得して記録)を実行。`kind=url`(addressはissuerのURL)。詳細は[§6](#6-プラグイン) |
 | `pownforge scan nuclei --target <name> [--option tags=... --option severity=... --option templates=...] [--live]` | nucleiプラグイン(テンプレートベースの脆弱性検出)を実行。検出結果はfinding(`source: "tool"`)として記録 |
 | `pownforge scan kubernetes --target <name> [--option namespaces=... --option severity=...] [--live]` | kubernetesプラグイン(`trivy k8s`)を実行。対象の`address`はkubeconfigのcontext名 |
@@ -743,6 +744,38 @@ pownforge scan api --target lab-api --option path=/rest/products --option method
 (`X-Content-Type-Options`欠落、CSP欠落、`Server`のバージョン表記)が
 記録されること、`method=DELETE`と`path=@evil.example/`が実行前に拒否
 されることを確認した。
+
+### httpx(projectdiscovery `httpx`)
+
+登録済みの**1つのURL対象の配下(同一origin)**を、複数パス一括で
+プローブして各URLのHTTPメタデータ(ステータス・タイトル・webserver・
+検出tech・content-length/type・リダイレクトlocation)を記録する
+**探索/フィンガープリント**プラグインです。`expected_kind`は`url`。
+`web`(ffuf、パスの総当たり探索)とは別物で、httpxは既知のURL集合を
+*性質づける*用途。findingは生成しません(`recon`/`web`/`network`と同じ
+探索フェーズ)。
+
+```bash
+pownforge target add lab-web --address http://lab-web:8080 --kind url \
+  --allowed-plugins httpx
+pownforge scan httpx --target lab-web --option paths=/,/admin,/api/health
+```
+
+`--option`のキー: `paths`(カンマ区切りの絶対パス、既定`/`)、`paths_file`
+(1行1パスのファイル、`paths`に追加)、`timeout`(秒、既定10)。
+
+**安全設計**: プローブするURLは常に`<登録addressのbase> + <絶対パス>`として
+組み立て、各パスは先頭スラッシュ1個の絶対パスに限定し(`//host`や`@host`は
+拒否)、組み立て後のURLが登録addressと同一origin(scheme/host/port一致)で
+あることを再検証してから実行する。よって1回のrunが登録済み対象の外へ
+出ることはない(AGENTS.md「登録外の対象を叩かない」)。リダイレクトは
+追わない(`-follow-redirects`なし。locationは記録するだけ)。
+
+**ツール名の衝突に注意**: projectdiscovery httpxはバイナリ名が`httpx`で、
+Pythonの`httpx`ライブラリが入れるCLIシムと名前が衝突する。このプラグインは
+**projectdiscoveryのバイナリ**を前提とするため、PATH上でそちらが先に
+来るようにする(Dockerランタイムイメージは`go install`で正しい方を導入
+済み)。
 
 ### identity(`curl`、OIDC/OAuth discovery文書)
 
@@ -2723,7 +2756,7 @@ findingsが正しく記録・表示されることを確認してから完了と
 | **M1** | CLI + Target + Plugin Registry | ✅ 完了 |
 | **M2** | Network Plugin + Result Store | ✅ 完了 |
 | **M3** | Evidence + Markdown Report | 🟡 部分完了(保存構造・検証コマンドが当初案と異なる。Markdown/HTMLに加えPDF出力(`--format pdf`、Noto Sans JP埋め込み)も実装済み) |
-| **M4** | Web/API Plugin | ✅ 完了(`web`/`nuclei`/`sqlmap`/`api`(curl)実装済み) |
+| **M4** | Web/API Plugin | ✅ 完了(`web`/`nuclei`/`sqlmap`/`api`(curl)/`httpx`(projectdiscovery)実装済み) |
 | **M5** | Ollama Analysis | ✅ 完了 |
 | **M6** | Kubernetes Lab | 🟡 部分完了(誤設定/RBAC/イメージ脆弱性検出に加え、攻撃チェーン検出(`kubernetes-audit`)・kube-bench連携・ダッシュボード可視化・`pownforge lab kind`によるkindクラスタ起動/登録をCLI・Web API/UI両方で実装) |
 | **M7** | Emacs Integration + SDK | ✅ 完了(Emacs連携、`pownforge.sdk`・entry pointによる外部プラグイン読み込み・オプションスキーマ検証を実装) |
@@ -2808,8 +2841,8 @@ Vulhubは取り込まず外部参照とし、`start --register`は最初の公�
 
 **既知の未実装項目**:
 
-- projectdiscovery `httpx`による複数URLの一括プローブ(`api`プラグインは
-  curlで1URL・1リクエストのみ)、sqlmap以外のPhase 5候補
+- sqlmap以外のPhase 5候補プラグイン(projectdiscovery `httpx`による
+  登録対象配下の複数パス一括プローブは`httpx`プラグインとして実装済み)
 - 認証情報を扱う`identity`系プラグイン(`identity`プラグインは公開
   discovery文書の取得のみで、認証情報は扱わない)
 - Web UI/Emacsからの`AttackOperation`操作(CLIのみ対応。`add-node`/

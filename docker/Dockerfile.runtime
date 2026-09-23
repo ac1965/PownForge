@@ -34,6 +34,11 @@ RUN go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest \
     && install -m755 /root/go/bin/nuclei /usr/local/bin/nuclei
 RUN go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest \
     && install -m755 /root/go/bin/subfinder /usr/local/bin/subfinder
+# projectdiscovery httpx (the `httpx` plugin). Built from source here so the
+# image gets the projectdiscovery binary, not the unrelated Python `httpx`
+# library's CLI shim that shares the name.
+RUN go install github.com/projectdiscovery/httpx/cmd/httpx@latest \
+    && install -m755 /root/go/bin/httpx /usr/local/bin/httpx
 # nuclei has no templates on its own and refuses to scan without any.
 # The pownforge-lab network is --internal (no internet at scan time by
 # design), so fetch the official templates now, at build time, while this

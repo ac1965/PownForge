@@ -1012,6 +1012,22 @@ def scan_identity(
     _run_scan("identity", target, option, config, workdir, live)
 
 
+@scan_app.command("httpx")
+def scan_httpx(
+    target: str = typer.Option(..., "--target"),
+    option: list[str] = typer.Option(
+        [], "--option", help="key=value, may repeat: paths=/,/admin,... paths_file=<file> timeout=<s>"
+    ),
+    live: bool = typer.Option(
+        False, "--live", help="Stream the underlying tool's stdout line-by-line as it runs."
+    ),
+    config: Path = typer.Option(DEFAULT_CONFIG),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+) -> None:
+    """Run the httpx plugin (bulk HTTP probe of paths on one registered url target)."""
+    _run_scan("httpx", target, option, config, workdir, live)
+
+
 @scan_app.command("nuclei")
 def scan_nuclei(
     target: str = typer.Option(..., "--target"),
