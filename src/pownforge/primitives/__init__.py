@@ -17,6 +17,12 @@ from pownforge.primitives.jndi_lookup import (
     ThreadedTcpListener,
     UrllibHeaderSender,
 )
+from pownforge.primitives.response_diff import (
+    ProbeResponse,
+    ResponseDiffPrimitive,
+    ResponseSender,
+    UrllibResponseSender,
+)
 
 __all__ = [
     "CallbackListener",
@@ -24,10 +30,14 @@ __all__ = [
     "HttpSender",
     "Interaction",
     "JndiLookupProbePrimitive",
+    "ProbeResponse",
+    "ResponseDiffPrimitive",
+    "ResponseSender",
     "TcpCallbackListener",
     "TcpInteraction",
     "ThreadedCallbackListener",
     "ThreadedTcpListener",
     "UrllibHeaderSender",
+    "UrllibResponseSender",
     "UrllibSender",
 ]

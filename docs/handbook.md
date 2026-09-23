@@ -2607,6 +2607,36 @@ safety:
 - `core/operation.py`: `ValidationPrimitive`(ABC)、`PrimitiveContext`、
   `ResourceRegistry`、`PrimitiveRunner`
 
+### 具体プリミティブ第3号: `http.response-diff`
+
+制御入力の**baseline/variant 2リクエストの応答差分**で「入力がサーバ側で
+処理されるか」を確認するプリミティブ(`src/pownforge/primitives/
+response_diff.py`)。リスナー不要・コード実行なし・到達段階は`validation`
+止まり。OOB系(第1号/第2号)と違い外向きコールバックを必要とせず、
+単純な差分オラクルとして機能します。
+
+- 注入点は`path`の`{probe}`プレースホルダ、または`header`(あるいは両方)。
+  operatorが与える**良性の値**(baseline/variant)だけを送る
+- 差分の判定次元: ステータスコード、ボディ長(`length_threshold`で無視幅を
+  指定可)、`marker`文字列の有無(任意)。いずれかが違えば「差分あり」
+- URLは`<登録base>+<絶対パス>`で組み立て、先頭スラッシュ1個の絶対パスに
+  限定し、同一originを再検証してから実行。リダイレクトは追わない。
+  リソースを生成しないためcleanupは無い
+- 差分が観測された場合のみ`Finding`(low、「差分応答を観測」)と
+  `Claim`(confirmed、「入力がサーバ側で処理される=injection系の前提条件、
+  ただしexploitではない」)を導出。露出指標であって悪用の確認ではない旨を
+  detailに明記する
+
+`--option`: `variant`(必須、差分をつける値)、`path`(既定`/`、`{probe}`可)、
+`header`、`baseline`(既定空)、`marker`、`length_threshold`(既定0)、
+`timeout`(既定10)。送信は注入可能(`ResponseSender`)で、既定は実I/O
+(`UrllibResponseSender`、in-process)。
+
+**実機検証**: `127.0.0.1`上に`?q=`の値を反射するローカルサーバーを立て、
+CLI(`primitive run http.response-diff`)から実行して応答差分が観測され
+`Finding`/`Claim`が生成されることを確認済み
+(`tests/test_response_diff_primitive.py`)。
+
 ### 具体プリミティブ第2号: `jndi.oob-lookup-probe`
 
 Log4Shell(CVE-2021-44228)系の**露出指標**を、コード実行なしで検証する

@@ -7,6 +7,7 @@ from pownforge.core.models import PrimitiveDescriptor
 from pownforge.core.operation import ValidationPrimitive
 from pownforge.primitives.http_interaction import HttpInteractionPrimitive
 from pownforge.primitives.jndi_lookup import JndiLookupProbePrimitive
+from pownforge.primitives.response_diff import ResponseDiffPrimitive
 
 
 class PrimitiveError(RuntimeError):
@@ -67,6 +68,32 @@ def _build_jndi_probe(options: dict[str, str]) -> ValidationPrimitive:
         raise PrimitiveError(str(exc)) from exc
 
 
+def _build_response_diff(options: dict[str, str]) -> ValidationPrimitive:
+    variant = options.get("variant")
+    if not variant:
+        raise PrimitiveError(
+            "http.response-diff requires --option variant=<test value> (the differing input)"
+        )
+    kwargs: dict[str, object] = {"variant": variant}
+    for key in ("path", "header", "baseline", "marker"):
+        if key in options:
+            kwargs[key] = options[key]
+    if "length_threshold" in options:
+        try:
+            kwargs["length_threshold"] = int(options["length_threshold"])
+        except ValueError as exc:
+            raise PrimitiveError("http.response-diff --option length_threshold must be an integer") from exc
+    if "timeout" in options:
+        try:
+            kwargs["timeout"] = float(options["timeout"])
+        except ValueError as exc:
+            raise PrimitiveError("http.response-diff --option timeout must be a number") from exc
+    try:
+        return ResponseDiffPrimitive(**kwargs)  # type: ignore[arg-type]
+    except ValueError as exc:
+        raise PrimitiveError(str(exc)) from exc
+
+
 _PRIMITIVES: dict[str, PrimitiveEntry] = {
     "http.oob-interaction": PrimitiveEntry(
         factory=_build_http_oob,
@@ -90,6 +117,19 @@ _PRIMITIVES: dict[str, PrimitiveEntry] = {
                 "bridge gateway 172.17.0.1.",
             ),
             PrimitiveOption("timeout", "Seconds to wait for the callback (default 5)"),
+        ],
+    ),
+    "http.response-diff": PrimitiveEntry(
+        factory=_build_response_diff,
+        sample=lambda: ResponseDiffPrimitive(variant="x", path="/{probe}"),
+        options=[
+            PrimitiveOption("variant", "The differing test value (control vs this).", True),
+            PrimitiveOption("path", "Absolute path, may contain {probe} (default /)"),
+            PrimitiveOption("header", "Header to carry the probe value (instead of/with {probe})"),
+            PrimitiveOption("baseline", "Control value (default empty)"),
+            PrimitiveOption("marker", "If set, response diff also considers this string's presence"),
+            PrimitiveOption("length_threshold", "Body-length delta to ignore (default 0)"),
+            PrimitiveOption("timeout", "Per-request timeout seconds (default 10)"),
         ],
     ),
 }
