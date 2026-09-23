@@ -30,6 +30,7 @@ from pownforge.core.operation import (
     Capability,
     OperationError,
     OperationRunner,
+    PrimitiveRunner,
     add_action,
     add_edge,
     add_node,
@@ -45,6 +46,7 @@ from pownforge.core.models import (
     TargetEnvironment,
     TargetKind,
     TargetType,
+    ValidationLevel,
 )
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.core.registry import RegistryError, default_registry
@@ -52,7 +54,9 @@ from pownforge.core.runner import RunnerError, ScanRunner
 from pownforge.core.settings import Language, load_settings, save_settings
 from pownforge.core.walkthrough import WalkthroughError, generate_walkthrough
 from pownforge.evidence.audit import AuditStore
+from pownforge.evidence.primitive_store import PrimitiveRunStore
 from pownforge.evidence.store import EvidenceStore
+from pownforge.primitives.registry import PrimitiveError, build_primitive, list_primitives
 from pownforge.plugins.base import PluginError
 from pownforge.reporting import attack_session as attack_session_rendering
 from pownforge.reporting import html as html_report
@@ -76,6 +80,10 @@ audit_app = typer.Typer(help="Inspect scan attempts that ScopePolicy rejected.")
 evidence_app = typer.Typer(help="Verify stored evidence integrity.")
 config_app = typer.Typer(help="View/update local AI assistant preferences (model, language).")
 operation_app = typer.Typer(help="Plan and execute approved attack operations.")
+primitive_app = typer.Typer(
+    help="Run validation primitives (controlled validation + evidence + cleanup; "
+    "detection/validation only, never exploit payloads -- see docs/handbook.md §15)."
+)
 
 app.add_typer(target_app, name="target")
 app.add_typer(engagement_app, name="engagement")
@@ -102,6 +110,7 @@ app.add_typer(audit_app, name="audit")
 app.add_typer(evidence_app, name="evidence")
 app.add_typer(config_app, name="config")
 app.add_typer(operation_app, name="operation")
+app.add_typer(primitive_app, name="primitive")
 
 DEFAULT_CONFIG = Path(os.environ.get("POWNFORGE_CONFIG", "config/targets.yaml"))
 DEFAULT_WORKDIR = Path(os.environ.get("POWNFORGE_HOME", ".pownforge"))
@@ -127,6 +136,10 @@ def _concurrency(workdir: Path) -> ConcurrencyGuard:
 
 def _attack_sessions(workdir: Path) -> AttackSessionStore:
     return AttackSessionStore(workdir / "attack_sessions")
+
+
+def _primitive_runs(workdir: Path) -> PrimitiveRunStore:
+    return PrimitiveRunStore(workdir / "primitive_runs")
 
 
 @app.command()
@@ -407,6 +420,109 @@ def playbook_run(
 
 def _operations(workdir: Path) -> AttackOperationStore:
     return AttackOperationStore(workdir / "operations")
+
+
+@primitive_app.command("list")
+def primitive_list() -> None:
+    """List available validation primitives and the options they accept."""
+    for descriptor, options in list_primitives():
+        typer.echo(
+            f"{descriptor.id}\t[{descriptor.category}]\tmax_level={descriptor.max_level.value}"
+            f"\t{descriptor.description}"
+        )
+        for opt in options:
+            flag = " (required)" if opt.required else ""
+            typer.echo(f"    --option {opt.name}{flag}: {opt.description}")
+
+
+@primitive_app.command("run")
+def primitive_run(
+    primitive_id: str = typer.Argument(..., help="Primitive id (see `pownforge primitive list`)."),
+    target: str = typer.Option(..., "--target"),
+    level: ValidationLevel = typer.Option(
+        ValidationLevel.VALIDATION,
+        "--level",
+        help="How far to go: detection, validation (default), or execution (dedicated lab only).",
+    ),
+    option: list[str] = typer.Option([], "--option", help="key=value, may repeat"),
+    config: Path = typer.Option(DEFAULT_CONFIG),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+) -> None:
+    """Run a validation primitive against a registered target and persist the record.
+
+    Scope and SafetyPolicy are enforced first (a refusal is recorded to the
+    audit log); the primitive then runs its prepare/execute/observe/cleanup
+    lifecycle. PownForge never runs an exploit -- see docs/handbook.md §15.
+    """
+    options: dict[str, str] = {}
+    for item in option:
+        if "=" not in item:
+            typer.echo(f"error: --option must be key=value, got '{item}'", err=True)
+            raise typer.Exit(code=1)
+        key, value = item.split("=", 1)
+        options[key] = value
+
+    try:
+        primitive = build_primitive(primitive_id, options)
+    except PrimitiveError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    runner = PrimitiveRunner(_policy(config), audit=_audit(workdir))
+    try:
+        record = runner.run(primitive, target, level)
+    except PolicyError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    _primitive_runs(workdir).save(record)
+
+    typer.echo(f"primitive run {record.run_id} completed (level_reached={record.level_reached.value})")
+    preconditions = ", ".join(f"{p.id}={p.status.value}" for p in record.preconditions.preconditions)
+    typer.echo(f"preconditions: {preconditions or '(none)'}")
+    if record.notes:
+        typer.echo(f"note: {record.notes}")
+    evidence = record.evidence
+    if evidence is not None:
+        typer.echo(
+            f"evidence: observations={len(evidence.observations)} "
+            f"findings={len(evidence.findings)} claims={len(evidence.claims)}"
+        )
+    if record.residual_resources:
+        typer.echo(
+            f"warning: {len(record.residual_resources)} resource(s) were not verified cleaned up "
+            f"(see `pownforge primitive show {record.run_id}`)",
+            err=True,
+        )
+
+
+@primitive_app.command("runs")
+def primitive_runs(workdir: Path = typer.Option(DEFAULT_WORKDIR)) -> None:
+    """List past primitive runs."""
+    records = _primitive_runs(workdir).list()
+    if not records:
+        typer.echo("no primitive runs yet; use `pownforge primitive run`")
+        raise typer.Exit()
+    for record in records:
+        residual = f"\tRESIDUAL={len(record.residual_resources)}" if record.residual_resources else ""
+        typer.echo(
+            f"{record.run_id}\t{record.primitive}\t{record.target}"
+            f"\tlevel={record.level_reached.value}\t{record.created_at.isoformat()}{residual}"
+        )
+
+
+@primitive_app.command("show")
+def primitive_show(
+    run_id: str,
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+) -> None:
+    """Show a persisted primitive run record (preconditions, evidence, cleanup)."""
+    try:
+        record = _primitive_runs(workdir).load(run_id)
+    except FileNotFoundError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(record.model_dump_json(indent=2))
 
 
 @operation_app.command("create")

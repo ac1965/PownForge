@@ -346,6 +346,10 @@ pownforge analyze <run-id>
 | `pownforge operation approve <name> <action-id> --approved-by <operator> [--note <text>]` | Actionに人間の承認を記録 |
 | `pownforge operation execute <name> <action-id>` | 承認済み`scan`種別のActionのみ、既存の`ScanRunner`経由で実行(`manual`/`pivot`は常に拒否、詳細は[§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)) |
 | `pownforge operation show <name>` | AttackOperationのnodes/edges/actions/approvalsを表示 |
+| `pownforge primitive list` | 利用可能な検証プリミティブと受け付ける`--option`を一覧表示(詳細は[§15](#15-検証プリミティブフレームワークphase-2設計骨格)) |
+| `pownforge primitive run <id> --target <name> [--level detection\|validation\|execution] [--option k=v ...]` | 検証プリミティブを対象に実行し`PrimitiveRunRecord`を保存。スコープ+SafetyPolicyを先に強制(拒否は`AuditStore`に記録)。exploitは実行しない |
+| `pownforge primitive runs` | 保存済みのプリミティブ実行を一覧表示 |
+| `pownforge primitive show <run-id>` | 保存済みプリミティブ実行(前提条件・Evidence4層・cleanup結果)をJSONで表示 |
 | `pownforge audit list` | `ScopePolicy`が拒否したスキャン実行の試みを一覧表示 |
 | `pownforge audit show <violation-id>` | 拒否された試みの詳細(JSON) |
 | `pownforge evidence verify <run-id>` | 保存済みoutputからハッシュを再計算し、証跡と一致するか確認 |
@@ -357,8 +361,9 @@ pownforge analyze <run-id>
   target/pluginを検証するため)だけが受け付ける
 - `--workdir` / `POWNFORGE_HOME`(既定: `.pownforge/`): `init`、`scan *`、
   `result *`、`report generate`、`analyze`、`walkthrough generate`、
-  `audit *`、`evidence verify`、`attack-session *`、`operation *`だけが
-  受け付ける。`walkthrough generate`は`--config`を受け付けない
+  `audit *`、`evidence verify`、`attack-session *`、`operation *`、
+  `primitive run/runs/show`だけが受け付ける。`walkthrough generate`は
+  `--config`を受け付けない
   (`EvidenceStore`上のrunを`target`文字列で絞り込むだけで、スコープの
   再照会が不要なため)
 - `plugin list/info`と`lab list`はどちらも取らない
@@ -2439,6 +2444,35 @@ safety:
 `http.oob-interaction`を実行し、実際のループバックコールバックが観測され
 `Finding`/`Claim`が生成されること、リスナーが`verified_absent`まで片付く
 ことを確認済み(`tests/test_http_interaction_primitive.py`)。
+
+### 永続化とCLI
+
+`PrimitiveRunRecord`は`PrimitiveRunStore`(`evidence/primitive_store.py`、
+`EvidenceStore`と同じ1実行1JSONの構成)で`<workdir>/primitive_runs/`に
+保存されます。`RunRecord`とは別ストアで、プリミティブ実行には
+command/stdout/stderrハッシュが無く、記録の中身は前提条件+Evidence4層+
+cleanup結果だからです。
+
+CLIは`pownforge primitive`グループから使います。
+
+```bash
+# 利用可能なプリミティブと受け付けるoptionを見る
+pownforge primitive list
+
+# 実行(スコープ+SafetyPolicyを先に強制。detection/validation/executionを選択)
+pownforge primitive run http.oob-interaction --target ssrf-lab \
+  --option 'path=/fetch?url={callback}'
+
+# 過去の実行を一覧・詳細表示
+pownforge primitive runs
+pownforge primitive show <run-id>
+```
+
+プリミティブは`primitives/registry.py`の軽量レジストリからid+optionで
+組み立てます(pluginの`--option k=v`と同じ流儀)。`primitive run`は
+`PrimitiveRunner`経由で実行し、スコープ外や安全エンベロープ超過は
+`AuditStore`に`primitive:<id>`として記録されてから拒否されます
+(例: `--level execution`を`execution_enabled=false`のスコープで要求)。
 
 ## 16. テスト
 

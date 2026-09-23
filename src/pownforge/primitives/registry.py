@@ -1,0 +1,83 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Callable
+
+from pownforge.core.models import PrimitiveDescriptor
+from pownforge.core.operation import ValidationPrimitive
+from pownforge.primitives.http_interaction import HttpInteractionPrimitive
+
+
+class PrimitiveError(RuntimeError):
+    """Raised for an unknown primitive id or bad build options."""
+
+
+@dataclass
+class PrimitiveOption:
+    name: str
+    description: str
+    required: bool = False
+
+
+@dataclass
+class PrimitiveEntry:
+    # Builds a configured primitive from `--option k=v` values.
+    factory: Callable[[dict[str, str]], ValidationPrimitive]
+    # A throwaway instance used only to read the (option-independent)
+    # descriptor for `primitive list`, keeping describe() the single source.
+    sample: Callable[[], ValidationPrimitive]
+    options: list[PrimitiveOption]
+
+
+def _build_http_oob(options: dict[str, str]) -> ValidationPrimitive:
+    path = options.get("path")
+    if not path:
+        raise PrimitiveError(
+            "http.oob-interaction requires --option path=<absolute path containing {callback}>, "
+            "e.g. --option path=/fetch?url={callback}"
+        )
+    kwargs: dict[str, object] = {}
+    if "bind_host" in options:
+        kwargs["bind_host"] = options["bind_host"]
+    if "timeout" in options:
+        try:
+            kwargs["timeout"] = float(options["timeout"])
+        except ValueError as exc:
+            raise PrimitiveError("http.oob-interaction --option timeout must be a number") from exc
+    try:
+        return HttpInteractionPrimitive(path, **kwargs)  # type: ignore[arg-type]
+    except ValueError as exc:
+        raise PrimitiveError(str(exc)) from exc
+
+
+_PRIMITIVES: dict[str, PrimitiveEntry] = {
+    "http.oob-interaction": PrimitiveEntry(
+        factory=_build_http_oob,
+        sample=lambda: HttpInteractionPrimitive("/{callback}"),
+        options=[
+            PrimitiveOption("path", "Absolute path containing {callback}, e.g. /fetch?url={callback}", True),
+            PrimitiveOption("bind_host", "Address the lab callback listener binds to (default 127.0.0.1)"),
+            PrimitiveOption("timeout", "Seconds to wait for the callback (default 5)"),
+        ],
+    ),
+}
+
+
+def build_primitive(primitive_id: str, options: dict[str, str]) -> ValidationPrimitive:
+    entry = _PRIMITIVES.get(primitive_id)
+    if entry is None:
+        raise PrimitiveError(
+            f"unknown primitive '{primitive_id}' (available: {', '.join(sorted(_PRIMITIVES))})"
+        )
+    return entry.factory(options)
+
+
+def list_primitives() -> list[tuple[PrimitiveDescriptor, list[PrimitiveOption]]]:
+    return [(entry.sample().describe(), entry.options) for entry in _PRIMITIVES.values()]
+
+
+def primitive_options(primitive_id: str) -> list[PrimitiveOption]:
+    entry = _PRIMITIVES.get(primitive_id)
+    if entry is None:
+        raise PrimitiveError(f"unknown primitive '{primitive_id}'")
+    return entry.options
