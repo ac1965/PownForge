@@ -1490,9 +1490,10 @@ pownforge web serve  # 同一オリジンでAPIとSPAの両方を配信
 ![Targets画面](images/web-targets.png)
 
 Dashboard/Targets/Lab/Runs/Run detail/Audit/New Scan/Scan live/
-Playbooks/Playbook live/Attack Session/Primitives/Walkthrough/Settingsの各画面から、
+Playbooks/Playbook live/Attack Session/Primitives/Engagement/Walkthrough/Settingsの各画面から、
 target追加・削除、labホスト起動・削除、VulhubシナリオのLab Provider操作
-(Labページ、起動/停止/破棄・url対象登録)、新規スキャン実行(ライブ進捗)、
+(Labページ、起動/停止/破棄・url対象登録)、横断エンゲージメント・レポート生成
+(Engagementページ)、新規スキャン実行(ライブ進捗)、
 Playbook実行(ステップ単位のライブ進捗、
 [§8](#8-playbook-複数プラグインの連続実行)参照)、Attack Sessionの作成・
 stage追加・レポート表示([§13](#13-証跡とレポート)の
@@ -1552,6 +1553,7 @@ medium/青=low/灰=info)付きで、検証状態(確認済み/要確認/誤検�
 | `GET /api/primitive-runs` | 保存済みプリミティブ実行の一覧 |
 | `GET /api/primitive-runs/{run_id}` | プリミティブ実行の詳細(JSON) |
 | `GET /api/primitive-runs/{run_id}/report[?format=markdown\|html\|pdf]` | プリミティブ実行のレポート(`pdf`時は`application/pdf`、未インストール時`501`) |
+| `GET /api/reports/engagement[?target=<name>\|engagement=<name>][&format=markdown\|html\|pdf]` | RunRecordとPrimitiveRunRecordを横断した1つのエンゲージメント・レポート(スコープ省略時は全run。詳細は[§13](#13-証跡とレポート)) |
 | `GET /api/audit` | `ScopePolicy`が拒否したスキャン実行の試みを一覧表示 |
 | `GET /api/audit/{violation_id}` | 拒否された試みの詳細(JSON) |
 | `POST /api/walkthroughs` | 複数runをまたぐウォークスルーを生成。詳細は[§11](#11-aiによる分析ウォークスルー提案) |

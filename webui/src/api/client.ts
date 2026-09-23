@@ -416,6 +416,22 @@ export const api = {
   primitiveRunReportPdfUrl: (runId: string) =>
     `/api/primitive-runs/${encodeURIComponent(runId)}/report?format=pdf`,
 
+  getEngagementReport: (
+    scope: { target?: string; engagement?: string },
+    format: "markdown" | "html" = "markdown",
+  ) => {
+    const params = new URLSearchParams({ format });
+    if (scope.target) params.set("target", scope.target);
+    if (scope.engagement) params.set("engagement", scope.engagement);
+    return request<{ markdown?: string; html?: string }>(`/reports/engagement?${params}`);
+  },
+  engagementReportPdfUrl: (scope: { target?: string; engagement?: string }) => {
+    const params = new URLSearchParams({ format: "pdf" });
+    if (scope.target) params.set("target", scope.target);
+    if (scope.engagement) params.set("engagement", scope.engagement);
+    return `/api/reports/engagement?${params}`;
+  },
+
   getSettings: () => request<AppSettings>("/settings"),
   updateSettings: (body: AppSettings) =>
     request<AppSettings>("/settings", { method: "PUT", body: JSON.stringify(body) }),

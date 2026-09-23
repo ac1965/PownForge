@@ -11,6 +11,7 @@ import Playbooks from "./pages/Playbooks";
 import PlaybookLive from "./pages/PlaybookLive";
 import AttackSessions from "./pages/AttackSessions";
 import Primitives from "./pages/Primitives";
+import Engagement from "./pages/Engagement";
 import Walkthrough from "./pages/Walkthrough";
 import Settings from "./pages/Settings";
 
@@ -49,6 +50,9 @@ export default function App() {
           <NavLink to="/primitives" className={navClass}>
             Primitives
           </NavLink>
+          <NavLink to="/engagement" className={navClass}>
+            Engagement
+          </NavLink>
           <NavLink to="/walkthrough/new" className={navClass}>
             Walkthrough
           </NavLink>
@@ -70,6 +74,7 @@ export default function App() {
             <Route path="/playbooks/runs/:jobId/live" element={<PlaybookLive />} />
             <Route path="/attack-sessions" element={<AttackSessions />} />
             <Route path="/primitives" element={<Primitives />} />
+            <Route path="/engagement" element={<Engagement />} />
             <Route path="/walkthrough/new" element={<Walkthrough />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
