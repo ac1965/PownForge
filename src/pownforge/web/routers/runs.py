@@ -1,17 +1,24 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+import shutil
+import tempfile
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel
 
 from pownforge.ai.ollama import OllamaAdapter
 from pownforge.core.analysis import AnalysisError, run_analysis
 from pownforge.core.findings import FindingNotFoundError, review_finding
-from pownforge.core.models import EvidenceVerification, FindingStatus, RunRecord
+from pownforge.core.manual_evidence import import_manual_run
+from pownforge.core.models import EvidenceVerification, FindingStatus, KillChainPhase, RunRecord
+from pownforge.core.policy import PolicyError, SafetyError, ScopePolicy
 from pownforge.core.settings import AppSettings, Language
+from pownforge.evidence.audit import AuditStore
 from pownforge.evidence.store import EvidenceStore
 from pownforge.reporting.html import render as render_html
 from pownforge.reporting.markdown import render as render_markdown
-from pownforge.web.deps import get_app_settings, get_store
+from pownforge.web.deps import get_app_settings, get_audit_store, get_policy, get_store
 
 router = APIRouter(tags=["runs"])
 
@@ -19,6 +26,74 @@ router = APIRouter(tags=["runs"])
 @router.get("/runs", response_model=list[RunRecord])
 def list_runs(store: EvidenceStore = Depends(get_store)) -> list[RunRecord]:
     return store.list()
+
+
+def _clean(value: str | None) -> str | None:
+    return value or None
+
+
+@router.post("/runs/import", response_model=RunRecord, status_code=201)
+async def import_run(
+    target: str = Form(...),
+    command: str = Form(...),
+    output: str = Form(...),
+    tool: str | None = Form(None),
+    tool_version: str | None = Form(None),
+    returncode: int = Form(0),
+    engagement: str | None = Form(None),
+    via: str | None = Form(None),
+    phase: str | None = Form(None),
+    cve: list[str] = Form([]),
+    artifacts: list[UploadFile] = File([]),
+    store: EvidenceStore = Depends(get_store),
+    policy: ScopePolicy = Depends(get_policy),
+    audit: AuditStore = Depends(get_audit_store),
+) -> RunRecord:
+    """Record a manually-performed exploit step (multipart, with optional
+    artifact uploads). PownForge never runs `command`; this is the web
+    equivalent of `pownforge result import` -- same ScopePolicy authorization
+    and evidence pipeline. See docs/handbook.md §13."""
+    kill_chain_phase = None
+    if _clean(phase):
+        try:
+            kill_chain_phase = KillChainPhase(phase)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=f"invalid phase '{phase}'") from exc
+
+    tmp = Path(tempfile.mkdtemp(prefix="pownforge-import-"))
+    try:
+        artifact_paths: list[Path] = []
+        for upload in artifacts:
+            if not upload.filename:
+                continue
+            dest = tmp / Path(upload.filename).name
+            with dest.open("wb") as fh:
+                shutil.copyfileobj(upload.file, fh)
+            artifact_paths.append(dest)
+        try:
+            record = import_manual_run(
+                policy,
+                store,
+                target,
+                command,
+                output,
+                tool=_clean(tool),
+                tool_version=_clean(tool_version),
+                returncode=returncode,
+                audit=audit,
+                engagement=_clean(engagement),
+                via_target=_clean(via),
+                kill_chain_phase=kill_chain_phase,
+                artifacts=artifact_paths or None,
+                cves=[c for c in cve if c.strip()] or None,
+            )
+        except SafetyError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except PolicyError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return record
 
 
 @router.get("/runs/{run_id}", response_model=RunRecord)

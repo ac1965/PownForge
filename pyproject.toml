@@ -20,6 +20,7 @@ dev = [
 web = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
+    "python-multipart>=0.0.9",  # multipart form parsing for POST /api/runs/import uploads
 ]
 pdf = [
     "reportlab>=4.0",

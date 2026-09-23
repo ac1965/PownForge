@@ -104,6 +104,8 @@ export interface RunRecord {
   via_target: string | null;
   engagement: string | null;
   kill_chain_phase: KillChainPhase | null;
+  artifacts: { id: string; type: string; description: string; path: string | null; sha256: string | null }[];
+  cves: string[];
 }
 
 export interface PluginOption {
@@ -389,6 +391,17 @@ export const api = {
 
   listRuns: () => request<RunRecord[]>("/runs"),
   getRun: (runId: string) => request<RunRecord>(`/runs/${runId}`),
+  // Manual exploit-step import: multipart (form fields + artifact uploads), so
+  // this bypasses the JSON `request` helper and lets the browser set the
+  // multipart boundary itself.
+  importRun: async (form: FormData): Promise<RunRecord> => {
+    const res = await fetch("/api/runs/import", { method: "POST", body: form });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { detail?: string };
+      throw new Error(body.detail || `${res.status} ${res.statusText}`);
+    }
+    return res.json() as Promise<RunRecord>;
+  },
   getRunReport: (runId: string) => request<{ markdown: string }>(`/runs/${runId}/report`),
   // PDF is binary, not JSON -- the browser downloads it directly from this
   // URL (e.g. via an <a href> or window.open) rather than through fetch().

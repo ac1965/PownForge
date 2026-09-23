@@ -1600,7 +1600,8 @@ Playbooks/Playbook live/Attack Session/Primitives/Engagement/Walkthrough/Setting
 target追加・削除、labホスト起動・削除、kindクラスタ操作(Labページ、作成/削除・kubernetes対象登録)、
 VulhubシナリオのLab Provider操作(Labページ、起動/停止/破棄・url対象登録)、
 横断エンゲージメント・レポート生成とCVE露出マトリクスの表示
-(Engagementページ)、新規スキャン実行(ライブ進捗)、
+(Engagementページ)、手動exploit工程の証跡登録(Importページ、成果物
+アップロード・CVEタグ付与)、新規スキャン実行(ライブ進捗)、
 Playbook実行(ステップ単位のライブ進捗、
 [§8](#8-playbook-複数プラグインの連続実行)参照)、Attack Sessionの作成・
 stage追加・レポート表示([§13](#13-証跡とレポート)の
@@ -1653,6 +1654,7 @@ medium/青=low/灰=info)付きで、検証状態(確認済み/要確認/誤検�
 | `POST /api/attack-sessions/{name}/stages` | 既存run-idを次のステージとして追加(run-id未検出時は404) |
 | `GET /api/attack-sessions/{name}/report[?format=markdown\|html\|pdf]` | 経路レポート文字列(または`format=pdf`時は`application/pdf`のバイナリ)を返す(詳細は[§13](#13-証跡とレポート)の`AttackSession`節)。`pdf`はreportlab未インストール時`501`を返す |
 | `GET /api/runs` | 実行結果の一覧 |
+| `POST /api/runs/import` | 手動exploit工程の証跡を登録(multipart。target/command/output/tool/phase/cve+成果物ファイルのアップロード)。PownForgeは`command`を実行しない。詳細は[§13](#13-証跡とレポート) |
 | `GET /api/runs/{run_id}` | 実行結果の詳細(JSON) |
 | `GET /api/runs/{run_id}/report[?format=markdown\|html\|pdf]` | レポート文字列(または`format=pdf`時は`application/pdf`のバイナリ)を返す。`pdf`はreportlab未インストール時`501`を返す |
 | `POST /api/runs/{run_id}/analyze[?model=...&language=ja\|en]` | LLMで分析・分類し、結果を永続化。省略時は`config/settings.yaml`の値を使う |
@@ -2244,7 +2246,9 @@ SHA-256を計算して`RunRecord.artifacts`(`Artifact`: type/description/
 path/sha256)に記録します。存在しないパスは保存前に拒否されます。添付した
 成果物はrunレポート(Markdown/HTML/PDF)の「Artifacts」節にファイル名・
 相対パス・ハッシュ付きで表示されます。**PownForgeはこのバイト列を
-保存するだけで、生成はしません**(生成するのは人間のexploit工程)。`--command`は
+保存するだけで、生成はしません**(生成するのは人間のexploit工程)。Web UIの
+Importページ / `POST /api/runs/import`(multipart)からも同じ登録ができ、
+成果物ファイルをそのままアップロードできます。`--command`は
 `core/secrets.py::mask_command()`でクレデンシャルらしきフラグの値を
 マスクした上で保存されます。
 

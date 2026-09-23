@@ -167,3 +167,52 @@ def test_verify_unknown_run_returns_404(tmp_path: Path) -> None:
     client = _client(tmp_path)
     resp = client.get("/api/runs/does-not-exist/verify")
     assert resp.status_code == 404
+
+
+def test_import_run_via_multipart_with_artifact(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    # register a target that allows the 'manual' plugin
+    client.post(
+        "/api/targets",
+        json={"name": "lab", "kind": "host", "address": "127.0.0.1", "allowed_plugins": ["manual"]},
+    )
+    resp = client.post(
+        "/api/runs/import",
+        data={
+            "target": "lab",
+            "command": "msfconsole -x run",
+            "output": "got shell",
+            "tool": "msfconsole",
+            "phase": "exploit",
+            "cve": ["CVE-2021-44228"],
+        },
+        files=[("artifacts", ("session.txt", b"transcript", "text/plain"))],
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["plugin"] == "manual"
+    assert body["cves"] == ["CVE-2021-44228"]
+    assert body["kill_chain_phase"] == "exploit"
+    assert len(body["artifacts"]) == 1
+    assert body["artifacts"][0]["sha256"]
+    # persisted and retrievable
+    assert client.get(f"/api/runs/{body['run_id']}").json()["cves"] == ["CVE-2021-44228"]
+
+
+def test_import_run_unregistered_target_returns_409(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    resp = client.post(
+        "/api/runs/import",
+        data={"target": "ghost", "command": "x", "output": "y"},
+    )
+    assert resp.status_code == 409
+
+
+def test_import_run_invalid_phase_returns_422(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    client.post("/api/targets", json={"name": "lab", "kind": "host", "address": "127.0.0.1"})
+    resp = client.post(
+        "/api/runs/import",
+        data={"target": "lab", "command": "x", "output": "y", "phase": "not-a-phase"},
+    )
+    assert resp.status_code == 422
