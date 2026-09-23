@@ -2706,6 +2706,39 @@ Target modelの除外対象(`excluded`)と対象ごとの同時実行数制限
 ファイルベースのクロスプロセス制御)。詳細は
 [§12](#12-target-modelとスコープ制御)を参照。
 
+**検証プリミティブ框組み(Phase 2設計、[§15](#15-検証プリミティブフレームワークphase-2設計骨格))**:
+「何ができるか」ではなく「何を検証し・何を観測し・どう元に戻したか」を中心に
+据える層を、既存の`models.py`/`policy.py`/`operation.py`に取り込んだもの。
+`SafetyPolicy`(`ScopePolicy`の下の行動エンベロープ)、第一級の`Precondition`
+(met/unmet/unknown)、Evidenceの4層化(Observation=事実/Artifact/Finding/
+Claim=推論、provenanceで区別)、`ResourceRegistry`によるcleanup検証(残留は
+第一級の結果として記録)、`ValidationPrimitive`ライフサイクルと
+`PrimitiveRunner`から成る。PownForge自身はexploitを実行せず、プリミティブの
+最上位は「制御されたコールバック観測」まで(`execution`段階は
+`execution_enabled=true`の専用ラボのみ)。具体プリミティブは
+`http.oob-interaction`(blind SSRF系)と`jndi.oob-lookup-probe`(Log4Shell系の
+露出指標、コード実行なし)の2本で、いずれもnuclei/interactshのOOB検出と
+同性質。`PrimitiveRunStore`による永続化、`pownforge primitive`
+(list/run/runs/show/report)、Markdown/HTML/PDFレポート、Web API/UI
+(`/api/primitives`系、Primitivesページ)まで実装済み。
+
+**外部Lab Provider(Vulhub連携、[§7](#vulhubを外部lab-providerとして扱う))**:
+[Vulhub](https://github.com/vulhub/vulhub)(CVEごとのdocker-compose脆弱環境)を
+**検証対象環境カタログ**としてライフサイクル管理する`LabProvider`抽象と
+`VulhubProvider`実装。`pownforge lab provider`(list/start/status/stop/reset/
+cleanup)とWeb API/UI(`/api/lab/provider`系、LabページのVulhub節)から使う。
+Vulhubは取り込まず外部参照とし、`start --register`は最初の公開ポートを
+`127.0.0.1`のurl対象として`ScopePolicy`経由でのみ登録する。ライフサイクル
+管理のみで、PownForge自身はこれらにexploitを実行しない。
+
+**横断エンゲージメント・レポート([§13](#13-証跡とレポート))**:
+スキャン/手動run(`RunRecord`)と検証プリミティブrun(`PrimitiveRunRecord`)を
+横断して1つのエンゲージメント像にまとめる読み取り専用レポート
+(`core/engagement_report.py` + `reporting/engagement.py`/pdf)。
+`pownforge report engagement`(--target/--engagement/全run)とWeb API/UI
+(`/api/reports/engagement`、Engagementページ)。確認済みのスキャンFindingと
+確認済みのprimitive Claimを同じ節に並べ、残留リソースを運用リスクとして集約する。
+
 **実装したが重複と判断し削除したもの**: `Campaign`(既存の
 `Engagement`(複数targetの名前付きグループ)と`Playbook`(1targetに対する
 静的なプラグイン連続実行)を組み合わせるだけの薄い参照層として実装した
@@ -2720,11 +2753,18 @@ Target modelの除外対象(`excluded`)と対象ごとの同時実行数制限
   curlで1URL・1リクエストのみ)、sqlmap以外のPhase 5候補
 - 認証情報を扱う`identity`系プラグイン(`identity`プラグインは公開
   discovery文書の取得のみで、認証情報は扱わない)
-- Web UI/Web APIからのkindクラスタ操作(`pownforge lab kind`はCLIのみ、
-  [§7](#kubeforgekind-クラスタへの接続)参照)
+- Web UI/Web APIからのkindクラスタ操作(`pownforge lab kind`はCLIのみ。
+  Vulhubの`lab provider`はWeb API/UI対応済み、[§7](#kubeforgekind-クラスタへの接続)参照)
 - Web UI/Emacsからの`AttackOperation`操作(CLIのみ対応。`add-node`/
   `add-edge`のCLI公開とmanual/pivot実行プロバイダは実装済み、
   [§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)参照)
+- 実Vulhubチェックアウトでの実機スモーク(`lab provider`はfake compose runnerで
+  単体検証済み。実Vulhub環境での「start→primitive run→report engagement」の
+  実機確認は、意図的に脆弱なコンテナを起動するため隔離ラボホストで実施する想定で未実施)
+- 武器化されたexploitの自動実行(RCEペイロード配信・gadget chain・
+  web/memシェル等)。**設計上の一線として実装しない**。実際の悪用工程は
+  人間が別ツールで実施し`result import`で証跡化する分離を維持する
+  (AGENTS.md「PownForge自身はexploitを実行しない」不変条件)
 
 ### ラボ検証ロードマップ: M1〜M7の実装を実機で裏付ける
 
