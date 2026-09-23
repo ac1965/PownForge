@@ -53,7 +53,7 @@ def _build_http_oob(options: dict[str, str]) -> ValidationPrimitive:
 
 def _build_jndi_probe(options: dict[str, str]) -> ValidationPrimitive:
     kwargs: dict[str, object] = {}
-    for key in ("header", "path"):
+    for key in ("header", "path", "bind_host"):
         if key in options:
             kwargs[key] = options[key]
     if "timeout" in options:
@@ -83,6 +83,12 @@ _PRIMITIVES: dict[str, PrimitiveEntry] = {
         options=[
             PrimitiveOption("header", "HTTP header to carry the JNDI-lookup marker (default X-Api-Version)"),
             PrimitiveOption("path", "Absolute path to request (default /)"),
+            PrimitiveOption(
+                "bind_host",
+                "Address the lab callback listener binds to (default 127.0.0.1). For a "
+                "containerized target, use a container-reachable host address, e.g. the docker "
+                "bridge gateway 172.17.0.1.",
+            ),
             PrimitiveOption("timeout", "Seconds to wait for the callback (default 5)"),
         ],
     ),

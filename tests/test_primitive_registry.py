@@ -48,3 +48,16 @@ def test_list_primitives_exposes_descriptor_and_options() -> None:
 def test_primitive_options_unknown() -> None:
     with pytest.raises(PrimitiveError):
         primitive_options("nope")
+
+
+def test_build_jndi_probe_passes_bind_host() -> None:
+    primitive = build_primitive("jndi.oob-lookup-probe", {"bind_host": "172.17.0.1", "header": "X-Foo"})
+    # bind_host and header reach the primitive (used at prepare/execute time)
+    assert primitive._bind_host == "172.17.0.1"  # noqa: SLF001
+    assert primitive._header == "X-Foo"  # noqa: SLF001
+
+
+def test_jndi_probe_is_listed_with_bind_host_option() -> None:
+    entries = dict((d.id, opts) for d, opts in list_primitives())
+    names = {o.name for o in entries["jndi.oob-lookup-probe"]}
+    assert {"header", "path", "bind_host", "timeout"} <= names
