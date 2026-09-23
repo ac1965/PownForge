@@ -496,6 +496,43 @@ def render_engagement(report: "EngagementReport") -> bytes:
             )
         story.append(Paragraph(text, styles["Normal"]))
 
+    exposures = report.cve_exposure()
+    if exposures:
+        story.append(Paragraph("CVE露出マトリクス", styles["Heading2"]))
+        header = ["CVE", "検出", "検証", "最高到達", "手動exploit"]
+        data = [[Paragraph(f"<b>{escape(h)}</b>", styles["Normal"]) for h in header]]
+        for e in exposures:
+            validation = ", ".join(e.primitive_ids) or "-"
+            if e.confirmed_validation:
+                validation += " (確認済)"
+            manual = (
+                f"あり {len(e.manual_run_ids)}件/証跡{e.manual_artifact_count}"
+                if e.manual_run_ids
+                else "-"
+            )
+            data.append(
+                [
+                    Paragraph(escape(e.cve), styles["Normal"]),
+                    Paragraph(escape(", ".join(e.scan_plugins) or "-"), styles["Normal"]),
+                    Paragraph(escape(validation), styles["Normal"]),
+                    Paragraph(escape(e.highest_validation or "-"), styles["Normal"]),
+                    Paragraph(escape(manual), styles["Normal"]),
+                ]
+            )
+        table = Table(data, colWidths=[32 * mm, 30 * mm, 45 * mm, 22 * mm, 36 * mm])
+        table.setStyle(
+            TableStyle(
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#cccccc")),
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f0f0f0")),
+                    ("TOPPADDING", (0, 0), (-1, -1), 3),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ]
+            )
+        )
+        story.append(table)
+
     story.append(Paragraph("確認済みの指摘・主張", styles["Heading2"]))
     confirmed_findings = [f for f in all_findings if f.status == FindingStatus.CONFIRMED]
     if not confirmed_findings and not confirmed_claims:

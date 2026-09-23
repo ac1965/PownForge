@@ -81,6 +81,25 @@ def render_markdown(report: EngagementReport) -> str:
                 f"`{prim.run_id}`"
             )
 
+    exposures = report.cve_exposure()
+    if exposures:
+        lines += ["", "## CVE露出マトリクス", ""]
+        lines.append("| CVE | 検出(scan) | 検証(primitive) | 最高到達 | 手動exploit証跡 |")
+        lines.append("| --- | --- | --- | --- | --- |")
+        for e in exposures:
+            validation = ", ".join(e.primitive_ids) or "-"
+            if e.confirmed_validation:
+                validation += " (確認済)"
+            reached = e.highest_validation or "-"
+            manual = (
+                f"あり: {len(e.manual_run_ids)}件 (証跡{e.manual_artifact_count})"
+                if e.manual_run_ids
+                else "-"
+            )
+            lines.append(
+                f"| {e.cve} | {', '.join(e.scan_plugins) or '-'} | {validation} | {reached} | {manual} |"
+            )
+
     lines += ["", "## 確認済みの指摘・主張", ""]
     confirmed_findings = [f for f in _all_findings(report) if f.status.value == "confirmed"]
     claims = _confirmed_claims(report)
@@ -175,6 +194,29 @@ def render_html(report: EngagementReport) -> str:
                 f"<code>{_esc(prim.run_id)}</code></li>"
             )
     parts.append("</ul>")
+
+    exposures = report.cve_exposure()
+    if exposures:
+        parts.append("<h2>CVE露出マトリクス</h2>")
+        parts.append(
+            "<table><thead><tr><th>CVE</th><th>検出(scan)</th><th>検証(primitive)</th>"
+            "<th>最高到達</th><th>手動exploit証跡</th></tr></thead><tbody>"
+        )
+        for e in exposures:
+            validation = _esc(", ".join(e.primitive_ids) or "-")
+            if e.confirmed_validation:
+                validation += " (確認済)"
+            manual = (
+                f"あり: {len(e.manual_run_ids)}件 (証跡{e.manual_artifact_count})"
+                if e.manual_run_ids
+                else "-"
+            )
+            parts.append(
+                f"<tr><td>{_esc(e.cve)}</td><td>{_esc(', '.join(e.scan_plugins) or '-')}</td>"
+                f"<td>{validation}</td><td>{_esc(e.highest_validation or '-')}</td>"
+                f"<td>{_esc(manual)}</td></tr>"
+            )
+        parts.append("</tbody></table>")
 
     parts.append("<h2>確認済みの指摘・主張</h2>")
     confirmed_findings = [f for f in _all_findings(report) if f.status.value == "confirmed"]

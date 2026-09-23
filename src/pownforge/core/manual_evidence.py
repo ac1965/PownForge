@@ -30,6 +30,7 @@ def import_manual_run(
     via_target: str | None = None,
     kill_chain_phase: KillChainPhase | None = None,
     artifacts: list[Path] | None = None,
+    cves: list[str] | None = None,
 ) -> RunRecord:
     """Record evidence for a step a human performed with an external tool
     (e.g. Metasploit, a manual exploit against a single already-authorized
@@ -98,6 +99,7 @@ def import_manual_run(
         via_target=via_target,
         engagement=engagement,
         kill_chain_phase=kill_chain_phase,
+        cves=list(cves or []),
     )
     for path in artifact_paths:
         record.artifacts.append(store.import_artifact(record.run_id, path))

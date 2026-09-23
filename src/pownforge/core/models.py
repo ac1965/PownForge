@@ -242,6 +242,11 @@ class RunRecord(BaseModel):
     # human-run exploit step's proof, which PownForge stores but never
     # produces itself. Empty for ordinary plugin scans.
     artifacts: list[Artifact] = Field(default_factory=list)
+    # CVE ids this run relates to (e.g. "CVE-2021-44228"), set by the operator
+    # via `result import --cve` / `result tag`. Purely a correlation label for
+    # the engagement report's CVE exposure matrix -- never inferred, never
+    # gates execution.
+    cves: list[str] = Field(default_factory=list)
 
 
 class AttackSessionStage(BaseModel):
@@ -581,3 +586,7 @@ class PrimitiveRunRecord(BaseModel):
     # a first-class result, not just an error (docs/handbook.md §15).
     residual_resources: list[ManagedResource] = Field(default_factory=list)
     notes: str = ""
+    # CVE ids this validation relates to (e.g. "CVE-2021-44228"), set via
+    # `primitive run --cve`. Correlation label for the engagement report's CVE
+    # exposure matrix -- never inferred, never gates anything.
+    cves: list[str] = Field(default_factory=list)

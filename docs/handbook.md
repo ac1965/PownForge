@@ -338,9 +338,10 @@ pownforge analyze <run-id>
 | `pownforge scan vulncheck --target <name> --option script=<許可されたNSEスクリプト名> [--option port=...] [--live]` | vulncheckプラグイン(nmapの許可リスト済み`vuln safe`スクリプト1本による既知CVE検証)を実行 |
 | `pownforge result list` | 実行結果の一覧 |
 | `pownforge result show <run-id>` | 実行結果の詳細(JSON) |
-| `pownforge result import --target <name> --command <text> --output <text> [--tool ... --tool-version ... --returncode ... --engagement <name> --via <target>]` | 人間が別ツールで実施した工程の証跡を記録(PownForgeは`--command`を実行しない)。`--engagement`/`--via`は横展開の記録用(両方同時に指定、詳細は[§12](#12-target-modelとスコープ制御))。詳細は[§13](#13-証跡とレポート) |
+| `pownforge result import --target <name> --command <text> --output <text> [--tool ... --engagement <name> --via <target> --phase <p> --artifact <file> --cve <id>]` | 人間が別ツールで実施した工程の証跡を記録(PownForgeは`--command`を実行しない)。`--engagement`/`--via`は横展開の記録用、`--phase`でKillChainフェーズ、`--artifact`(繰り返し可)で成果物をハッシュ添付、`--cve`(繰り返し可)でCVEタグ。詳細は[§13](#13-証跡とレポート) |
 | `pownforge result add-finding <run-id> --title <text> [--severity ... --detail ...]` | 人間が観測したfinding(`source: "manual"`)をrunに追加。既定`needs-review` |
 | `pownforge result review <run-id> <finding-id> <needs-review\|confirmed\|false-positive>` | findingの検証状態を更新 |
+| `pownforge result tag <run-id> --cve <id> [--cve ...] [--remove]` | 既存run(scan/manual)にCVEタグを追加/削除。`report engagement`のCVE露出マトリクスの相関キー |
 | `pownforge report generate <run-id> [--format markdown\|html\|pdf]` | レポートを`.pownforge/reports/<run-id>.{md,html,pdf}`に生成。`pdf`は`pip install -e '.[pdf]'`(reportlab、Noto Sans JP埋め込みでCJK文字化けなし)が必要 |
 | `pownforge report engagement [--target <name> \| --engagement <name>] [--format markdown\|html\|pdf]` | スキャン/手動run(`RunRecord`)と検証プリミティブrun(`PrimitiveRunRecord`)を横断した1つのエンゲージメント・レポートを生成(詳細は[§13](#13-証跡とレポート))。スコープ省略時は全run。`--engagement`は`--config`が必要 |
 | `pownforge analyze <run-id> [--model ...] [--language ja\|en]` | LLMによる分析草案を出力。`--model`/`--language`省略時は`pownforge config`の保存値を使う |
@@ -372,7 +373,7 @@ pownforge analyze <run-id>
 | `pownforge operation execute <name> <action-id>` | 承認済み`scan`種別のActionのみ、既存の`ScanRunner`経由で実行(`manual`/`pivot`は常に拒否、詳細は[§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)) |
 | `pownforge operation show <name>` | AttackOperationのnodes/edges/actions/approvalsを表示 |
 | `pownforge primitive list` | 利用可能な検証プリミティブと受け付ける`--option`を一覧表示(詳細は[§15](#15-検証プリミティブフレームワークphase-2設計骨格)) |
-| `pownforge primitive run <id> --target <name> [--level detection\|validation\|execution] [--option k=v ...]` | 検証プリミティブを対象に実行し`PrimitiveRunRecord`を保存。スコープ+SafetyPolicyを先に強制(拒否は`AuditStore`に記録)。exploitは実行しない |
+| `pownforge primitive run <id> --target <name> [--level detection\|validation\|execution] [--option k=v ...] [--cve <id>]` | 検証プリミティブを対象に実行し`PrimitiveRunRecord`を保存。スコープ+SafetyPolicyを先に強制(拒否は`AuditStore`に記録)。`--cve`でCVEタグ付与。exploitは実行しない |
 | `pownforge primitive runs` | 保存済みのプリミティブ実行を一覧表示 |
 | `pownforge primitive show <run-id>` | 保存済みプリミティブ実行(前提条件・Evidence4層・cleanup結果)をJSONで表示 |
 | `pownforge primitive report <run-id> [--format markdown\|html\|pdf]` | プリミティブ実行を`<workdir>/reports/`にレポート出力。PDFは`[pdf]` extra必要(§13と同じNoto Sans JP埋め込み) |
@@ -2174,6 +2175,11 @@ Engagement外の対象への`result import --via`が拒否されること、Enga
   1画面で)
 - **クリーンアップ未検証の残留リソース**: primitive runの
   `residual_resources`を運用リスクとして集約
+- **CVE露出マトリクス**: `--cve`で付与したタグを相関キーに、CVEごとに
+  「検出(scanプラグイン)／検証(プリミティブと最高到達段階・確認済みか)／
+  手動exploit証跡(`result import`のrun数と`--artifact`件数)」を1行にまとめ、
+  「どのCVEが・どこまで成立し・誰が実悪用を確認したか」を1表で示す
+  (CVEタグが1つも無ければ節ごと省略)
 
 出力は`<workdir>/reports/engagement-{target-<name>|engagement-<name>|all}.{md,html,pdf}`。
 

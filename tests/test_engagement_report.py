@@ -151,3 +151,62 @@ def test_pdf_renders_with_japanese() -> None:
     text = "\n".join(p.extract_text() for p in pypdf.PdfReader(io.BytesIO(data)).pages)
     assert "タイムライン" in text
     assert "oob confirmed" in text
+
+
+def _run_cve(target, when, plugin="network", cves=None):
+    r = _run(target, when)
+    r.plugin = plugin
+    r.cves = cves or []
+    return r
+
+
+def test_cve_exposure_correlates_scan_primitive_manual() -> None:
+    from pownforge.core.models import Artifact
+    scan = _run_cve("lab", _T0, plugin="nuclei", cves=["CVE-2021-44228"])
+    manual = _run_cve("lab", _T0, plugin="manual", cves=["CVE-2021-44228"])
+    manual.artifacts = [Artifact(type="manual-artifact", description="p", path="x", sha256="h")]
+    prim = _primitive("lab", _T0)
+    prim.primitive = "jndi.oob-lookup-probe"
+    prim.cves = ["CVE-2021-44228"]
+    report = collect_engagement([scan, manual], [prim], target="lab", scope_label="target: lab")
+
+    rows = report.cve_exposure()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.cve == "CVE-2021-44228"
+    assert row.scan_plugins == ["nuclei"]  # manual excluded from scan column
+    assert row.primitive_ids == ["jndi.oob-lookup-probe"]
+    assert row.highest_validation == "validation"
+    assert row.confirmed_validation is True
+    assert row.manual_run_ids == [manual.run_id]
+    assert row.manual_artifact_count == 1
+
+
+def test_cve_matrix_absent_when_no_tags() -> None:
+    report = collect_engagement([_run("lab", _T0)], [], target="lab", scope_label="target: lab")
+    assert report.cve_exposure() == []
+    assert "CVE露出マトリクス" not in engagement_report.render_markdown(report)
+
+
+def test_cve_matrix_rendered_in_markdown_and_html() -> None:
+    scan = _run_cve("lab", _T0, plugin="nuclei", cves=["CVE-2021-44228"])
+    report = collect_engagement([scan], [], target="lab", scope_label="target: lab")
+    md = engagement_report.render_markdown(report)
+    assert "## CVE露出マトリクス" in md
+    assert "CVE-2021-44228" in md and "nuclei" in md
+    html = engagement_report.render_html(report)
+    assert "CVE露出マトリクス" in html and "CVE-2021-44228" in html
+
+
+def test_cve_matrix_in_pdf() -> None:
+    import io
+    pytest.importorskip("reportlab")
+    pypdf = pytest.importorskip("pypdf")
+    from pownforge.reporting import pdf as pdf_report
+
+    scan = _run_cve("lab", _T0, plugin="nuclei", cves=["CVE-2021-44228"])
+    report = collect_engagement([scan], [], target="lab", scope_label="target: lab")
+    data = pdf_report.render_engagement(report)
+    text = "\n".join(p.extract_text() for p in pypdf.PdfReader(io.BytesIO(data)).pages)
+    assert "CVE露出マトリクス" in text
+    assert "CVE-2021-44228" in text

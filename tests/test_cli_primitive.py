@@ -153,3 +153,22 @@ def test_primitive_report_unknown_run_errors(tmp_path) -> None:
     )
     assert result.exit_code == 1
     assert "no primitive run" in result.stderr
+
+
+def test_result_tag_add_and_remove(tmp_path, ssrf_target: str) -> None:
+    from pownforge.evidence.store import EvidenceStore
+    config = tmp_path / "targets.yaml"
+    workdir = tmp_path / "state"
+    runner.invoke(app, ["target", "add", "lab", "--address", "127.0.0.1", "--kind", "host",
+                        "--allowed-plugins", "manual", "--config", str(config)])
+    runner.invoke(app, ["result", "import", "--target", "lab", "--command", "x", "--output", "y",
+                        "--config", str(config), "--workdir", str(workdir)])
+    run_id = EvidenceStore(workdir / "runs").list()[0].run_id
+
+    add = runner.invoke(app, ["result", "tag", run_id, "--cve", "CVE-2021-44228", "--workdir", str(workdir)])
+    assert add.exit_code == 0
+    assert EvidenceStore(workdir / "runs").load(run_id).cves == ["CVE-2021-44228"]
+
+    rm = runner.invoke(app, ["result", "tag", run_id, "--cve", "CVE-2021-44228", "--remove", "--workdir", str(workdir)])
+    assert rm.exit_code == 0
+    assert EvidenceStore(workdir / "runs").load(run_id).cves == []

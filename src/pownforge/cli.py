@@ -473,6 +473,9 @@ def primitive_run(
         help="How far to go: detection, validation (default), or execution (dedicated lab only).",
     ),
     option: list[str] = typer.Option([], "--option", help="key=value, may repeat"),
+    cve: list[str] = typer.Option(
+        [], "--cve", help="CVE id this validation relates to, e.g. CVE-2021-44228. May repeat."
+    ),
     config: Path = typer.Option(DEFAULT_CONFIG),
     workdir: Path = typer.Option(DEFAULT_WORKDIR),
 ) -> None:
@@ -503,6 +506,7 @@ def primitive_run(
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
+    record.cves = list(cve)
     _primitive_runs(workdir).save(record)
 
     typer.echo(f"primitive run {record.run_id} completed (level_reached={record.level_reached.value})")
@@ -1220,6 +1224,9 @@ def result_import(
         help="File to attach as proof (pcap, transcript, screenshot). May repeat. Copied into "
         "the evidence store and hashed at import time.",
     ),
+    cve: list[str] = typer.Option(
+        [], "--cve", help="CVE id this step relates to, e.g. CVE-2021-44228. May repeat."
+    ),
     config: Path = typer.Option(DEFAULT_CONFIG),
     workdir: Path = typer.Option(DEFAULT_WORKDIR),
 ) -> None:
@@ -1244,6 +1251,7 @@ def result_import(
             via_target=via,
             kill_chain_phase=phase,
             artifacts=list(artifact) or None,
+            cves=list(cve) or None,
         )
     except FileNotFoundError as exc:
         typer.echo(f"error: {exc}", err=True)
@@ -1254,6 +1262,34 @@ def result_import(
     typer.echo(f"run {record.run_id} recorded (target={record.target}, plugin=manual)")
     for art in record.artifacts:
         typer.echo(f"  artifact: {art.description} -> {art.path} (sha256 {art.sha256})")
+
+
+@result_app.command("tag")
+def result_tag(
+    run_id: str,
+    cve: list[str] = typer.Option([], "--cve", help="CVE id to add (or remove with --remove). May repeat."),
+    remove: bool = typer.Option(False, "--remove", help="Remove the given CVE ids instead of adding."),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+) -> None:
+    """Add or remove CVE tags on an existing run (scan or manual import). Tags
+    are correlation labels for `report engagement`'s CVE exposure matrix."""
+    store = _store(workdir)
+    try:
+        record = store.load(run_id)
+    except FileNotFoundError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if not cve:
+        typer.echo("error: pass at least one --cve", err=True)
+        raise typer.Exit(code=1)
+    if remove:
+        record.cves = [c for c in record.cves if c not in cve]
+    else:
+        for c in cve:
+            if c not in record.cves:
+                record.cves.append(c)
+    store.save(record)
+    typer.echo(f"run {run_id} cves: {', '.join(record.cves) or '(none)'}")
 
 
 @result_app.command("add-finding")
