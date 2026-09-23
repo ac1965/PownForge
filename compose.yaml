@@ -3,9 +3,6 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.runtime
-    # archlinux:base has no arm64 manifest; force amd64 (QEMU-emulated on
-    # Apple Silicon hosts) so the build resolves everywhere consistently.
-    platform: linux/amd64
     volumes:
       - ./config:/app/config
       - ./.pownforge:/app/.pownforge

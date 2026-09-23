@@ -218,25 +218,47 @@ source .venv/bin/activate
 ### Dockerランタイムイメージのビルド
 
 Docker上で外部ツールを揃えて動かす場合、`docker/Dockerfile.runtime`
-(Arch Linuxベース)をビルドします。Apple Silicon上でのビルドで実際に
-遭遇した問題と対応(今後同じ構成で構築する場合の参考として記録):
+(Debian bookworm-slimベース)をビルドします。
+
+```bash
+docker compose build
+```
+
+**2026-09-23、`archlinux:base`から`debian:bookworm-slim`に移行しました**
+(移行前のArch Linuxベース時代に実際に遭遇した問題と対応は次の表に
+残しています。参考情報)。理由はarm64ネイティブビルドです。
+`archlinux:base`は公式にarm64マニフェストを提供しておらず、Apple
+Silicon上では常にQEMUエミュレーション(`platform: linux/amd64`)を
+強いられていました。これは単に遅いだけでなく、**kind(arm64ネイティブ)
+上でkube-benchプラグインのin-cluster Jobがamd64専用イメージを
+解決できず起動できない**という実害につながっていました
+([pownforge-vulnerable-lab](https://github.com/ac1965/pownforge-vulnerable-lab)
+でのT07実機検証で確認、§6「kube-bench」参照)。`debian:bookworm-slim`は
+公式にマルチアーキ(amd64/arm64)対応のため、`compose.yaml`から
+`platform: linux/amd64`指定を外し、Apple Silicon上でもネイティブに
+ビルド・実行できるようにしました。Go/trivy/kubectlは配布元の公式
+マルチアーキバイナリ(`dpkg --print-architecture`でアーキを判定)を
+使っています。
+
+(参考: Arch Linuxベース時代に遭遇した問題と対応)
 
 | 問題 | 症状 | 原因 | 対応 |
 | --- | --- | --- | --- |
 | プラットフォーム不一致 | `no match for platform in manifest: not found` | `archlinux:base`にarm64向けマニフェストが無い | `docker build --platform linux/amd64`、`compose.yaml`の該当serviceに`platform: linux/amd64`を明記 |
 | pacmanサンドボックス失敗 | `error restricting syscalls via seccomp: 22!` | pacmanの新しいダウンロードサンドボックスが必要とするseccomp/user-namespace系syscallをQEMUエミュレーションが未対応 | `/etc/pacman.conf`に`DisableSandbox`を追加 |
 | ffuf/nuclei/subfinderが見つからない | `error: target not found: ffuf` | Arch公式リポジトリ(core/extra)に未収録 | `go`パッケージを追加し`go install github.com/ffuf/ffuf/v2@latest`等でソースからビルド |
-| nucleiが"no templates provided" | テンプレート0件でスキャン失敗 | 隔離`--internal`ネットワークには実行時のインターネット接続が無く、nucleiはテンプレート同梱なし | `RUN nuclei -update-templates`を**ビルド時**(インターネット接続がある間)に実行してテンプレートを焼き込む |
+| nucleiが"no templates provided" | テンプレート0件でスキャン失敗 | 隔離`--internal`ネットワークには実行時のインターネット接続が無く、nucleiはテンプレート同梱なし | `RUN nuclei -update-templates`を**ビルド時**(インターネット接続がある間)に実行してテンプレートを焼き込む(Debian移行後も同じ対応を継続) |
 
 ビルド後、ツールの実在を確認:
 
 ```bash
-docker run --rm --platform linux/amd64 --entrypoint sh pownforge:runtime \
-  -c "command -v nmap; command -v ffuf; command -v subfinder; command -v pownforge; ffuf -V; nmap --version | head -1"
+docker run --rm --entrypoint sh pownforge-pownforge:latest \
+  -c "command -v nmap; command -v ffuf; command -v subfinder; command -v trivy; command -v kubectl; command -v kube-bench; command -v pownforge"
 ```
 
-trivy/kubectl/sqlmapはDockerランタイムイメージには含めていません
-(通常、開発者のホスト上で実行することを想定。[§6](#6-プラグイン)参照)。
+sqlmapのみDockerランタイムイメージには含めていません(ホスト側の
+`.venv/bin/pownforge`から実行することを想定。[§6](#6-プラグイン)、
+[§7](#7-ラボネットワーク)参照)。
 
 ## 4. クイックスタート
 
@@ -535,25 +557,24 @@ kube-benchはcfg/ディレクトリ(CIS Benchmarkのチェック定義)がビル
 `kind load docker-image pownforge-pownforge:latest --name <cluster>`
 でイメージを読み込ませておくこと。
 
-**既知の制約(Apple Silicon)**: `docker/Dockerfile.runtime`は
-`archlinux:base`が公式にarm64マニフェストを提供していないため
-amd64限定でビルドされています(`compose.yaml`の`platform:
-linux/amd64`)。kindクラスタのノードがホストのネイティブアーキテクチャ
-(Apple Siliconではarm64)で動く場合、Jobのコンテナはノードのcontainerdが
-「no match for platform in manifest」でイメージを解決できず起動できません
-(`kind load docker-image`自体もBuildKitのattestationマニフェスト付き
-イメージで失敗することがあり、その場合は`docker save | docker exec -i
-<node> ctr --namespace=k8s.io images import -`への切り替えが必要 --
-`kubernetes-audit`実機検証時にも同じ回避策が必要だった)。`kubectl`/
-`build_command`/`normalize`のロジック自体はJobが正しく作成・スケジュール
-・wait・ログ取得まで進むことを実機で確認済みだが、このarm64制約により
-Jobコンテナの起動(=実際のCIS Benchmark実行)そのものは本セッションでは
-検証できていない。KubeForge本家はALARM(Arch Linux ARM)のrootfsを使う
-マルチステージDockerfileでこの問題を回避しているため、Apple Siliconの
-kindクラスタでkube-benchを使いたい場合は同様のarm64ネイティブビルドを
-`docker/Dockerfile.runtime`に追加するか、amd64のkindクラスタ(x86_64ホスト、
-またはRosetta/QEMUエミュレーション込みの明示的なamd64ノード)を使う必要が
-ある。
+**解消済みの制約(Apple Silicon)**: 以前は`docker/Dockerfile.runtime`が
+`archlinux:base`(公式にarm64マニフェスト無し)をamd64限定でビルドして
+いたため、arm64ネイティブなkindノードのcontainerdが「no match for
+platform in manifest」でJobのイメージを解決できず、Apple Siliconでは
+kube-bench自体(=実際のCIS Benchmark実行)を検証できていなかった。
+`docker save | ctr images import`への切り替えも試したが、これはイメージの
+インデックス(マニフェストリスト)は取り込めてもamd64のレイヤー本体は
+同じ理由で解決できず、回避策にならないことを実機で確認した。
+
+2026-09-23、`docker/Dockerfile.runtime`を`debian:bookworm-slim`
+(公式マルチアーキ)に移行し(前掲「Dockerランタイムイメージのビルド」参照)、
+`compose.yaml`の`platform: linux/amd64`指定を外した。これによりarm64
+ネイティブビルドが可能になり、
+[pownforge-vulnerable-lab](https://github.com/ac1965/pownforge-vulnerable-lab)
+のkindクラスタ(Apple Silicon上でarm64ネイティブに動作)に対して
+`kube-bench`を実行し、46件のfinding(CIS Benchmarkの`[FAIL]`項目、
+etcdデータディレクトリ権限、apiserverの`--authorization-mode`等)を
+正しく検出できることを確認した。
 
 ### container(`trivy image`)
 
@@ -770,7 +791,14 @@ KubeForge側にあり、下記「KubeForge(kindクラスタ)への接続」の�
 一時的なポート公開コンテナが必要だった(`pownforge-vulnerable-lab`の
 README.md「PownForgeからのscan例」参照)。
 
-### 安全設計
+続けて`./scripts/up.sh --with-kind`で`pownforge-vulnerable-lab`
+kindクラスタ(T07用)も起動し、`kubernetes`(24件finding)/
+`kubernetes-audit`(32件finding、RBAC権限昇格チェーンも検出)/
+`kube-bench`(46件finding)の3プラグインすべてを実行して確認した。
+`kube-bench`は前述の「解消済みの制約(Apple Silicon)」の実機検証も
+兼ねている(§6「kube-bench」参照)。これでT01〜T08のうち、コンテナを
+必要とする全項目(T08のtrivy imageのみ既存の公開イメージを直接pullする
+対象のためコンテナ不要)が実機検証済みになった。
 
 - ラボ用ネットワーク(既定名: `pownforge-lab`)は`docker network create
   --internal`で作成され、外部ネットワークへはルーティングされません

@@ -1,19 +1,33 @@
-FROM archlinux:base
+FROM debian:bookworm-slim
 
-# pacman's download sandbox needs seccomp/user-namespace syscalls that QEMU
-# emulation (e.g. linux/amd64 on an Apple Silicon host) doesn't support.
-RUN echo "DisableSandbox" >> /etc/pacman.conf
-
-RUN pacman -Syu --noconfirm \
-    python \
-    python-pip \
+# archlinux:base was used previously, but it has no official arm64 manifest
+# (Apple Silicon hosts required QEMU-emulated linux/amd64, which also broke
+# running kube-bench's in-cluster Job against an arm64-native kind node --
+# see docs/handbook.md's "既知の制約(Apple Silicon)" note). debian:bookworm
+# is officially multi-arch (amd64/arm64), so this image now builds and runs
+# natively on both.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
     nmap \
-    go \
-    && pacman -Scc --noconfirm
+    curl \
+    tar \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
-# ffuf/nuclei/subfinder aren't packaged in Arch's official repos; build them
-# from source via Go.
+# Go: installed from the official tarball rather than Debian's packaged
+# version, so ffuf/nuclei/subfinder/kube-bench below build against a current
+# Go release (avoids the stale embedded stdlib CVEs a frozen release binary
+# would carry -- same rationale as before).
+ARG GO_VERSION=1.27.1
+RUN ARCH="$(dpkg --print-architecture)" \
+    && curl -sSL -o /tmp/go.tar.gz "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" \
+    && tar -C /usr/local -xzf /tmp/go.tar.gz \
+    && rm /tmp/go.tar.gz
+ENV PATH="/usr/local/go/bin:${PATH}"
 ENV GOPATH=/root/go
+
+# ffuf/nuclei/subfinder aren't packaged for Debian; build them from source.
 RUN go install github.com/ffuf/ffuf/v2@latest \
     && install -m755 /root/go/bin/ffuf /usr/local/bin/ffuf
 RUN go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest \
@@ -26,25 +40,41 @@ RUN go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest \
 # stage still has network access.
 RUN nuclei -update-templates
 
-# Appended after the (slow, emulated) go installs above so changes here don't
-# bust their build cache. Needed by the `kubernetes` plugin (`trivy k8s`).
-RUN pacman -Sy --noconfirm trivy && pacman -Scc --noconfirm
+# trivy: official multi-arch release binary (needed by the `kubernetes`
+# plugin, "Linux-64bit"/"Linux-ARM64" per dpkg's amd64/arm64 naming).
+# Appended after the (slow) go installs above so changes here don't bust
+# their build cache.
+ARG TRIVY_VERSION=0.74.0
+RUN ARCH="$(dpkg --print-architecture)" \
+    && case "$ARCH" in \
+         amd64) TRIVY_ARCH=64bit ;; \
+         arm64) TRIVY_ARCH=ARM64 ;; \
+         *) echo "unsupported architecture: $ARCH" >&2; exit 1 ;; \
+       esac \
+    && curl -sSL -o /tmp/trivy.tar.gz \
+      "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-${TRIVY_ARCH}.tar.gz" \
+    && tar -C /usr/local/bin -xzf /tmp/trivy.tar.gz trivy \
+    && rm /tmp/trivy.tar.gz
 
-# curl/tar: needed only to fetch and unpack kube-bench's source tarball below.
-# kubectl: needed by the `kubernetes-audit`/`kube-bench` plugins (unlike the
-# `kubernetes` plugin, which only shells out to trivy). Separate RUN (not
-# folded into the first pacman block) so this doesn't bust the go-install
-# layer cache above.
-RUN pacman -Sy --noconfirm curl tar kubectl && pacman -Scc --noconfirm
+# curl/tar: needed only to fetch and unpack kube-bench's source tarball below
+# (already installed above). kubectl: needed by the `kubernetes-audit`/
+# `kube-bench` plugins (unlike the `kubernetes` plugin, which only shells out
+# to trivy). Official multi-arch release binary, same reasoning as trivy.
+RUN ARCH="$(dpkg --print-architecture)" \
+    && KUBECTL_VERSION="$(curl -sSL https://dl.k8s.io/release/stable.txt)" \
+    && curl -sSL -o /usr/local/bin/kubectl \
+      "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" \
+    && chmod +x /usr/local/bin/kubectl
 
-# kube-bench (CIS Kubernetes Benchmark) -- built from source, not `go
-# install`, because its cfg/ directory (the actual CIS benchmark check
+# kube-bench (CIS Kubernetes Benchmark) -- built from source, not a release
+# binary, because its cfg/ directory (the actual CIS benchmark check
 # definitions) isn't included in the compiled binary and has to be copied
-# out of the source tree separately. Building with the current Arch `go`
+# out of the source tree separately. Building with the current Go toolchain
 # (rather than using the upstream release binary/image) avoids the stale
 # embedded Go stdlib CVEs that a frozen release build carries -- same
 # rationale as building ffuf/nuclei/subfinder from source above. Used by the
-# `kube-bench` plugin's in-cluster Job (docs/handbook.md).
+# `kube-bench` plugin's in-cluster Job (docs/handbook.md). `go build` picks
+# the host architecture automatically, so this needs no arch-specific logic.
 ARG KUBE_BENCH_VERSION=0.16.0
 RUN set -eux; \
     curl -sSL -o /tmp/kube-bench-src.tar.gz \
