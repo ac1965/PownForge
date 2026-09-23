@@ -22,8 +22,9 @@ lab.md/web.md/emacs.md/walkthrough-report.md/walkthrough.md/roadmap.md)は
 12. [Target modelとスコープ制御](#12-target-modelとスコープ制御)
 13. [証跡とレポート](#13-証跡とレポート)
 14. [`AttackOperation`モデル：攻撃経路のモデル化と承認フロー(Phase 2設計)](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)
-15. [テスト](#15-テスト)
-16. [付録: 実装状況サマリー](#16-付録-実装状況サマリー)
+15. [検証プリミティブ・フレームワーク(Phase 2設計・骨格)](#15-検証プリミティブフレームワークphase-2設計骨格)
+16. [テスト](#16-テスト)
+17. [付録: 実装状況サマリー](#17-付録-実装状況サマリー)
 
 ---
 
@@ -931,7 +932,7 @@ pownforge scan run http-title --target <登録済みのurl対象>
 - `chain/`: L1(Initial Access)〜L4(Persistence/Impact)の攻撃チェーン
   検証用ラボ。PownForge自身は引き続きdiscovery/vuln-confirm相当までしか
   実行せず、L1以降は人間が手動実行した結果を`result import --phase`で
-  記録する(§16「ラボ検証ロードマップ」第2段階、実機検証済み)
+  記録する(§17「ラボ検証ロードマップ」第2段階、実機検証済み)
 
 **KubeForgeを置き換えるものではない。** `pownforge-vulnerable-lab/kind/`
 はPownForgeの3プラグインが検出できることを確認するための最小構成に
@@ -2294,7 +2295,116 @@ Web UI/Emacsからの操作は未対応です(`AttackSession`と異なり、CLI�
 既存経路(`execute`が実nmapスキャンを実行し`run_id`を記録)も
 リグレッションが無いことを再確認済み。
 
-## 15. テスト
+## 15. 検証プリミティブ・フレームワーク(Phase 2設計・骨格)
+
+`AttackOperation`(§14)が「攻撃経路を計画・承認する」層なのに対し、この
+フレームワークは「1つの技術を許可されたラボ内で**制御された条件で検証し、
+観測し、必ず元に戻す**」ための層です。中心概念は「何ができるか(exploit)」
+ではなく、**「何を検証し、何を観測し、どう元に戻したか」**です。
+
+> **重要な境界**: PownForge自身は引き続きexploitを実行しません(§11・
+> `KillChainPhase`の不変条件と同じ)。プリミティブが到達できる最上位は
+> あくまで*制御されたアクション*(例: ラボ内の対象がラボ管理下のリスナーへ
+> コールバックするかを観測する)で、`SafetyPolicy`が段階を制限します。
+> 武器化されたペイロード(RCEチェーン、gadget chain、webshell/memshell等)
+> はこのフレームワークの対象外で、実装しません。現時点では**骨格のみ**で、
+> 具体的な攻撃プリミティブは同梱していません。
+
+### レイヤー
+
+```text
+ScopePolicy (対象が範囲内か)
+   └─ SafetyPolicy (範囲内の対象にどこまでやってよいか)
+        └─ ValidationPrimitive
+             ├─ describe()              PrimitiveDescriptor
+             ├─ evaluate_preconditions()  PreconditionReport (met/unmet/unknown)
+             ├─ prepare()  → 生成物は ResourceRegistry に登録
+             ├─ execute()  → ctx.effective_level に応じた制御アクション
+             ├─ observe()  → Observation(観測した事実)
+             └─ cleanup()  → CleanupResult(元に戻して不在を検証)
+                  ↓
+             PrimitiveEvidence (4層)  →  PrimitiveRunRecord
+```
+
+実行は`PrimitiveRunner`が担い、プリミティブ自身は自分を実行しません
+(`Plugin`/`ScanRunner`の分離と同じ)。
+
+### ValidationLevel: Detection / Validation / Execution
+
+同じプリミティブでも到達段階を分けます。
+
+- `detection`: 「成立しうるsink/条件がある」。対象への制御アクションはしない
+- `validation`: 「制御された入力で前提条件を1つ確認した」。例: OOB
+  コールバックの観測。コード実行はしない
+- `execution`: 「許可されたラボで制御された効果を観測した」。
+  `SafetyPolicy.execution_enabled=true`のラボでのみ到達可能
+
+通常診断は`validation`で止め、専用ラボだけが`execution`へ明示的にオプトイン
+します。`execution`を要求したのにラボが許可していない場合は、黙って
+downgradeせず`SafetyError`で拒否します(下位段階へのclampは黙って行う)。
+
+### Precondition を第一級にする
+
+`Vulnerable`/`Not`の真偽値ではなく、`P1 ✓ / P4 ? / P6 ?`の状態
+(`met`/`unmet`/`unknown`)を返します(`Precondition`/`PreconditionReport`)。
+`execution`段階は全前提が`met`のときだけ実行し、`unmet`/`unknown`があれば
+その段階をスキップして理由を`PrimitiveRunRecord.notes`に記録します。
+
+### Evidence の4層 + provenance
+
+観測した事実と、そこから導いた推論を必ず分けます。
+
+| 層 | 型 | 内容 | provenance |
+| --- | --- | --- | --- |
+| Observation | `Observation` | 実際に観測したもの | `observed`(事実) |
+| Artifact | `Artifact` | 保存した証拠(path+sha256) | - |
+| Finding | `Finding`(既存) | 観測から導いた診断 | - |
+| Claim | `Claim` | 上位の主張(confidence、根拠idを保持) | `inferred` |
+
+`Observation`は常に`provenance=observed`で、「PownForgeが観測した事実」で
+あることを型で保証します。`Claim`は常に根拠(`supported_by`)を伴う推論です。
+
+### Cleanup を後処理にしない
+
+`prepare`で生成した副作用は`ResourceRegistry`に`ManagedResource`として登録し、
+`created → cleanup_attempted → verified_absent`まで記録します。cleanupが
+失敗・未検証のまま残ったリソース(`residual_resources`)は、単なるエラーでは
+なく**第一級の結果**として`PrimitiveRunRecord`に残します(「検証によって
+残った状態」も評価対象)。`SafetyPolicy.cleanup_required`が既定で真です。
+
+### SafetyPolicy(ScopePolicyの下)
+
+`config/targets.yaml`の`safety:`ブロックとして保存され、
+`ScopePolicy.authorize_primitive()`が対象スコープ→安全エンベロープの順で
+検証します。既定は保守的なプロファイルです。
+
+```yaml
+safety:
+  allowed_actions: [discovery, fingerprint, validation]
+  max_validation_level: validation
+  execution_enabled: false
+  persistence_enabled: false
+  external_network_enabled: false
+  cleanup_required: true
+```
+
+`authorize_primitive()`が拒否した試みは、通常のスキャン拒否と同様に
+`AuditStore`へ`primitive:<id>`として記録されます(この経路は迂回しない)。
+
+### 実装の置き場所
+
+新規ファイルは増やさず、既存の層に取り込んでいます。
+
+- `core/models.py`: データモデル(`ValidationLevel`、`Precondition`/
+  `PreconditionReport`、`Observation`/`Artifact`/`Claim`/`PrimitiveEvidence`、
+  `ManagedResource`/`CleanupResult`、`SafetyPolicy`、`PrimitiveDescriptor`、
+  `PrimitiveRunRecord`。`Capability`は`operation.py`からここへ移動し再エクスポート)
+- `core/policy.py`: `SafetyPolicy`のロード/保存と`authorize_primitive()`、
+  `SafetyError`(= `PolicyError`のサブクラス)
+- `core/operation.py`: `ValidationPrimitive`(ABC)、`PrimitiveContext`、
+  `ResourceRegistry`、`PrimitiveRunner`
+
+## 16. テスト
 
 ```bash
 make install
@@ -2316,7 +2426,7 @@ make test-all
 findingsが正しく記録・表示されることを確認してから完了としています
 (各プラグインの「実機検証記録」を参照)。
 
-## 16. 付録: 実装状況サマリー
+## 17. 付録: 実装状況サマリー
 
 設計当初に提示された「Phase 2〜10」のロードマップ(10フェーズ・M1〜M7
 マイルストーン)と、実際にこのリポジトリで実装した内容の対比サマリーです。

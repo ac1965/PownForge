@@ -4,17 +4,42 @@ from pathlib import Path
 
 import yaml
 
-from pownforge.core.models import Engagement, Target, TargetEnvironment
+from pownforge.core.models import (
+    AllowedAction,
+    Engagement,
+    PrimitiveDescriptor,
+    SafetyPolicy,
+    Target,
+    TargetEnvironment,
+    ValidationLevel,
+    validation_level_at_most,
+)
 
 
 class PolicyError(RuntimeError):
     """Raised when a requested action falls outside the authorized scope."""
 
 
+class SafetyError(PolicyError):
+    """Raised when an in-scope target is asked for an action beyond the
+    SafetyPolicy envelope (e.g. EXECUTION while execution_enabled is false).
+    A subclass of PolicyError so existing `except PolicyError` paths -- and
+    the AuditStore recording they do -- catch it too."""
+
+
 class ScopePolicy:
-    def __init__(self, targets: dict[str, Target], engagements: dict[str, Engagement] | None = None):
+    def __init__(
+        self,
+        targets: dict[str, Target],
+        engagements: dict[str, Engagement] | None = None,
+        safety: SafetyPolicy | None = None,
+    ):
         self._targets = targets
         self._engagements = engagements or {}
+        # The action envelope layered under scope. Defaults to the
+        # conservative profile (detection+validation only) when the config
+        # doesn't specify one -- see SafetyPolicy.
+        self._safety = safety or SafetyPolicy()
 
     @classmethod
     def load(cls, path: Path) -> ScopePolicy:
@@ -29,7 +54,8 @@ class ScopePolicy:
             name: Engagement(name=name, **fields)
             for name, fields in (data.get("engagements") or {}).items()
         }
-        return cls(targets=targets, engagements=engagements)
+        safety = SafetyPolicy(**data["safety"]) if data.get("safety") else None
+        return cls(targets=targets, engagements=engagements, safety=safety)
 
     def save(self, path: Path) -> None:
         data = {
@@ -41,9 +67,14 @@ class ScopePolicy:
                 name: engagement.model_dump(exclude={"name"}, mode="json")
                 for name, engagement in self._engagements.items()
             },
+            "safety": self._safety.model_dump(mode="json"),
         }
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
+
+    @property
+    def safety(self) -> SafetyPolicy:
+        return self._safety
 
     def add_target(self, target: Target) -> None:
         if target.name in self._targets:
@@ -83,6 +114,68 @@ class ScopePolicy:
                 f"(allowed: {', '.join(target.allowed_plugins)})"
             )
         return target
+
+    def authorize_primitive(
+        self, name: str, descriptor: PrimitiveDescriptor, requested_level: ValidationLevel
+    ) -> tuple[Target, ValidationLevel]:
+        """Authorize running a validation primitive against a target and
+        return the (target, effective_level). Scope is checked first (must be
+        registered and not excluded), then the SafetyPolicy envelope:
+
+        - the primitive's action class must be in allowed_actions;
+        - a primitive needing persistence/outbound is refused unless the
+          matching flag is enabled;
+        - the effective level is clamped to min(requested, primitive.max,
+          policy.max), and reaching EXECUTION additionally requires
+          execution_enabled.
+
+        Raises SafetyError (a PolicyError) when the envelope is exceeded, so
+        the caller's existing audit path records the refusal.
+        """
+        target = self.resolve(name)
+        if target.excluded:
+            reason = f": {target.exclusion_reason}" if target.exclusion_reason else ""
+            raise PolicyError(
+                f"target '{name}' is excluded from scanning{reason} "
+                "(run `pownforge target include` to clear it)"
+            )
+
+        if descriptor.action_class not in self._safety.allowed_actions:
+            allowed = ", ".join(a.value for a in self._safety.allowed_actions)
+            raise SafetyError(
+                f"primitive '{descriptor.id}' needs action '{descriptor.action_class.value}', "
+                f"which is not in this scope's allowed_actions ({allowed})"
+            )
+        if descriptor.requires_persistence and not self._safety.persistence_enabled:
+            raise SafetyError(
+                f"primitive '{descriptor.id}' needs persistence, which this scope's "
+                "SafetyPolicy disables (persistence_enabled=false)"
+            )
+        if descriptor.requires_external_network and not self._safety.external_network_enabled:
+            raise SafetyError(
+                f"primitive '{descriptor.id}' needs outbound network access, which this scope's "
+                "SafetyPolicy disables (external_network_enabled=false)"
+            )
+
+        # EXECUTION is opt-in and explicit. Asking for it when the lab hasn't
+        # enabled it is a refusal, not a silent downgrade to VALIDATION -- the
+        # caller asked for a controlled effect specifically. Lower-level
+        # requests (below) are clamped silently ("run as far as you safely
+        # can"), since there's no sensitive action to withhold.
+        if requested_level == ValidationLevel.EXECUTION and (
+            not self._safety.execution_enabled
+            or self._safety.max_validation_level != ValidationLevel.EXECUTION
+        ):
+            raise SafetyError(
+                f"reaching EXECUTION for primitive '{descriptor.id}' requires this scope's "
+                "SafetyPolicy to set execution_enabled=true and max_validation_level=execution "
+                "(a dedicated-lab-only setting)"
+            )
+        effective = validation_level_at_most(
+            validation_level_at_most(requested_level, descriptor.max_level),
+            self._safety.max_validation_level,
+        )
+        return target, effective
 
     def exclude_target(self, name: str, reason: str | None = None) -> Target:
         target = self.resolve(name)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -9,7 +11,24 @@ from pydantic import BaseModel, Field
 
 from pownforge.core.concurrency import ConcurrencyGuard
 from pownforge.core.manual_evidence import import_manual_run
-from pownforge.core.models import Capability, KillChainPhase
+from pownforge.core.models import (
+    Capability,
+    CleanupResult,
+    KillChainPhase,
+    ManagedResource,
+    Observation,
+    PreconditionReport,
+    PreconditionStatus,
+    PrimitiveDescriptor,
+    PrimitiveEvidence,
+    PrimitiveRunRecord,
+    Provenance,
+    ProvenanceKind,
+    ResourceStatus,
+    Target,
+    ValidationLevel,
+    validation_level_exceeds,
+)
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.core.registry import PluginRegistry
 from pownforge.core.runner import RunnerError, ScanRunner
@@ -367,3 +386,203 @@ class OperationRunner:
         action.status = ActionStatus.COMPLETED
         return operation
 
+
+# --------------------------------------------------------------------------
+# Validation-primitive lifecycle (see core/models.py for the data models and
+# core/policy.py for authorization). A primitive models "validate a technique
+# under controlled conditions, observe, and revert" -- NOT a weaponized
+# exploit. The base class ships no concrete attack; it's the contract a
+# (lab-only, detection/validation-oriented) primitive implements, plus a
+# runner that enforces scope+safety, always attempts cleanup, and records
+# residual artifacts as first-class results.
+# --------------------------------------------------------------------------
+
+
+class ResourceRegistry:
+    """Tracks the side effects a single primitive run creates so cleanup can
+    be driven and verified. In-memory per run; the final ManagedResource
+    list is persisted as part of the PrimitiveRunRecord."""
+
+    def __init__(self, owner: str) -> None:
+        self._owner = owner
+        self._resources: dict[str, ManagedResource] = {}
+
+    def register(
+        self, type: str, description: str = "", cleanup_required: bool = True
+    ) -> ManagedResource:
+        resource = ManagedResource(
+            type=type, owner=self._owner, description=description, cleanup_required=cleanup_required
+        )
+        self._resources[resource.id] = resource
+        return resource
+
+    def mark(self, resource_id: str, status: ResourceStatus) -> None:
+        self._resources[resource_id].status = status
+
+    def resources(self) -> list[ManagedResource]:
+        return list(self._resources.values())
+
+    def pending_cleanup(self) -> list[ManagedResource]:
+        return [
+            r
+            for r in self._resources.values()
+            if r.cleanup_required and r.status != ResourceStatus.VERIFIED_ABSENT
+        ]
+
+    def residual(self) -> list[ManagedResource]:
+        """Resources that still require cleanup but aren't verified absent --
+        i.e. leaked or failed-to-clean. These become ResidualArtifact evidence."""
+        return [
+            r
+            for r in self._resources.values()
+            if r.cleanup_required and r.status != ResourceStatus.VERIFIED_ABSENT
+        ]
+
+
+@dataclass
+class PrimitiveContext:
+    """Mutable state shared across one primitive run's lifecycle phases.
+    `scratch` lets prepare() hand data to execute()/observe() without the
+    primitive holding per-run state on itself (keeps primitives reusable)."""
+
+    target: Target
+    effective_level: ValidationLevel
+    run_id: str
+    registry: ResourceRegistry
+    scratch: dict[str, Any] = field(default_factory=dict)
+
+
+class ValidationPrimitive(ABC):
+    """The lifecycle contract: describe -> preconditions -> prepare ->
+    (execute) -> observe -> cleanup. The runner (PrimitiveRunner) is what
+    actually calls these in order under scope+safety enforcement; a primitive
+    never runs itself, mirroring the Plugin/ScanRunner split. Subclasses that
+    reach an authorized lab's EXECUTION stage still model a *controlled*,
+    reversible action -- concrete exploit payloads are out of scope for this
+    framework (see module docstring / docs/handbook.md §15)."""
+
+    @abstractmethod
+    def describe(self) -> PrimitiveDescriptor: ...
+
+    @abstractmethod
+    def evaluate_preconditions(self, ctx: PrimitiveContext) -> PreconditionReport:
+        """Assess each precondition against the target, returning met/unmet/
+        unknown -- never a bare boolean."""
+
+    def prepare(self, ctx: PrimitiveContext) -> None:
+        """Set up controlled test state (register any created resources on
+        ctx.registry). Default: nothing to prepare."""
+
+    def execute(self, ctx: PrimitiveContext) -> None:
+        """Perform the controlled action for ctx.effective_level. Only called
+        when the level and preconditions permit. Default: nothing (a
+        detection-only primitive)."""
+
+    @abstractmethod
+    def observe(self, ctx: PrimitiveContext) -> list[Observation]:
+        """Collect what was actually observed (facts, provenance OBSERVED)."""
+
+    def cleanup(self, ctx: PrimitiveContext) -> list[CleanupResult]:
+        """Revert side effects and verify their absence. Default: mark every
+        registered resource attempted+verified (suitable for primitives that
+        register purely in-memory bookkeeping resources; a primitive with real
+        side effects overrides this and does the actual teardown)."""
+        results: list[CleanupResult] = []
+        for resource in ctx.registry.pending_cleanup():
+            ctx.registry.mark(resource.id, ResourceStatus.CLEANUP_ATTEMPTED)
+            ctx.registry.mark(resource.id, ResourceStatus.VERIFIED_ABSENT)
+            results.append(
+                CleanupResult(resource_id=resource.id, attempted=True, verified_absent=True)
+            )
+        return results
+
+    def _observed(self, type: str, detail: str, run_id: str) -> Observation:
+        """Helper for subclasses: build an OBSERVED-provenance observation."""
+        return Observation(
+            type=type,
+            detail=detail,
+            provenance=Provenance(
+                kind=ProvenanceKind.OBSERVED, primitive=self.describe().id, run_id=run_id
+            ),
+        )
+
+
+class PrimitiveRunner:
+    """Drives a ValidationPrimitive through its lifecycle under ScopePolicy +
+    SafetyPolicy. Scope is authorized first; a refusal (out of scope, or
+    beyond the safety envelope) is recorded to AuditStore before raising,
+    exactly like ScanRunner. Cleanup is always attempted when the effective
+    level did any preparing, and residual (un-reverted) resources are surfaced
+    as a first-class part of the record rather than swallowed."""
+
+    def __init__(self, policy: ScopePolicy, audit: AuditStore | None = None) -> None:
+        self._policy = policy
+        self._audit = audit
+
+    def run(
+        self,
+        primitive: ValidationPrimitive,
+        target_name: str,
+        requested_level: ValidationLevel = ValidationLevel.VALIDATION,
+    ) -> PrimitiveRunRecord:
+        descriptor = primitive.describe()
+        try:
+            target, effective = self._policy.authorize_primitive(
+                target_name, descriptor, requested_level
+            )
+        except PolicyError as exc:
+            if self._audit is not None:
+                # plugin slot records the primitive id so the audit trail is
+                # legible next to ordinary scan rejections.
+                self._audit.record(target_name, f"primitive:{descriptor.id}", str(exc))
+            raise
+
+        record = PrimitiveRunRecord(
+            primitive=descriptor.id,
+            category=descriptor.category,
+            target=target_name,
+            requested_level=requested_level,
+            level_reached=ValidationLevel.DETECTION,
+        )
+        registry = ResourceRegistry(owner=record.run_id)
+        ctx = PrimitiveContext(
+            target=target, effective_level=effective, run_id=record.run_id, registry=registry
+        )
+
+        report = primitive.evaluate_preconditions(ctx)
+        record.preconditions = report
+
+        prepared = False
+        try:
+            # DETECTION observes only. VALIDATION/EXECUTION prepare + perform a
+            # controlled action whose depth is ctx.effective_level; the
+            # primitive inspects that to decide how far to go.
+            if validation_level_reaches(effective, ValidationLevel.VALIDATION):
+                primitive.prepare(ctx)
+                prepared = True
+                if effective == ValidationLevel.EXECUTION and report.blocks_execution():
+                    # A precondition is unmet/unknown: don't perform the
+                    # EXECUTION-depth effect. Downgrade the controlled action
+                    # to VALIDATION and record why.
+                    ctx.effective_level = ValidationLevel.VALIDATION
+                    record.notes = (
+                        "execution skipped: not all preconditions met "
+                        f"({', '.join(p.id for p in report.preconditions if p.status != PreconditionStatus.MET)})"
+                    )
+                primitive.execute(ctx)
+                record.level_reached = ctx.effective_level
+            observations = primitive.observe(ctx)
+            record.evidence = PrimitiveEvidence(
+                target=target_name, primitive=descriptor.id, observations=observations
+            )
+        finally:
+            if prepared:
+                record.cleanup = primitive.cleanup(ctx)
+            record.resources = registry.resources()
+            record.residual_resources = registry.residual()
+        return record
+
+
+def validation_level_reaches(level: ValidationLevel, at_least: ValidationLevel) -> bool:
+    """True if LEVEL is AT_LEAST the given stage (inclusive)."""
+    return not validation_level_exceeds(at_least, level)

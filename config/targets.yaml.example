@@ -23,3 +23,14 @@
 #   pownforge lab add lab-web --image bkimminich/juice-shop \
 #     --kind url --port 3000 --allowed-plugins web,network
 targets: {}
+
+# 検証プリミティブ・フレームワーク(docs/handbook.md §15)のSafetyPolicy。
+# 省略時は下記の保守的な既定(detection+validationのみ、execution/persistence/
+# 外部接続は無効、cleanup必須)が適用される。専用ラボでのみ明示的に緩める。
+# safety:
+#   allowed_actions: [discovery, fingerprint, validation]
+#   max_validation_level: validation
+#   execution_enabled: false
+#   persistence_enabled: false
+#   external_network_enabled: false
+#   cleanup_required: true
