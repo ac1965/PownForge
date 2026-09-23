@@ -6,7 +6,7 @@ from fastapi import Depends, Request
 
 from pownforge.core.attack_session import AttackSessionStore
 from pownforge.core.concurrency import ConcurrencyGuard
-from pownforge.core.lab import LabManager, VulhubProvider
+from pownforge.core.lab import KindClusterManager, LabManager, VulhubProvider
 from pownforge.core.operation import PrimitiveRunner
 from pownforge.core.policy import ScopePolicy
 from pownforge.core.registry import PluginRegistry, default_registry
@@ -98,6 +98,14 @@ def get_vulhub_dir(request: Request) -> Path:
 
 def get_vulhub_provider(vulhub_dir: Path = Depends(get_vulhub_dir)) -> VulhubProvider:
     return VulhubProvider(vulhub_dir)
+
+
+def get_kubeconfig_dir(request: Request) -> Path:
+    return request.app.state.kubeconfig_dir
+
+
+def get_kind_manager() -> KindClusterManager:
+    return KindClusterManager()
 
 
 def get_job_manager(request: Request) -> JobManager:

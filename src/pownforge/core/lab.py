@@ -126,6 +126,16 @@ def kind_context_name(cluster: str) -> str:
     return f"kind-{cluster}"
 
 
+def kind_kubeconfig_path(kubeconfig_dir: Path, name: str) -> Path:
+    """Where a kind cluster's exported kubeconfig is written. Shared by the CLI
+    and the web API so the layout rule lives in one place."""
+    return kubeconfig_dir / f"{name}.kubeconfig"
+
+
+# Default plugins a kind-registered Kubernetes target is authorized for.
+KIND_DEFAULT_ALLOWED_PLUGINS = ["kubernetes", "kubernetes-audit", "kube-bench"]
+
+
 @dataclass
 class KindCluster:
     name: str

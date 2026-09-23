@@ -1563,8 +1563,9 @@ pownforge web serve  # 同一オリジンでAPIとSPAの両方を配信
 
 Dashboard/Targets/Lab/Runs/Run detail/Audit/New Scan/Scan live/
 Playbooks/Playbook live/Attack Session/Primitives/Engagement/Walkthrough/Settingsの各画面から、
-target追加・削除、labホスト起動・削除、VulhubシナリオのLab Provider操作
-(Labページ、起動/停止/破棄・url対象登録)、横断エンゲージメント・レポート生成
+target追加・削除、labホスト起動・削除、kindクラスタ操作(Labページ、作成/削除・kubernetes対象登録)、
+VulhubシナリオのLab Provider操作(Labページ、起動/停止/破棄・url対象登録)、
+横断エンゲージメント・レポート生成
 (Engagementページ)、新規スキャン実行(ライブ進捗)、
 Playbook実行(ステップ単位のライブ進捗、
 [§8](#8-playbook-複数プラグインの連続実行)参照)、Attack Sessionの作成・
@@ -1597,6 +1598,9 @@ medium/青=low/灰=info)付きで、検証状態(確認済み/要確認/誤検�
 | `GET /api/lab` | 稼働中/停止中のラボホスト一覧 |
 | `POST /api/lab` | ラボホストを起動(既定でスコープにも自動登録) |
 | `DELETE /api/lab/{name}?purge=true` | ラボホストを削除 |
+| `GET /api/lab/kind` | kindクラスタ一覧(name/context) |
+| `POST /api/lab/kind` | kindクラスタを作成(`{name, register_target, allowed_plugins}`)。内部向けkubeconfigを書き出し、`kind-<name>`をkubernetes対象として`ScopePolicy`経由で登録 |
+| `DELETE /api/lab/kind/{name}?purge=true` | kindクラスタとkubeconfigを削除。`purge`で登録対象も削除 |
 | `GET /api/lab/provider/scenarios` | Vulhubシナリオ一覧(詳細は[§7](#vulhubを外部lab-providerとして扱う)) |
 | `GET /api/lab/provider/status?scenario=<id>` | シナリオの稼働状態と公開ポート |
 | `POST /api/lab/provider/start` | シナリオを起動(`{scenario, register_target}`)。`register_target`で最初の公開ポートを`127.0.0.1`のurl対象として登録 |
@@ -2721,7 +2725,7 @@ findingsが正しく記録・表示されることを確認してから完了と
 | **M3** | Evidence + Markdown Report | 🟡 部分完了(保存構造・検証コマンドが当初案と異なる。Markdown/HTMLに加えPDF出力(`--format pdf`、Noto Sans JP埋め込み)も実装済み) |
 | **M4** | Web/API Plugin | ✅ 完了(`web`/`nuclei`/`sqlmap`/`api`(curl)実装済み) |
 | **M5** | Ollama Analysis | ✅ 完了 |
-| **M6** | Kubernetes Lab | 🟡 部分完了(誤設定/RBAC/イメージ脆弱性検出に加え、攻撃チェーン検出(`kubernetes-audit`)・kube-bench連携・ダッシュボード可視化・`pownforge lab kind`によるkindクラスタ起動/登録を実装。Web UIからのkind操作は未対応) |
+| **M6** | Kubernetes Lab | 🟡 部分完了(誤設定/RBAC/イメージ脆弱性検出に加え、攻撃チェーン検出(`kubernetes-audit`)・kube-bench連携・ダッシュボード可視化・`pownforge lab kind`によるkindクラスタ起動/登録をCLI・Web API/UI両方で実装) |
 | **M7** | Emacs Integration + SDK | ✅ 完了(Emacs連携、`pownforge.sdk`・entry pointによる外部プラグイン読み込み・オプションスキーマ検証を実装) |
 
 **当初計画に無かった追加実装**: Web UI(FastAPIバックエンド + React SPA、
@@ -2808,8 +2812,6 @@ Vulhubは取り込まず外部参照とし、`start --register`は最初の公�
   curlで1URL・1リクエストのみ)、sqlmap以外のPhase 5候補
 - 認証情報を扱う`identity`系プラグイン(`identity`プラグインは公開
   discovery文書の取得のみで、認証情報は扱わない)
-- Web UI/Web APIからのkindクラスタ操作(`pownforge lab kind`はCLIのみ。
-  Vulhubの`lab provider`はWeb API/UI対応済み、[§7](#kubeforgekind-クラスタへの接続)参照)
 - Web UI/Emacsからの`AttackOperation`操作(CLIのみ対応。`add-node`/
   `add-edge`のCLI公開とmanual/pivot実行プロバイダは実装済み、
   [§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)参照)

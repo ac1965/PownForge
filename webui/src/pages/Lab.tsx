@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { api, LabHost, LabScenario, TargetKind } from "../api/client";
+import { api, KindClusterInfo, LabHost, LabScenario, TargetKind } from "../api/client";
 
 const emptyForm = {
   name: "",
@@ -170,7 +170,112 @@ export default function Lab() {
         </button>
       </form>
 
+      <KindClusterSection />
       <VulhubProviderSection />
+    </div>
+  );
+}
+
+function KindClusterSection() {
+  const [clusters, setClusters] = useState<KindClusterInfo[]>([]);
+  const [name, setName] = useState("");
+  const [registerTarget, setRegisterTarget] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const load = () => api.listKindClusters().then(setClusters).catch((e) => setError(String(e)));
+  useEffect(() => {
+    load();
+  }, []);
+
+  const create = (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    api
+      .createKindCluster(name, registerTarget)
+      .then((created) => {
+        setName("");
+        if (created.registration_warning) {
+          setNotice(`クラスタ作成、対象登録は失敗: ${created.registration_warning}`);
+        } else if (created.registered_target) {
+          setNotice(`クラスタ '${created.cluster.name}' を作成し、対象 '${created.registered_target.name}' として登録しました。`);
+        } else {
+          setNotice(`クラスタ '${created.cluster.name}' を作成しました（対象登録なし）。`);
+        }
+        return load();
+      })
+      .catch((e) => setError(String(e)))
+      .finally(() => setBusy(false));
+  };
+
+  const remove = (clusterName: string) => {
+    const purge = confirm(`kindクラスタ '${clusterName}' を削除します。登録済みの対象も削除しますか？`);
+    setError(null);
+    setNotice(null);
+    api
+      .deleteKindCluster(clusterName, purge)
+      .then(() => {
+        setNotice(`クラスタ '${clusterName}' を削除しました。`);
+        return load();
+      })
+      .catch((e) => setError(String(e)));
+  };
+
+  return (
+    <div className="card">
+      <h3>kind クラスタ(Kubernetes ラボ)</h3>
+      <p className="muted">
+        kindクラスタを作成し、内部向けkubeconfigを <code>config/&lt;name&gt;.kubeconfig</code> に書き出して、
+        <code>kind-&lt;name&gt;</code> をkubernetes対象として登録します。
+      </p>
+      {error && <p className="error">{error}</p>}
+      {notice && <p className="muted">{notice}</p>}
+      {clusters.length > 0 && (
+        <table>
+          <thead>
+            <tr>
+              <th>name</th>
+              <th>context</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {clusters.map((c) => (
+              <tr key={c.name}>
+                <td>{c.name}</td>
+                <td>
+                  <code>{c.context}</code>
+                </td>
+                <td>
+                  <button type="button" onClick={() => remove(c.name)}>
+                    削除
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <form onSubmit={create} className="form-grid">
+        <label>
+          name
+          <input required value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <label className="checkbox-label">
+          <input
+            type="checkbox"
+            checked={registerTarget}
+            onChange={(e) => setRegisterTarget(e.target.checked)}
+          />
+          kubernetes対象としてスコープに登録する
+        </label>
+        <button type="submit" disabled={busy || !name}>
+          {busy ? "作成中..." : "クラスタ作成"}
+        </button>
+      </form>
     </div>
   );
 }

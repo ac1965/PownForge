@@ -18,6 +18,7 @@ from pownforge.core.lab import (
     LabError,
     LabManager,
     VulhubProvider,
+    kind_kubeconfig_path,
     resolve_lab_target_address,
     vulhub_target_name,
 )
@@ -1610,10 +1611,6 @@ def lab_list(network: str = typer.Option(LAB_NETWORK)) -> None:
         typer.echo(f"{host.name}\t{host.image}\t{host.status}")
 
 
-def _kind_kubeconfig_path(kubeconfig_dir: Path, name: str) -> Path:
-    return kubeconfig_dir / f"{name}.kubeconfig"
-
-
 @lab_kind_app.command("create")
 def lab_kind_create(
     name: str,
@@ -1632,7 +1629,7 @@ def lab_kind_create(
 ) -> None:
     """Create a kind cluster, export its in-docker-network kubeconfig, and register it."""
     manager = KindClusterManager()
-    kubeconfig = _kind_kubeconfig_path(kubeconfig_dir, name)
+    kubeconfig = kind_kubeconfig_path(kubeconfig_dir, name)
     try:
         cluster = manager.create(name, kubeconfig, kind_config)
     except LabError as exc:
@@ -1677,7 +1674,7 @@ def lab_kind_delete(
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(f"deleted kind cluster '{name}'")
-    kubeconfig = _kind_kubeconfig_path(kubeconfig_dir, name)
+    kubeconfig = kind_kubeconfig_path(kubeconfig_dir, name)
     if kubeconfig.exists():
         kubeconfig.unlink()
         typer.echo(f"removed {kubeconfig}")
@@ -1929,6 +1926,7 @@ def web_serve(
     settings: Path = typer.Option(DEFAULT_SETTINGS, "--settings"),
     playbooks_dir: Path = typer.Option(DEFAULT_PLAYBOOKS_DIR, "--playbooks-dir"),
     vulhub_dir: Path = typer.Option(DEFAULT_VULHUB_DIR, "--vulhub-dir"),
+    kubeconfig_dir: Path = typer.Option(Path("config"), "--kubeconfig-dir"),
 ) -> None:
     """Serve the PownForge web UI and API."""
     try:
@@ -1949,6 +1947,7 @@ def web_serve(
         settings=settings,
         playbooks_dir=playbooks_dir,
         vulhub_dir=vulhub_dir,
+        kubeconfig_dir=kubeconfig_dir,
     )
     uvicorn.run(web_app_instance, host=host, port=port)
 

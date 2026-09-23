@@ -38,6 +38,18 @@ export interface LabHostCreated {
   registration_warning: string | null;
 }
 
+export interface KindClusterInfo {
+  name: string;
+  context: string;
+}
+
+export interface KindCreated {
+  cluster: KindClusterInfo;
+  kubeconfig_path: string;
+  registered_target: Target | null;
+  registration_warning: string | null;
+}
+
 export interface PublishedPort {
   service: string;
   host_port: number;
@@ -331,6 +343,15 @@ export const api = {
     request<LabHostCreated>("/lab", { method: "POST", body: JSON.stringify(body) }),
   removeLabHost: (name: string, purge: boolean) =>
     request<void>(`/lab/${encodeURIComponent(name)}?purge=${purge}`, { method: "DELETE" }),
+
+  listKindClusters: () => request<KindClusterInfo[]>("/lab/kind"),
+  createKindCluster: (name: string, registerTarget: boolean) =>
+    request<KindCreated>("/lab/kind", {
+      method: "POST",
+      body: JSON.stringify({ name, register_target: registerTarget }),
+    }),
+  deleteKindCluster: (name: string, purge: boolean) =>
+    request<void>(`/lab/kind/${encodeURIComponent(name)}?purge=${purge}`, { method: "DELETE" }),
 
   listVulhubScenarios: () => request<LabScenario[]>("/lab/provider/scenarios"),
   vulhubStatus: (scenario: string) =>
