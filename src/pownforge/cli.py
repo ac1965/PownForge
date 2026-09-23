@@ -765,6 +765,22 @@ def scan_web(
     _run_scan("web", target, option, config, workdir, live)
 
 
+@scan_app.command("api")
+def scan_api(
+    target: str = typer.Option(..., "--target"),
+    option: list[str] = typer.Option(
+        [], "--option", help="key=value, may repeat: path=/..., method=GET|HEAD|OPTIONS, timeout=<s>"
+    ),
+    live: bool = typer.Option(
+        False, "--live", help="Stream the underlying tool's stdout line-by-line as it runs."
+    ),
+    config: Path = typer.Option(DEFAULT_CONFIG),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+) -> None:
+    """Run the api plugin (one curl request, passive header checks) against a registered url target."""
+    _run_scan("api", target, option, config, workdir, live)
+
+
 @scan_app.command("nuclei")
 def scan_nuclei(
     target: str = typer.Option(..., "--target"),

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pownforge.plugins.api import ApiPlugin
 from pownforge.plugins.base import Plugin
 from pownforge.plugins.container import ContainerPlugin
 from pownforge.plugins.kube_bench import KubeBenchPlugin
@@ -46,4 +47,5 @@ def default_registry() -> PluginRegistry:
     registry.register(SqlmapPlugin())
     registry.register(ContainerPlugin())
     registry.register(VulncheckPlugin())
+    registry.register(ApiPlugin())
     return registry

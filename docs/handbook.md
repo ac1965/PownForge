@@ -307,6 +307,7 @@ pownforge analyze <run-id>
 | `pownforge scan recon --target <name> [--option sources=... --option exclude_sources=...] [--live]` | reconプラグイン(subfinder、受動的サブドメイン列挙)を実行。対象へトラフィックは送らない |
 | `pownforge scan network --target <name> [--option k=v ...] [--live]` | networkプラグイン(nmap)を実行 |
 | `pownforge scan web --target <name> --option wordlist=<path> [--live]` | webプラグイン(ffuf)を実行 |
+| `pownforge scan api --target <name> [--option path=/... --option method=GET\|HEAD\|OPTIONS --option timeout=<秒>] [--live]` | apiプラグイン(curlで1リクエスト、ヘッダの受動チェック)を実行。`kind=url`の対象のみ。詳細は[§6](#6-プラグイン) |
 | `pownforge scan nuclei --target <name> [--option tags=... --option severity=... --option templates=...] [--live]` | nucleiプラグイン(テンプレートベースの脆弱性検出)を実行。検出結果はfinding(`source: "tool"`)として記録 |
 | `pownforge scan kubernetes --target <name> [--option namespaces=... --option severity=...] [--live]` | kubernetesプラグイン(`trivy k8s`)を実行。対象の`address`はkubeconfigのcontext名 |
 | `pownforge scan kubernetes-audit --target <name> [--option namespaces=...] [--live]` | kubernetes-auditプラグイン(kubectl+trivy k8s、RBAC/Pod Security/Network/Imageの攻撃チェーン検出)を実行 |
@@ -670,6 +671,45 @@ boolean-based blind/error-based/UNION queryが検出され、DBMS判定
 heavy query技法で検出されることを確認した(`MySQL`の`SLEEP()`の
 ような専用関数が無くても、負荷の大きいクエリで応答を遅延させる手法は
 SQLiteでも機能する)。4手法すべてが検出されることを前提にしてよい。
+
+### api(`curl`)
+
+APIエンドポイントへ**1リクエストだけ**送り、ステータス・レスポンス
+ヘッダ・本文(2万文字で切り詰め)を証跡として記録するプラグインです。
+`expected_kind`は`url`。`ffuf`(`web`)のような総当たりはせず、指定した
+1パスだけを観測します。
+
+```bash
+pownforge target add lab-api --address http://lab-api:3000 --kind url \
+  --allowed-plugins api
+pownforge scan api --target lab-api --option path=/rest/products --option method=GET
+```
+
+`--option`のキー: `path`(既定`/`、対象addressの後ろに連結)、`method`
+(既定`GET`)、`timeout`(秒、既定30)。
+
+**安全設計**:
+
+- `method`は`GET`/`HEAD`/`OPTIONS`のみ。`POST`/`PUT`/`PATCH`/`DELETE`等、
+  対象の状態を変えうるメソッドは`build_command()`の時点で拒否する
+- `path`は単一の`/`で始まる必要があり(`//host`や`@host`は拒否)、
+  さらに連結後のURLのscheme/host/portが登録済みaddressと一致することを
+  検証してから実行する(登録済み対象以外へ要求が飛ばないようにするため)
+- リダイレクトは追わない(`-L`なし)。`--proto =http,https`で他プロトコル
+  も使わない
+
+**finding**(`source: "tool"`、すべて`needs-review`で生成): レスポンス
+ヘッダだけから判定する受動的な観測に限る。`X-Content-Type-Options`欠落
+(low)、`Content-Security-Policy`欠落(info)、https時の
+`Strict-Transport-Security`欠落(low)、`Server`/`X-Powered-By`での
+バージョン表記(info)、`Access-Control-Allow-Origin: *`(low)。応答が
+得られなかった場合はfindingを生成しない。
+
+**実機検証**: 2026-09-23、`127.0.0.1`上のローカルHTTPサーバーを対象に
+`scan api`を実行し、ステータス200・ヘッダ・本文とfinding 3件
+(`X-Content-Type-Options`欠落、CSP欠落、`Server`のバージョン表記)が
+記録されること、`method=DELETE`と`path=@evil.example/`が実行前に拒否
+されることを確認した。
 
 ### vulncheck(`nmap` NSEスクリプト)
 
@@ -2168,7 +2208,7 @@ findingsが正しく記録・表示されることを確認してから完了と
 | **M1** | CLI + Target + Plugin Registry | ✅ 完了 |
 | **M2** | Network Plugin + Result Store | ✅ 完了 |
 | **M3** | Evidence + Markdown Report | 🟡 部分完了(保存構造・検証コマンドが当初案と異なる。Markdown/HTMLに加えPDF出力(`--format pdf`、Noto Sans JP埋め込み)も実装済み) |
-| **M4** | Web/API Plugin | 🟡 部分完了(`web`/`nuclei`/`sqlmap`実装済み、API専用プラグインは未着手) |
+| **M4** | Web/API Plugin | ✅ 完了(`web`/`nuclei`/`sqlmap`/`api`(curl)実装済み) |
 | **M5** | Ollama Analysis | ✅ 完了 |
 | **M6** | Kubernetes Lab | 🟡 部分完了(誤設定/RBAC/イメージ脆弱性検出に加え、攻撃チェーン検出(`kubernetes-audit`)・kube-bench連携・ダッシュボード可視化・`pownforge lab kind`によるkindクラスタ起動/登録を実装。Web UIからのkind操作は未対応) |
 | **M7** | Emacs Integration + SDK | 🟡 部分完了(Emacs連携は実装済み、SDKは`Plugin` ABCのみ) |
@@ -2220,7 +2260,8 @@ Target modelの除外対象(`excluded`)と対象ごとの同時実行数制限
 
 **既知の未実装項目**:
 
-- API専用プラグイン(curl/httpx)、sqlmap以外のPhase 5候補
+- projectdiscovery `httpx`による複数URLの一括プローブ(`api`プラグインは
+  curlで1URL・1リクエストのみ)、sqlmap以外のPhase 5候補
 - Plugin SDKの正式なパッケージ化(`PluginMetadata`の完全な形、`options`/
   `normalize()`戻り値の型スキーマ)
 - `identity`系プラグイン(認証情報を扱うため、`core/secrets.py::
