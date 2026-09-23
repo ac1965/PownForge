@@ -23,6 +23,39 @@ def _default_port(scheme: str) -> int:
     return 443 if scheme == "https" else 80
 
 
+def require_same_origin(plugin_name: str, base: str, url: str) -> None:
+    b, u = urlparse(base), urlparse(url)
+    same = (
+        b.scheme == u.scheme
+        and b.hostname == u.hostname
+        and (b.port or _default_port(b.scheme)) == (u.port or _default_port(u.scheme))
+        and not u.username
+    )
+    if not same:
+        raise PluginError(f"{plugin_name} plugin refused: {url} is not on the registered target {base}")
+
+
+def parse_http_response(raw: str) -> tuple[int | None, str, dict[str, str], str]:
+    text = raw.replace("\r\n", "\n")
+    # Skip interim responses (e.g. "HTTP/1.1 100 Continue") curl -i also prints.
+    while True:
+        head, sep, rest = text.partition("\n\n")
+        lines = head.split("\n")
+        if not lines[0].startswith("HTTP/"):
+            return None, "", {}, raw
+        parts = lines[0].split(" ", 2)
+        status = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
+        if status is not None and 100 <= status < 200 and rest.startswith("HTTP/"):
+            text = rest
+            continue
+        headers: dict[str, str] = {}
+        for line in lines[1:]:
+            key, colon, value = line.partition(":")
+            if colon:
+                headers[key.strip().lower()] = value.strip()
+        return status, parts[2] if len(parts) > 2 else "", headers, rest if sep else ""
+
+
 class ApiPlugin(Plugin):
     name = "api"
     version = "0.1.0"
@@ -60,7 +93,7 @@ class ApiPlugin(Plugin):
             raise PluginError("api plugin --option timeout must be an integer (seconds)") from exc
 
         url = target.address.rstrip("/") + path
-        self._require_same_origin(target.address, url)
+        require_same_origin(self.name, target.address, url)
         self._request = {"url": url, "method": method}
 
         command = [
@@ -75,21 +108,9 @@ class ApiPlugin(Plugin):
         command.append(url)
         return command
 
-    @staticmethod
-    def _require_same_origin(base: str, url: str) -> None:
-        b, u = urlparse(base), urlparse(url)
-        same = (
-            b.scheme == u.scheme
-            and b.hostname == u.hostname
-            and (b.port or _default_port(b.scheme)) == (u.port or _default_port(u.scheme))
-            and not u.username
-        )
-        if not same:
-            raise PluginError(f"api plugin refused: {url} is not on the registered target {base}")
-
     def normalize(self, target: Target, raw_stdout: str, raw_stderr: str) -> dict[str, Any]:
         request, self._request = self._request or {}, None
-        status, reason, headers, body = self._parse_response(raw_stdout)
+        status, reason, headers, body = parse_http_response(raw_stdout)
         truncated = len(body) > _MAX_BODY_CHARS
         return {
             "target": target.address,
@@ -105,27 +126,6 @@ class ApiPlugin(Plugin):
             "raw_stderr": raw_stderr,
             "_findings": self._findings(request.get("url", target.address), status, headers),
         }
-
-    @staticmethod
-    def _parse_response(raw: str) -> tuple[int | None, str, dict[str, str], str]:
-        text = raw.replace("\r\n", "\n")
-        # Skip interim responses (e.g. "HTTP/1.1 100 Continue") curl -i also prints.
-        while True:
-            head, sep, rest = text.partition("\n\n")
-            lines = head.split("\n")
-            if not lines[0].startswith("HTTP/"):
-                return None, "", {}, raw
-            parts = lines[0].split(" ", 2)
-            status = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
-            if status is not None and 100 <= status < 200 and rest.startswith("HTTP/"):
-                text = rest
-                continue
-            headers: dict[str, str] = {}
-            for line in lines[1:]:
-                key, colon, value = line.partition(":")
-                if colon:
-                    headers[key.strip().lower()] = value.strip()
-            return status, parts[2] if len(parts) > 2 else "", headers, rest if sep else ""
 
     @staticmethod
     def _findings(url: str, status: int | None, headers: dict[str, str]) -> list[dict[str, str]]:
