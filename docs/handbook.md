@@ -1601,7 +1601,7 @@ target追加・削除、labホスト起動・削除、kindクラスタ操作(Lab
 VulhubシナリオのLab Provider操作(Labページ、起動/停止/破棄・url対象登録)、
 横断エンゲージメント・レポート生成とCVE露出マトリクスの表示
 (Engagementページ)、手動exploit工程の証跡登録(Importページ、成果物
-アップロード・CVEタグ付与)、新規スキャン実行(ライブ進捗)、
+アップロード・CVEタグ付与)、Run detailページでのCVEタグ編集・成果物表示、新規スキャン実行(ライブ進捗)、
 Playbook実行(ステップ単位のライブ進捗、
 [§8](#8-playbook-複数プラグインの連続実行)参照)、Attack Sessionの作成・
 stage追加・レポート表示([§13](#13-証跡とレポート)の
@@ -1659,6 +1659,7 @@ medium/青=low/灰=info)付きで、検証状態(確認済み/要確認/誤検�
 | `GET /api/runs/{run_id}/report[?format=markdown\|html\|pdf]` | レポート文字列(または`format=pdf`時は`application/pdf`のバイナリ)を返す。`pdf`はreportlab未インストール時`501`を返す |
 | `POST /api/runs/{run_id}/analyze[?model=...&language=ja\|en]` | LLMで分析・分類し、結果を永続化。省略時は`config/settings.yaml`の値を使う |
 | `PATCH /api/runs/{run_id}/findings/{finding_id}` | findingの検証状態を更新 |
+| `PATCH /api/runs/{run_id}/cves` | 既存runのCVEタグを追加/削除(`{cves, remove}`)。CVE露出マトリクスの相関キー |
 | `GET /api/runs/{run_id}/verify` | 証跡のハッシュと一致するか確認 |
 | `GET /api/primitives` | 利用可能な検証プリミティブと受け付けるoptionを一覧(詳細は[§15](#15-検証プリミティブフレームワークphase-2設計骨格)) |
 | `POST /api/primitives/run` | プリミティブを実行し`PrimitiveRunRecord`を保存。スコープ超過は`409`、SafetyPolicy超過は`403`(いずれも監査記録済み)、option不正は`422` |

@@ -407,6 +407,11 @@ export const api = {
   // URL (e.g. via an <a href> or window.open) rather than through fetch().
   runReportPdfUrl: (runId: string) => `/api/runs/${encodeURIComponent(runId)}/report?format=pdf`,
   analyzeRun: (runId: string) => request<RunRecord>(`/runs/${runId}/analyze`, { method: "POST" }),
+  tagRunCves: (runId: string, cves: string[], remove: boolean) =>
+    request<RunRecord>(`/runs/${encodeURIComponent(runId)}/cves`, {
+      method: "PATCH",
+      body: JSON.stringify({ cves, remove }),
+    }),
   reviewFinding: (runId: string, findingId: string, status: FindingStatus) =>
     request<RunRecord>(`/runs/${runId}/findings/${findingId}`, {
       method: "PATCH",

@@ -45,6 +45,7 @@ export default function RunDetail() {
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [verification, setVerification] = useState<EvidenceVerification | null>(null);
   const [verifying, setVerifying] = useState(false);
+  const [newCve, setNewCve] = useState("");
 
   useEffect(() => {
     if (!runId) return;
@@ -72,6 +73,22 @@ export default function RunDetail() {
       .then(setVerification)
       .catch((e) => setError(String(e)))
       .finally(() => setVerifying(false));
+  };
+
+  const addCve = () => {
+    if (!runId || !newCve.trim()) return;
+    api
+      .tagRunCves(runId, [newCve.trim()], false)
+      .then((rec) => {
+        setRecord(rec);
+        setNewCve("");
+      })
+      .catch((e) => setError(String(e)));
+  };
+
+  const removeCve = (cve: string) => {
+    if (!runId) return;
+    api.tagRunCves(runId, [cve], true).then(setRecord).catch((e) => setError(String(e)));
   };
 
   const reviewFinding = (findingId: string, status: FindingStatus) => {
@@ -129,6 +146,55 @@ export default function RunDetail() {
           </span>
         )}
       </p>
+
+      <h3>CVEタグ</h3>
+      <p className="muted">
+        横断レポートのCVE露出マトリクスの相関キーです。
+      </p>
+      <div className="option-row">
+        {record.cves.length === 0 ? (
+          <span className="muted">（なし）</span>
+        ) : (
+          record.cves.map((c) => (
+            <span key={c} className="badge" style={{ background: "#7f8c8d" }}>
+              {c}{" "}
+              <button type="button" onClick={() => removeCve(c)} title="削除">
+                ×
+              </button>
+            </span>
+          ))
+        )}
+      </div>
+      <div className="option-row">
+        <input
+          placeholder="CVE-2021-44228"
+          value={newCve}
+          onChange={(e) => setNewCve(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              addCve();
+            }
+          }}
+        />
+        <button type="button" onClick={addCve} disabled={!newCve.trim()}>
+          CVEを追加
+        </button>
+      </div>
+
+      {record.artifacts.length > 0 && (
+        <>
+          <h3>Artifacts</h3>
+          <ul>
+            {record.artifacts.map((a) => (
+              <li key={a.id}>
+                <strong>{a.description}</strong> — <code>{a.path}</code> (sha256{" "}
+                <code>{a.sha256}</code>)
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
 
       <h3>Findings</h3>
       {record.findings.length === 0 ? (

@@ -149,6 +149,34 @@ def analyze_run(
     return record
 
 
+class CveTagRequest(BaseModel):
+    cves: list[str]
+    remove: bool = False
+
+
+@router.patch("/runs/{run_id}/cves", response_model=RunRecord)
+def tag_run_cves(
+    run_id: str, body: CveTagRequest, store: EvidenceStore = Depends(get_store)
+) -> RunRecord:
+    """Add or remove CVE tags on an existing run (scan or manual). Tags are
+    correlation labels for the engagement report's CVE exposure matrix."""
+    try:
+        record = store.load(run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    cves = [c.strip() for c in body.cves if c.strip()]
+    if not cves:
+        raise HTTPException(status_code=400, detail="pass at least one cve")
+    if body.remove:
+        record.cves = [c for c in record.cves if c not in cves]
+    else:
+        for c in cves:
+            if c not in record.cves:
+                record.cves.append(c)
+    store.save(record)
+    return record
+
+
 class FindingReview(BaseModel):
     status: FindingStatus
 

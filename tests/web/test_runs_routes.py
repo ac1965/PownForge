@@ -216,3 +216,26 @@ def test_import_run_invalid_phase_returns_422(tmp_path: Path) -> None:
         data={"target": "lab", "command": "x", "output": "y", "phase": "not-a-phase"},
     )
     assert resp.status_code == 422
+
+
+def test_tag_run_cves_add_and_remove(tmp_path: Path) -> None:
+    record = _seed_record(tmp_path)
+    client = _client(tmp_path)
+    add = client.patch(f"/api/runs/{record.run_id}/cves", json={"cves": ["CVE-2021-44228", "CVE-2022-22965"]})
+    assert add.status_code == 200
+    assert add.json()["cves"] == ["CVE-2021-44228", "CVE-2022-22965"]
+    rm = client.patch(f"/api/runs/{record.run_id}/cves", json={"cves": ["CVE-2021-44228"], "remove": True})
+    assert rm.json()["cves"] == ["CVE-2022-22965"]
+
+
+def test_tag_run_cves_unknown_run_404(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    resp = client.patch("/api/runs/nope/cves", json={"cves": ["CVE-2021-44228"]})
+    assert resp.status_code == 404
+
+
+def test_tag_run_cves_empty_400(tmp_path: Path) -> None:
+    record = _seed_record(tmp_path)
+    client = _client(tmp_path)
+    resp = client.patch(f"/api/runs/{record.run_id}/cves", json={"cves": []})
+    assert resp.status_code == 400
