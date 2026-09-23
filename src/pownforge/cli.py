@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Optional
@@ -13,7 +14,16 @@ from pownforge.core.attack_session import AttackSessionError, AttackSessionStore
 from pownforge.core.findings import FindingNotFoundError, add_finding, review_finding
 from pownforge.core.lab import LAB_NETWORK, LabError, LabManager, resolve_lab_target_address
 from pownforge.core.manual_evidence import import_manual_run
-from pownforge.core.orchestrator import PlaybookError, list_playbooks, resolve_playbook, run_playbook
+from pownforge.core.orchestrator import (
+    CampaignError,
+    PlaybookError,
+    list_campaigns,
+    list_playbooks,
+    resolve_campaign,
+    resolve_playbook,
+    run_campaign,
+    run_playbook,
+)
 from pownforge.core.operation import (
     Action,
     ActionKind,
@@ -77,6 +87,11 @@ playbook_app = typer.Typer(
     "(see config/playbooks/, docs/handbook.md §8)."
 )
 app.add_typer(playbook_app, name="playbook")
+campaign_app = typer.Typer(
+    help="Run a pre-authored Playbook against every target in a named Engagement, then "
+    "record the results as a new AttackSession (see config/campaigns/, docs/handbook.md §8)."
+)
+app.add_typer(campaign_app, name="campaign")
 attack_session_app = typer.Typer(
     help="Group already-recorded runs into a named, curated engagement narrative "
     "(record/tracking only -- never executes anything, see docs/handbook.md §13)."
@@ -98,6 +113,7 @@ DEFAULT_CONFIG = Path(os.environ.get("POWNFORGE_CONFIG", "config/targets.yaml"))
 DEFAULT_WORKDIR = Path(os.environ.get("POWNFORGE_HOME", ".pownforge"))
 DEFAULT_SETTINGS = Path(os.environ.get("POWNFORGE_SETTINGS", "config/settings.yaml"))
 DEFAULT_PLAYBOOKS_DIR = Path(os.environ.get("POWNFORGE_PLAYBOOKS", "config/playbooks"))
+DEFAULT_CAMPAIGNS_DIR = Path(os.environ.get("POWNFORGE_CAMPAIGNS", "config/campaigns"))
 
 
 def _policy(config: Path) -> ScopePolicy:
@@ -339,6 +355,129 @@ def playbook_run(
     if run_ids:
         typer.echo(f"next: pownforge walkthrough generate {' '.join(run_ids)}")
     if failures:
+        raise typer.Exit(code=1)
+
+
+@campaign_app.command("list")
+def campaign_list(campaigns_dir: Path = typer.Option(DEFAULT_CAMPAIGNS_DIR, "--campaigns-dir")) -> None:
+    """List available campaigns."""
+    campaigns = list_campaigns(campaigns_dir)
+    if not campaigns:
+        typer.echo(f"no campaigns found in {campaigns_dir}")
+        raise typer.Exit()
+    for campaign in campaigns:
+        typer.echo(
+            f"{campaign.name}\tengagement={campaign.engagement}\tplaybook={campaign.playbook}"
+            f"\t{campaign.description}"
+        )
+
+
+@campaign_app.command("show")
+def campaign_show(
+    name: str, campaigns_dir: Path = typer.Option(DEFAULT_CAMPAIGNS_DIR, "--campaigns-dir")
+) -> None:
+    """Show a campaign's Engagement/Playbook reference."""
+    try:
+        campaign = resolve_campaign(campaigns_dir, name)
+    except CampaignError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"{campaign.name}: {campaign.description}")
+    typer.echo(f"  engagement: {campaign.engagement}")
+    typer.echo(f"  playbook:   {campaign.playbook}")
+
+
+@campaign_app.command("run")
+def campaign_run(
+    name: str,
+    session_name: Optional[str] = typer.Option(
+        None,
+        "--session-name",
+        help="AttackSession name to create from this run's stages "
+        "(default: '<campaign>-<UTC timestamp>').",
+    ),
+    campaigns_dir: Path = typer.Option(DEFAULT_CAMPAIGNS_DIR, "--campaigns-dir"),
+    playbooks_dir: Path = typer.Option(DEFAULT_PLAYBOOKS_DIR, "--playbooks-dir"),
+    config: Path = typer.Option(DEFAULT_CONFIG),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+) -> None:
+    """Run a campaign's Playbook against every target in its Engagement, in order.
+
+    This runs one full `playbook run` per target via the exact same
+    ScanRunner/ScopePolicy path -- neither the campaign nor the Engagement
+    grants any execution right beyond what each target's own
+    --allowed-plugins already permits, and PownForge never lets one
+    target's run reach another. A target whose playbook run can't start
+    (e.g. it was removed from the scope file) does not stop the campaign
+    for the remaining targets. Every successful step's run is recorded as a
+    stage in a newly created AttackSession."""
+    policy = _policy(config)
+    try:
+        campaign = resolve_campaign(campaigns_dir, name)
+        playbook = resolve_playbook(playbooks_dir, campaign.playbook)
+        engagement = policy.resolve_engagement(campaign.engagement)
+    except (CampaignError, PlaybookError, PolicyError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    if not engagement.targets:
+        typer.echo(f"error: engagement '{engagement.name}' has no members", err=True)
+        raise typer.Exit(code=1)
+
+    registry = default_registry()
+    store = _store(workdir)
+
+    def on_step(
+        t_index: int, t_total: int, target_name: str, step_index: int, step_total: int, step
+    ) -> None:  # noqa: ANN001
+        typer.echo(f"[{t_index}/{t_total} {target_name}] [{step_index}/{step_total}] running {step.plugin}...")
+
+    result = run_campaign(
+        campaign, playbook, engagement, policy, registry, store, audit=_audit(workdir), on_step=on_step
+    )
+
+    total_steps = 0
+    failed_steps = 0
+    skipped_steps = 0
+    for target_result in result.target_results:
+        if target_result.error is not None:
+            typer.echo(f"  {target_result.target_name}: FAILED -- {target_result.error}", err=True)
+            continue
+        for step_result in target_result.steps:
+            total_steps += 1
+            if step_result.skipped:
+                skipped_steps += 1
+                typer.echo(f"  {target_result.target_name}: {step_result.step.plugin}: SKIPPED")
+            elif step_result.record is not None:
+                typer.echo(
+                    f"  {target_result.target_name}: {step_result.step.plugin}: "
+                    f"run {step_result.record.run_id} completed"
+                )
+            else:
+                failed_steps += 1
+                typer.echo(
+                    f"  {target_result.target_name}: {step_result.step.plugin}: FAILED -- {step_result.error}",
+                    err=True,
+                )
+
+    stages = result.successful_stages()
+    session_name_final = session_name or (
+        f"{campaign.name}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+    )
+    sessions = _attack_sessions(workdir)
+    create_attack_session(
+        sessions, session_name_final, description=f"campaign '{campaign.name}' sweep", engagement=engagement.name
+    )
+    for label, record in stages:
+        add_stage(sessions, store, session_name_final, record.run_id, label=label)
+
+    typer.echo(
+        f"campaign '{name}' finished: {total_steps - failed_steps - skipped_steps}/{total_steps} steps "
+        f"succeeded across {len(engagement.targets)} targets ({skipped_steps} skipped, {failed_steps} failed)"
+    )
+    typer.echo(f"created attack session '{session_name_final}' with {len(stages)} stages")
+    typer.echo(f"next: pownforge attack-session report {session_name_final}")
+    if failed_steps or any(tr.error is not None for tr in result.target_results):
         raise typer.Exit(code=1)
 
 
@@ -1238,6 +1377,7 @@ def web_serve(
     workdir: Path = typer.Option(DEFAULT_WORKDIR),
     settings: Path = typer.Option(DEFAULT_SETTINGS, "--settings"),
     playbooks_dir: Path = typer.Option(DEFAULT_PLAYBOOKS_DIR, "--playbooks-dir"),
+    campaigns_dir: Path = typer.Option(DEFAULT_CAMPAIGNS_DIR, "--campaigns-dir"),
 ) -> None:
     """Serve the PownForge web UI and API."""
     try:
@@ -1253,7 +1393,11 @@ def web_serve(
         raise typer.Exit(code=1) from exc
 
     web_app_instance = create_app(
-        config=config, workdir=workdir, settings=settings, playbooks_dir=playbooks_dir
+        config=config,
+        workdir=workdir,
+        settings=settings,
+        playbooks_dir=playbooks_dir,
+        campaigns_dir=campaigns_dir,
     )
     uvicorn.run(web_app_instance, host=host, port=port)
 

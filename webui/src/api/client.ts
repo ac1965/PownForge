@@ -135,6 +135,24 @@ export interface PlaybookRunCreated {
   status: string;
 }
 
+export interface Engagement {
+  name: string;
+  targets: string[];
+  notes: string | null;
+}
+
+export interface Campaign {
+  name: string;
+  description: string;
+  engagement: string;
+  playbook: string;
+}
+
+export interface CampaignRunCreated {
+  job_id: string;
+  status: string;
+}
+
 export type KillChainPhase =
   | "discovery"
   | "vuln-confirm"
@@ -243,6 +261,16 @@ export const api = {
     request<PlaybookRunCreated>(`/playbooks/${encodeURIComponent(name)}/run`, {
       method: "POST",
       body: JSON.stringify({ target }),
+    }),
+
+  listEngagements: () => request<Engagement[]>("/engagements"),
+
+  listCampaigns: () => request<Campaign[]>("/campaigns"),
+  getCampaign: (name: string) => request<Campaign>(`/campaigns/${encodeURIComponent(name)}`),
+  runCampaign: (name: string, sessionName?: string) =>
+    request<CampaignRunCreated>(`/campaigns/${encodeURIComponent(name)}/run`, {
+      method: "POST",
+      body: JSON.stringify({ session_name: sessionName ?? null }),
     }),
 
   listAttackSessions: () => request<AttackSession[]>("/attack-sessions"),

@@ -31,6 +31,10 @@ def get_playbooks_dir(request: Request) -> Path:
     return request.app.state.playbooks_dir
 
 
+def get_campaigns_dir(request: Request) -> Path:
+    return request.app.state.campaigns_dir
+
+
 def get_app_settings(path: Path = Depends(get_settings_path)) -> AppSettings:
     # Reloaded from disk on every request, same as get_policy, so a change
     # from the Settings page or `pownforge config set` is picked up

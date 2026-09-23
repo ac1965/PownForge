@@ -1,0 +1,10 @@
+# 最小構成の1ステップPlaybook: networkプラグインのみ。allowed_pluginsが
+# targetごとに異なっていても、network(nmap)だけは大抵のtargetで許可されて
+# いるため、複数targetを横断するCampaignの動作確認に向く。
+#
+# Usage:
+#   pownforge playbook run network-baseline --target <name>
+name: network-baseline
+description: "network(nmap) discovery only -- works against any target that allows it"
+steps:
+  - plugin: network

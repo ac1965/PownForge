@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from pownforge.core.models import Target
+from pownforge.core.models import Engagement, Target
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.web.deps import get_config_path, get_policy
 
@@ -14,6 +14,14 @@ router = APIRouter(tags=["targets"])
 @router.get("/targets", response_model=list[Target])
 def list_targets(policy: ScopePolicy = Depends(get_policy)) -> list[Target]:
     return policy.list_targets()
+
+
+@router.get("/engagements", response_model=list[Engagement])
+def list_engagements(policy: ScopePolicy = Depends(get_policy)) -> list[Engagement]:
+    """Read-only: Engagement membership is managed via `pownforge engagement
+    add` (no CLI/API for editing exists yet). Exposed here purely so the
+    Campaigns page can show which targets a campaign's Engagement covers."""
+    return policy.list_engagements()
 
 
 @router.post("/targets", response_model=Target, status_code=201)

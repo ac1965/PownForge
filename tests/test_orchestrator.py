@@ -6,6 +6,8 @@ from typing import Any
 import pytest
 
 from pownforge.core.models import (
+    Campaign,
+    Engagement,
     Finding,
     Playbook,
     PlaybookStep,
@@ -15,10 +17,15 @@ from pownforge.core.models import (
     TargetKind,
 )
 from pownforge.core.orchestrator import (
+    CampaignError,
     PlaybookError,
+    list_campaigns,
     list_playbooks,
+    load_campaign,
     load_playbook,
+    resolve_campaign,
     resolve_playbook,
+    run_campaign,
     run_playbook,
 )
 from pownforge.core.policy import ScopePolicy
@@ -304,3 +311,122 @@ def test_real_web_baseline_playbook_file_loads() -> None:
     playbook = load_playbook(repo_root / "config" / "playbooks" / "web-baseline.yaml")
     assert playbook.name == "web-baseline"
     assert [s.plugin for s in playbook.steps] == ["network", "web", "nuclei"]
+
+
+def _setup_multi_target(tmp_path: Path) -> tuple[ScopePolicy, PluginRegistry, EvidenceStore, Engagement]:
+    policy, registry, store = _setup(tmp_path)
+    policy.add_target(Target(name="lab-2", kind=TargetKind.HOST, address="127.0.0.2"))
+    engagement = Engagement(name="sweep", targets=["lab", "lab-2"])
+    policy.add_engagement(engagement)
+    return policy, registry, store, engagement
+
+
+def test_run_campaign_runs_the_playbook_against_every_engagement_target(tmp_path: Path) -> None:
+    policy, registry, store, engagement = _setup_multi_target(tmp_path)
+    campaign = Campaign(name="c", engagement="sweep", playbook="two-echoes")
+    playbook = Playbook(
+        name="two-echoes",
+        steps=[PlaybookStep(plugin="echo", options={}), PlaybookStep(plugin="echo", options={})],
+    )
+
+    result = run_campaign(campaign, playbook, engagement, policy, registry, store)
+
+    assert [tr.target_name for tr in result.target_results] == ["lab", "lab-2"]
+    for target_result in result.target_results:
+        assert target_result.error is None
+        assert len(target_result.steps) == 2
+        assert all(s.record is not None for s in target_result.steps)
+
+
+def test_run_campaign_continues_after_a_step_fails_on_one_target(tmp_path: Path) -> None:
+    policy, registry, store, engagement = _setup_multi_target(tmp_path)
+    # "lab-2" doesn't allow "echo" -- its step should fail without stopping "lab-2"'s
+    # sibling steps or the campaign as a whole.
+    policy.remove_target("lab-2")
+    policy.add_target(
+        Target(name="lab-2", kind=TargetKind.HOST, address="127.0.0.2", allowed_plugins=["other"])
+    )
+    campaign = Campaign(name="c", engagement="sweep", playbook="p")
+    playbook = Playbook(name="p", steps=[PlaybookStep(plugin="echo", options={})])
+
+    result = run_campaign(campaign, playbook, engagement, policy, registry, store)
+
+    lab_result = next(tr for tr in result.target_results if tr.target_name == "lab")
+    lab2_result = next(tr for tr in result.target_results if tr.target_name == "lab-2")
+    assert lab_result.steps[0].record is not None
+    assert lab2_result.steps[0].record is None
+    assert "not authorized" in lab2_result.steps[0].error
+
+
+def test_run_campaign_calls_on_step_with_target_and_step_indices(tmp_path: Path) -> None:
+    policy, registry, store, engagement = _setup_multi_target(tmp_path)
+    campaign = Campaign(name="c", engagement="sweep", playbook="p")
+    playbook = Playbook(name="p", steps=[PlaybookStep(plugin="echo", options={})])
+    seen: list[tuple[int, int, str, int, int, str]] = []
+
+    run_campaign(
+        campaign,
+        playbook,
+        engagement,
+        policy,
+        registry,
+        store,
+        on_step=lambda t_i, t_t, t_name, s_i, s_t, step: seen.append(
+            (t_i, t_t, t_name, s_i, s_t, step.plugin)
+        ),
+    )
+
+    assert seen == [(1, 2, "lab", 1, 1, "echo"), (2, 2, "lab-2", 1, 1, "echo")]
+
+
+def test_campaign_result_successful_stages_labels_and_excludes_failures(tmp_path: Path) -> None:
+    policy, registry, store, engagement = _setup_multi_target(tmp_path)
+    campaign = Campaign(name="c", engagement="sweep", playbook="p")
+    playbook = Playbook(
+        name="p", steps=[PlaybookStep(plugin="echo", options={}), PlaybookStep(plugin="always-fails", options={})]
+    )
+
+    result = run_campaign(campaign, playbook, engagement, policy, registry, store)
+    stages = result.successful_stages()
+
+    assert [label for label, _ in stages] == ["lab: echo", "lab-2: echo"]
+
+
+def test_load_campaign_parses_yaml(tmp_path: Path) -> None:
+    path = tmp_path / "c.yaml"
+    path.write_text("name: c\ndescription: test campaign\nengagement: sweep\nplaybook: web-baseline\n")
+
+    campaign = load_campaign(path)
+
+    assert campaign.name == "c"
+    assert campaign.engagement == "sweep"
+    assert campaign.playbook == "web-baseline"
+
+
+def test_load_campaign_raises_for_invalid_yaml(tmp_path: Path) -> None:
+    path = tmp_path / "bad.yaml"
+    path.write_text("not_a_valid_field: true\n")
+    with pytest.raises(CampaignError):
+        load_campaign(path)
+
+
+def test_resolve_campaign_raises_for_unknown_name(tmp_path: Path) -> None:
+    with pytest.raises(CampaignError):
+        resolve_campaign(tmp_path, "does-not-exist")
+
+
+def test_list_campaigns_sorted_by_name(tmp_path: Path) -> None:
+    (tmp_path / "b.yaml").write_text("name: b-campaign\nengagement: e\nplaybook: p\n")
+    (tmp_path / "a.yaml").write_text("name: a-campaign\nengagement: e\nplaybook: p\n")
+
+    campaigns = list_campaigns(tmp_path)
+
+    assert [c.name for c in campaigns] == ["a-campaign", "b-campaign"]
+
+
+def test_real_lab_sweep_campaign_file_loads() -> None:
+    repo_root = Path(__file__).resolve().parent.parent
+    campaign = load_campaign(repo_root / "config" / "campaigns" / "lab-sweep.yaml")
+    assert campaign.name == "lab-sweep"
+    assert campaign.engagement == "lab-targets"
+    assert campaign.playbook == "network-baseline"
