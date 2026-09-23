@@ -7,11 +7,13 @@ from fastapi import Depends, Request
 from pownforge.core.attack_session import AttackSessionStore
 from pownforge.core.concurrency import ConcurrencyGuard
 from pownforge.core.lab import LabManager
+from pownforge.core.operation import PrimitiveRunner
 from pownforge.core.policy import ScopePolicy
 from pownforge.core.registry import PluginRegistry, default_registry
 from pownforge.core.runner import ScanRunner
 from pownforge.core.settings import AppSettings, load_settings
 from pownforge.evidence.audit import AuditStore
+from pownforge.evidence.primitive_store import PrimitiveRunStore
 from pownforge.evidence.store import EvidenceStore
 from pownforge.web.jobs import JobManager
 
@@ -73,6 +75,17 @@ def get_runner(
     concurrency: ConcurrencyGuard = Depends(get_concurrency_guard),
 ) -> ScanRunner:
     return ScanRunner(policy=policy, registry=registry, store=store, audit=audit, concurrency=concurrency)
+
+
+def get_primitive_store(workdir: Path = Depends(get_workdir)) -> PrimitiveRunStore:
+    return PrimitiveRunStore(workdir / "primitive_runs")
+
+
+def get_primitive_runner(
+    policy: ScopePolicy = Depends(get_policy),
+    audit: AuditStore = Depends(get_audit_store),
+) -> PrimitiveRunner:
+    return PrimitiveRunner(policy=policy, audit=audit)
 
 
 def get_lab_manager() -> LabManager:

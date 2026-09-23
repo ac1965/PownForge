@@ -14,6 +14,7 @@ from pownforge.web.routers import (
     audit,
     lab,
     playbooks,
+    primitives,
     runs,
     scans,
     settings as settings_router,
@@ -64,6 +65,7 @@ def create_app(
     app.include_router(scans.router, prefix="/api")
     app.include_router(playbooks.router, prefix="/api")
     app.include_router(attack_sessions.router, prefix="/api")
+    app.include_router(primitives.router, prefix="/api")
     app.include_router(audit.router, prefix="/api")
     app.include_router(walkthroughs.router, prefix="/api")
     app.include_router(settings_router.router, prefix="/api")

@@ -213,6 +213,83 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+// --- Validation primitives (docs/handbook.md §15) ---
+export type ValidationLevel = "detection" | "validation" | "execution";
+export type PreconditionStatus = "met" | "unmet" | "unknown";
+
+export interface PrimitiveDescriptor {
+  id: string;
+  category: string;
+  description: string;
+  action_class: string;
+  max_level: ValidationLevel;
+  capabilities: string[];
+  requires_external_network: boolean;
+  requires_persistence: boolean;
+}
+
+export interface PrimitiveInfo {
+  descriptor: PrimitiveDescriptor;
+  options: { name: string; description: string; required: boolean }[];
+}
+
+export interface Precondition {
+  id: string;
+  description: string;
+  status: PreconditionStatus;
+  detail: string | null;
+}
+
+export interface PrimitiveObservation {
+  id: string;
+  type: string;
+  detail: string;
+  timestamp: string;
+  provenance: { kind: "observed" | "inferred"; primitive: string };
+}
+
+export interface Claim {
+  id: string;
+  statement: string;
+  confidence: "tentative" | "probable" | "confirmed";
+  supported_by: string[];
+}
+
+export interface ManagedResource {
+  id: string;
+  type: string;
+  owner: string;
+  description: string;
+  cleanup_required: boolean;
+  status: string;
+}
+
+export interface PrimitiveEvidence {
+  evidence_id: string;
+  target: string;
+  primitive: string;
+  observations: PrimitiveObservation[];
+  artifacts: { id: string; type: string; description: string; path: string | null; sha256: string | null }[];
+  findings: Finding[];
+  claims: Claim[];
+}
+
+export interface PrimitiveRunRecord {
+  run_id: string;
+  primitive: string;
+  category: string;
+  target: string;
+  created_at: string;
+  requested_level: ValidationLevel;
+  level_reached: ValidationLevel;
+  preconditions: { preconditions: Precondition[] };
+  evidence: PrimitiveEvidence | null;
+  resources: ManagedResource[];
+  cleanup: { resource_id: string; attempted: boolean; verified_absent: boolean; error: string | null }[];
+  residual_resources: ManagedResource[];
+  notes: string;
+}
+
 export const api = {
   listTargets: () => request<Target[]>("/targets"),
   addTarget: (target: Target) =>
@@ -286,6 +363,22 @@ export const api = {
     ),
   attackSessionReportPdfUrl: (name: string) =>
     `/api/attack-sessions/${encodeURIComponent(name)}/report?format=pdf`,
+
+  listPrimitives: () => request<PrimitiveInfo[]>("/primitives"),
+  runPrimitive: (body: {
+    primitive: string;
+    target: string;
+    level: ValidationLevel;
+    options: Record<string, string>;
+  }) => request<PrimitiveRunRecord>("/primitives/run", { method: "POST", body: JSON.stringify(body) }),
+  listPrimitiveRuns: () => request<PrimitiveRunRecord[]>("/primitive-runs"),
+  getPrimitiveRun: (runId: string) => request<PrimitiveRunRecord>(`/primitive-runs/${encodeURIComponent(runId)}`),
+  getPrimitiveRunReport: (runId: string, format: "markdown" | "html" = "markdown") =>
+    request<{ markdown?: string; html?: string }>(
+      `/primitive-runs/${encodeURIComponent(runId)}/report?format=${format}`,
+    ),
+  primitiveRunReportPdfUrl: (runId: string) =>
+    `/api/primitive-runs/${encodeURIComponent(runId)}/report?format=pdf`,
 
   getSettings: () => request<AppSettings>("/settings"),
   updateSettings: (body: AppSettings) =>
