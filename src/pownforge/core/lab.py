@@ -208,6 +208,14 @@ class KindClusterManager:
 # --------------------------------------------------------------------------
 
 
+def vulhub_target_name(scenario_id: str) -> str:
+    """Scope-target name for a Vulhub scenario, e.g.
+    "log4j/CVE-2021-44228" -> "vulhub-log4j-cve-2021-44228". Shared by the CLI
+    and the web API so the naming rule lives in one place."""
+    slug = scenario_id.strip("/").lower().replace("/", "-").replace("_", "-")
+    return f"vulhub-{slug}"
+
+
 @dataclass
 class PublishedPort:
     service: str

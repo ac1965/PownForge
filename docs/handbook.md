@@ -1491,7 +1491,8 @@ pownforge web serve  # 同一オリジンでAPIとSPAの両方を配信
 
 Dashboard/Targets/Lab/Runs/Run detail/Audit/New Scan/Scan live/
 Playbooks/Playbook live/Attack Session/Primitives/Walkthrough/Settingsの各画面から、
-target追加・削除、labホスト起動・削除、新規スキャン実行(ライブ進捗)、
+target追加・削除、labホスト起動・削除、VulhubシナリオのLab Provider操作
+(Labページ、起動/停止/破棄・url対象登録)、新規スキャン実行(ライブ進捗)、
 Playbook実行(ステップ単位のライブ進捗、
 [§8](#8-playbook-複数プラグインの連続実行)参照)、Attack Sessionの作成・
 stage追加・レポート表示([§13](#13-証跡とレポート)の
@@ -1523,6 +1524,11 @@ medium/青=low/灰=info)付きで、検証状態(確認済み/要確認/誤検�
 | `GET /api/lab` | 稼働中/停止中のラボホスト一覧 |
 | `POST /api/lab` | ラボホストを起動(既定でスコープにも自動登録) |
 | `DELETE /api/lab/{name}?purge=true` | ラボホストを削除 |
+| `GET /api/lab/provider/scenarios` | Vulhubシナリオ一覧(詳細は[§7](#vulhubを外部lab-providerとして扱う)) |
+| `GET /api/lab/provider/status?scenario=<id>` | シナリオの稼働状態と公開ポート |
+| `POST /api/lab/provider/start` | シナリオを起動(`{scenario, register_target}`)。`register_target`で最初の公開ポートを`127.0.0.1`のurl対象として登録 |
+| `POST /api/lab/provider/stop` \| `POST /api/lab/provider/reset` | シナリオの停止/作り直し(`{scenario}`) |
+| `POST /api/lab/provider/cleanup` | シナリオをボリュームごと破棄(`{scenario, purge}`) |
 | `POST /api/scans` | スキャンをジョブとして投入。`{"job_id": ..., "status": "pending"}`を返す |
 | `GET /api/scans/{job_id}` | ジョブの状態をポーリング(`pending/running/done/error`) |
 | `WS /api/ws/scans/{job_id}` | スキャンのライブ出力を行単位でストリーミング |

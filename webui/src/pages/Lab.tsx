@@ -1,5 +1,5 @@
-import { FormEvent, useEffect, useState } from "react";
-import { api, LabHost, TargetKind } from "../api/client";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { api, LabHost, LabScenario, TargetKind } from "../api/client";
 
 const emptyForm = {
   name: "",
@@ -169,6 +169,154 @@ export default function Lab() {
           {submitting ? "起動中..." : "起動"}
         </button>
       </form>
+
+      <VulhubProviderSection />
+    </div>
+  );
+}
+
+function VulhubProviderSection() {
+  const [scenarios, setScenarios] = useState<LabScenario[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [registerTarget, setRegisterTarget] = useState(true);
+
+  const refresh = () =>
+    api
+      .listVulhubScenarios()
+      .then(setScenarios)
+      .catch((e) => {
+        setScenarios([]);
+        setError(String(e));
+      });
+
+  const filtered = useMemo(() => {
+    if (!scenarios) return [];
+    const q = filter.trim().toLowerCase();
+    const matches = q ? scenarios.filter((s) => s.id.toLowerCase().includes(q)) : scenarios;
+    return matches.slice(0, 100);
+  }, [scenarios, filter]);
+
+  const act = (label: string, scenario: string, fn: () => Promise<unknown>) => {
+    setBusy(scenario);
+    setError(null);
+    setNotice(null);
+    fn()
+      .then((result) => {
+        const r = result as { warning?: string; registered_target?: { name: string } | null };
+        if (r && r.registered_target) {
+          setNotice(`${scenario}: ${label}。対象 '${r.registered_target.name}' として登録しました。`);
+        } else if (r && r.warning) {
+          setNotice(`${scenario}: ${label}。${r.warning}`);
+        } else {
+          setNotice(`${scenario}: ${label}。`);
+        }
+        return refresh();
+      })
+      .catch((e) => setError(String(e)))
+      .finally(() => setBusy(null));
+  };
+
+  return (
+    <div className="card">
+      <h3>Vulhub シナリオ(外部Lab Provider)</h3>
+      <p className="muted">
+        意図的に脆弱な環境を起動します。compose fileがポートを全インターフェースに公開することがあるため、
+        隔離されたラボホストでのみ使用してください。PownForge自身はこれらにexploitを実行しません(ライフサイクル管理のみ)。
+      </p>
+      {error && <p className="error">{error}</p>}
+      {notice && <p className="muted">{notice}</p>}
+      {scenarios === null ? (
+        <button type="button" onClick={refresh}>
+          シナリオを読み込む
+        </button>
+      ) : (
+        <>
+          <div className="option-row">
+            <input
+              placeholder="フィルタ(例: log4j, CVE-2021)"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            />
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={registerTarget}
+                onChange={(e) => setRegisterTarget(e.target.checked)}
+              />
+              起動時にurl対象として登録
+            </label>
+            <button type="button" onClick={refresh}>
+              再読み込み
+            </button>
+          </div>
+          {scenarios.length === 0 ? (
+            <p className="muted">
+              シナリオが見つかりません。Vulhubをクローンし、<code>--vulhub-dir</code> または{" "}
+              <code>POWNFORGE_VULHUB_DIR</code> を設定して <code>pownforge web serve</code> を起動してください。
+            </p>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>scenario</th>
+                  <th>status</th>
+                  <th>ports</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((s) => (
+                  <tr key={s.id}>
+                    <td>
+                      <code>{s.id}</code>
+                    </td>
+                    <td>{s.running ? "running" : "-"}</td>
+                    <td>
+                      {s.published_ports.map((p) => `${p.host_port}→${p.container_port}`).join(", ")}
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        disabled={busy === s.id}
+                        onClick={() => act("起動", s.id, () => api.startVulhub(s.id, registerTarget))}
+                      >
+                        起動
+                      </button>{" "}
+                      <button
+                        type="button"
+                        disabled={busy === s.id}
+                        onClick={() => act("停止", s.id, () => api.stopVulhub(s.id))}
+                      >
+                        停止
+                      </button>{" "}
+                      <button
+                        type="button"
+                        disabled={busy === s.id}
+                        onClick={() => {
+                          const purge = confirm(
+                            `${s.id} を破棄します(ボリュームごと)。登録済みの対象も削除しますか？`,
+                          );
+                          act("破棄", s.id, () => api.cleanupVulhub(s.id, purge));
+                        }}
+                      >
+                        破棄
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {scenarios.length > filtered.length && (
+            <p className="muted">
+              {scenarios.length} 件中 {filtered.length} 件を表示(フィルタで絞り込めます)。
+            </p>
+          )}
+        </>
+      )}
     </div>
   );
 }

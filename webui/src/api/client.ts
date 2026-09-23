@@ -38,6 +38,26 @@ export interface LabHostCreated {
   registration_warning: string | null;
 }
 
+export interface PublishedPort {
+  service: string;
+  host_port: number;
+  container_port: number;
+}
+
+export interface LabScenario {
+  id: string;
+  path: string;
+  running: boolean;
+  published_ports: PublishedPort[];
+}
+
+export interface VulhubStartResult {
+  scenario: LabScenario;
+  registered_target: Target | null;
+  registration_warning: string | null;
+  warning: string;
+}
+
 export interface Evidence {
   command: string[];
   started_at: string;
@@ -311,6 +331,22 @@ export const api = {
     request<LabHostCreated>("/lab", { method: "POST", body: JSON.stringify(body) }),
   removeLabHost: (name: string, purge: boolean) =>
     request<void>(`/lab/${encodeURIComponent(name)}?purge=${purge}`, { method: "DELETE" }),
+
+  listVulhubScenarios: () => request<LabScenario[]>("/lab/provider/scenarios"),
+  vulhubStatus: (scenario: string) =>
+    request<LabScenario>(`/lab/provider/status?scenario=${encodeURIComponent(scenario)}`),
+  startVulhub: (scenario: string, registerTarget: boolean) =>
+    request<VulhubStartResult>("/lab/provider/start", {
+      method: "POST",
+      body: JSON.stringify({ scenario, register_target: registerTarget }),
+    }),
+  stopVulhub: (scenario: string) =>
+    request<void>("/lab/provider/stop", { method: "POST", body: JSON.stringify({ scenario }) }),
+  cleanupVulhub: (scenario: string, purge: boolean) =>
+    request<void>("/lab/provider/cleanup", {
+      method: "POST",
+      body: JSON.stringify({ scenario, purge }),
+    }),
 
   listRuns: () => request<RunRecord[]>("/runs"),
   getRun: (runId: string) => request<RunRecord>(`/runs/${runId}`),

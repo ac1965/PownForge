@@ -19,6 +19,7 @@ from pownforge.core.lab import (
     LabManager,
     VulhubProvider,
     resolve_lab_target_address,
+    vulhub_target_name,
 )
 from pownforge.core.manual_evidence import import_manual_run
 from pownforge.core.orchestrator import PlaybookError, list_playbooks, resolve_playbook, run_playbook
@@ -1708,13 +1709,6 @@ def lab_kind_list() -> None:
         typer.echo(f"{cluster.name}\t{cluster.context}")
 
 
-def _sanitize_scenario_name(scenario_id: str) -> str:
-    """Turn a Vulhub scenario path into a scope-target name, e.g.
-    "log4j/CVE-2021-44228" -> "vulhub-log4j-cve-2021-44228"."""
-    slug = scenario_id.strip("/").lower().replace("/", "-").replace("_", "-")
-    return f"vulhub-{slug}"
-
-
 @lab_provider_app.command("list")
 def lab_provider_list(
     vulhub_dir: Path = typer.Option(DEFAULT_VULHUB_DIR, "--vulhub-dir", help="Path to a Vulhub checkout."),
@@ -1763,7 +1757,7 @@ def lab_provider_start(
         typer.echo("note: no published ports detected; nothing to register", err=True)
         return
     port = started.published_ports[0]
-    name = _sanitize_scenario_name(scenario)
+    name = vulhub_target_name(scenario)
     target = Target(
         name=name,
         kind=TargetKind.URL,
@@ -1843,12 +1837,12 @@ def lab_provider_cleanup(
         return
     policy = _policy(config)
     try:
-        policy.remove_target(_sanitize_scenario_name(scenario))
+        policy.remove_target(vulhub_target_name(scenario))
     except PolicyError as exc:
         typer.echo(f"warning: {exc}", err=True)
         return
     policy.save(config)
-    typer.echo(f"removed target '{_sanitize_scenario_name(scenario)}' from scope")
+    typer.echo(f"removed target '{vulhub_target_name(scenario)}' from scope")
 
 
 @app.command()
@@ -1934,6 +1928,7 @@ def web_serve(
     workdir: Path = typer.Option(DEFAULT_WORKDIR),
     settings: Path = typer.Option(DEFAULT_SETTINGS, "--settings"),
     playbooks_dir: Path = typer.Option(DEFAULT_PLAYBOOKS_DIR, "--playbooks-dir"),
+    vulhub_dir: Path = typer.Option(DEFAULT_VULHUB_DIR, "--vulhub-dir"),
 ) -> None:
     """Serve the PownForge web UI and API."""
     try:
@@ -1953,6 +1948,7 @@ def web_serve(
         workdir=workdir,
         settings=settings,
         playbooks_dir=playbooks_dir,
+        vulhub_dir=vulhub_dir,
     )
     uvicorn.run(web_app_instance, host=host, port=port)
 

@@ -13,6 +13,7 @@ from pownforge.web.routers import (
     attack_sessions,
     audit,
     lab,
+    lab_provider,
     playbooks,
     primitives,
     runs,
@@ -27,6 +28,7 @@ from pownforge.web.routers import (
 DEFAULT_FRONTEND_DIST = Path(__file__).resolve().parents[3] / "webui" / "dist"
 DEFAULT_SETTINGS_PATH = Path("config/settings.yaml")
 DEFAULT_PLAYBOOKS_DIR = Path("config/playbooks")
+DEFAULT_VULHUB_DIR = Path(os.environ.get("POWNFORGE_VULHUB_DIR", "vulhub"))
 
 
 class SPAStaticFiles(StaticFiles):
@@ -51,16 +53,19 @@ def create_app(
     settings: Path | None = None,
     frontend_dist: Path | None = None,
     playbooks_dir: Path | None = None,
+    vulhub_dir: Path | None = None,
 ) -> FastAPI:
     app = FastAPI(title="PownForge")
     app.state.config_path = config
     app.state.workdir = workdir
     app.state.settings_path = settings or DEFAULT_SETTINGS_PATH
     app.state.playbooks_dir = playbooks_dir or DEFAULT_PLAYBOOKS_DIR
+    app.state.vulhub_dir = vulhub_dir or DEFAULT_VULHUB_DIR
     app.state.jobs = JobManager()
 
     app.include_router(targets.router, prefix="/api")
     app.include_router(lab.router, prefix="/api")
+    app.include_router(lab_provider.router, prefix="/api")
     app.include_router(runs.router, prefix="/api")
     app.include_router(scans.router, prefix="/api")
     app.include_router(playbooks.router, prefix="/api")
