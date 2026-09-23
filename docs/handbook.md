@@ -768,6 +768,10 @@ Metasploitable2のSamba相手に実行)を実行。この検証で**実バグを
 - `kind/`: `kubernetes`/`kubernetes-audit`/`kube-bench`プラグインの
   基本動作確認用に絞った最小kindクラスタ + 脆弱ワークロード
   (privileged pod、過剰権限RBAC等)
+- `chain/`: L1(Initial Access)〜L4(Persistence/Impact)の攻撃チェーン
+  検証用ラボ。PownForge自身は引き続きdiscovery/vuln-confirm相当までしか
+  実行せず、L1以降は人間が手動実行した結果を`result import --phase`で
+  記録する(§16「ラボ検証ロードマップ」第2段階、実機検証済み)
 
 **KubeForgeを置き換えるものではない。** `pownforge-vulnerable-lab/kind/`
 はPownForgeの3プラグインが検出できることを確認するための最小構成に
@@ -2196,7 +2200,7 @@ T09〜T12)からなるテストマトリクスを組み、
 | 段階 | 内容 | 状況 |
 | --- | --- | --- |
 | **第1段階** | PownForgeが現在実行できる範囲(discovery/vuln-confirm相当、T01〜T12)を固定ラボとして再現可能にする | ✅ 完了。T01〜T12すべて実機検証済み。副次的にM6の未検証項目だった kube-bench実機検証(ランタイムイメージのarm64ネイティブ化により解消)と、M1のCLIを拡張する形での`Campaign`機能(T09)を実装した |
-| **第2段階** | L1〜L4の脆弱環境を攻撃チェーン(Discovery〜Impactの8フェーズ)検証用ラボとして拡張する | ❌ 未着手 |
+| **第2段階** | L1〜L4の脆弱環境を攻撃チェーン(Discovery〜Impactの8フェーズ)検証用ラボとして拡張する | ✅ 完了。`pownforge-vulnerable-lab`の`chain/`にL1(Initial Access)〜L4(Persistence/Impact)を実装し実機検証済み |
 
 **第2段階は新しいマイルストーンではありません。** PownForge自身が
 discovery/vuln-confirm相当を超えて実行する設計変更(README.mdに明記の
@@ -2207,3 +2211,17 @@ discovery/vuln-confirm相当を超えて実行する設計変更(README.mdに明
 つまりM1〜M7に対する新規実装ではなく、既存実装(特にM3のEvidence/
 Report、`AttackSession`)をより広いシナリオで検証する取り組みという
 位置づけになります。
+
+**実機検証記録(2026-09-23)**:
+[pownforge-vulnerable-lab](https://github.com/ac1965/pownforge-vulnerable-lab)
+の`chain/`に、L1(Initial Access: `metasploitable2`のvsftpd 2.3.4
+backdoor)、L2(Privilege Escalation: SUID bash / sudo findの2経路)、
+L3(Lateral Movement: `pivot-a`で発見した秘密鍵での`pivot-b`への横展開)、
+L4(Persistence: `authorized_keys`追加 / Impact: 機密データ読み取り)を
+実装した。各レベルの脆弱性(SUID誤設定、sudo誤設定、平文秘密鍵の放置)を
+実際に手動で悪用できることを実機で確認したうえで、`pownforge result
+import --phase <phase>`(L3は`--engagement l3-chain --via pivot-a`で
+pivotとして)で全段階を記録し、5 stageの`AttackSession`
+(`l1-l4-chain`)として1つの経路レポートにまとめられることを確認した。
+`ScopePolicy.authorize_pivot()`もL3の記録で実際に機能することを確認
+できた。
