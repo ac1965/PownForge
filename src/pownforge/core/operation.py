@@ -496,6 +496,17 @@ class ValidationPrimitive(ABC):
             )
         return results
 
+    def build_evidence(
+        self, ctx: PrimitiveContext, observations: list[Observation]
+    ) -> PrimitiveEvidence:
+        """Assemble the 4-layer evidence bundle. Default: observations only
+        (facts). A primitive that derives findings/claims from those
+        observations overrides this to add them -- keeping the observed/
+        inferred split explicit (see core/models.py PrimitiveEvidence)."""
+        return PrimitiveEvidence(
+            target=ctx.target.name, primitive=self.describe().id, observations=observations
+        )
+
     def _observed(self, type: str, detail: str, run_id: str) -> Observation:
         """Helper for subclasses: build an OBSERVED-provenance observation."""
         return Observation(
@@ -572,9 +583,7 @@ class PrimitiveRunner:
                 primitive.execute(ctx)
                 record.level_reached = ctx.effective_level
             observations = primitive.observe(ctx)
-            record.evidence = PrimitiveEvidence(
-                target=target_name, primitive=descriptor.id, observations=observations
-            )
+            record.evidence = primitive.build_evidence(ctx, observations)
         finally:
             if prepared:
                 record.cleanup = primitive.cleanup(ctx)

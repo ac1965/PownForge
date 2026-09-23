@@ -2404,6 +2404,42 @@ safety:
 - `core/operation.py`: `ValidationPrimitive`(ABC)、`PrimitiveContext`、
   `ResourceRegistry`、`PrimitiveRunner`
 
+### 具体プリミティブ第1号: `http.oob-interaction`
+
+骨格の上に載せた最初の具体プリミティブ(`src/pownforge/primitives/`)。
+「制御された入力を与えたとき、対象がラボ管理下のリスナーへ外向きHTTP
+リクエストを出すか」を観測して、**前提条件を検証するだけ**のものです
+(blind SSRF / OOB interactionのクラス。nucleiのinteractshが行う確認と同種)。
+ペイロード配信・クラス供給・コード実行は一切行わず、到達段階は`validation`
+止まりです。
+
+- `describe()`: `action_class=validation`、`max_level=validation`、
+  `capabilities=[read-only]`、`requires_external_network=false`
+  (コールバックはtarget→ラボ内リスナーで、プリミティブ自身は外部接続不要)
+- `evaluate_preconditions()`: `P1.controllable_input`(コールバックURLを
+  載せる注入点が指定されたか)、`P2.url_target`(addressがURLか)
+- `prepare()`: ラボローカルのコールバックリスナーを起動し、
+  `ManagedResource`として登録
+- `execute()`(validation): 対象へ**1回だけ**GETを送る。注入点は
+  `path_template`(先頭スラッシュ1個の絶対パスに`{callback}`を含む、例
+  `/fetch?url={callback}`)で、単一スラッシュ制約により対象originから出ない
+- `observe()`: タイムアウト内にリスナーへ着信したかを`Observation`で報告
+  (常に`provenance=observed`)
+- `build_evidence()`: 着信があった場合のみ`Finding`(medium、`source: "tool"`)
+  と`Claim`(confidence=confirmed、根拠に観測idを持つ)を導出。無ければ観測のみ
+- `cleanup()`: リスナーを停止し、ポートが閉じたことを検証して
+  `verified_absent`に。閉じられなければ`residual_resources`に残す
+
+リスナー(`CallbackListener`)と送信(`HttpSender`)は注入可能で、既定は
+実I/Oを行う`ThreadedCallbackListener`/`UrllibSender`、テストではフェイクを
+渡してソケット無しで論理を検証します。`subprocess`は使いません(in-process)。
+
+**実機検証**: `127.0.0.1`上にSSRF様のローカル対象(GET `/fetch?url=`で
+そのURLを取得する素朴なサーバー)を立て、`PrimitiveRunner`経由で
+`http.oob-interaction`を実行し、実際のループバックコールバックが観測され
+`Finding`/`Claim`が生成されること、リスナーが`verified_absent`まで片付く
+ことを確認済み(`tests/test_http_interaction_primitive.py`)。
+
 ## 16. テスト
 
 ```bash
