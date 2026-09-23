@@ -69,34 +69,51 @@ graph TD
     Emacs -- "サブプロセスとして呼ぶだけ" --> CLI
 
     subgraph Core["コア"]
-        ScopePolicy["ScopePolicy<br/>(config/targets.yaml)"]
-        Registry["PluginRegistry"]
+        Policy["ScopePolicy + SafetyPolicy<br/>(config/targets.yaml)"]
+        Registry["PluginRegistry<br/>(+ entry point外部プラグイン)"]
         Runner["ScanRunner"]
+        PrimRunner["PrimitiveRunner"]
         Orchestrator["orchestrator.py<br/>(config/playbooks/*.yaml)"]
         Operation["operation.py<br/>(AttackOperation/OperationRunner、Phase 2設計)"]
-        Lab["LabManager"]
-        Evidence["EvidenceStore"]
-        Reporting["reporting/"]
+        Lab["LabManager / KindClusterManager /<br/>VulhubProvider(外部Lab Provider)"]
+        Evidence["EvidenceStore /<br/>PrimitiveRunStore"]
+        Audit["AuditStore<br/>(拒否された実行試行)"]
+        Reporting["reporting/<br/>report/primitive/attack-session/<br/>engagement(横断)/walkthrough"]
         AI["ai.OllamaAdapter"]
     end
 
-    Runner --> ScopePolicy
+    Runner --> Policy
     Runner --> Registry
     Runner --> Evidence
+    Runner -- "スコープ拒否を記録" --> Audit
+    PrimRunner -- "スコープ→SafetyPolicy" --> Policy
+    PrimRunner --> Primitives["primitives/<br/>http.oob-interaction /<br/>jndi.oob-lookup-probe"]
+    PrimRunner --> Evidence
+    PrimRunner -- "拒否を記録" --> Audit
     Orchestrator -- "各ステップでScanRunner.run()を呼ぶだけ" --> Runner
     Operation -- "承認済みscan Actionのみ委譲" --> Runner
-    Registry --> Plugins["plugins/<br/>recon・network・web・nuclei・kubernetes・container・sqlmap・vulncheck"]
-    Plugins -- "build_command" --> ExtTools["外部ツール<br/>subfinder/nmap/ffuf/nuclei/trivy/sqlmap"]
+    Registry --> Plugins["plugins/<br/>recon・network・web・nuclei・<br/>kubernetes(+audit/bench)・container・<br/>sqlmap・vulncheck・api・identity"]
+    Plugins -- "build_command" --> ExtTools["外部ツール<br/>subfinder/nmap/ffuf/nuclei/<br/>trivy/kubectl/kube-bench/sqlmap/curl"]
     Runner -- "subprocess実行" --> ExtTools
+    Primitives -- "制御アクション+コールバック観測<br/>(in-process、exploitなし)" --> LabNet["ラボ内リスナー"]
     Evidence --> Reporting
     Evidence --> AI
-    Lab --> Docker["隔離Dockerネットワーク"]
+    Lab --> Docker["隔離Dockerネットワーク /<br/>Vulhub docker-compose"]
 ```
 
 どのフロントエンドを使っても、認可ロジック(登録済み対象・許可プラグインの
 組み合わせでしかスキャンできない)は完全に同じコードパスを通ります。
-Web UIのルーターは`ScopePolicy`/`ScanRunner`/`LabManager`をそのまま呼ぶ
-だけ、Emacs連携は`pownforge`実行バイナリをサブプロセスとして呼ぶだけです。
+Web UIのルーターは`ScopePolicy`/`ScanRunner`/`PrimitiveRunner`/`LabManager`/
+`VulhubProvider`をそのまま呼ぶだけ、Emacs連携は`pownforge`実行バイナリを
+サブプロセスとして呼ぶだけです。
+
+`ScanRunner`(プラグイン)に加え、`PrimitiveRunner`(検証プリミティブ、§15)も
+同じ`ScopePolicy`を先頭で通し、さらに`SafetyPolicy`の行動エンベロープ
+(detection/validation/execution、外部接続・永続化・cleanup要否)で到達段階を
+制限します。プラグイン実行・プリミティブ実行のいずれも、スコープ/安全境界で
+拒否された試行は`AuditStore`に記録されます。PownForge自身はexploitを実行せず、
+プリミティブの最上位も「制御されたコールバック観測」まで
+([§15](#15-検証プリミティブフレームワークphase-2設計骨格))。
 
 1回のスキャン実行は次の流れで進みます。
 
