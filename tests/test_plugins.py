@@ -7,7 +7,7 @@ import pytest
 
 from pownforge.core.models import Target, TargetKind
 from pownforge.core.registry import default_registry
-from pownforge.plugins.base import PluginError
+from pownforge.plugins.base import PluginError, PluginExecution
 from pownforge.plugins.container import ContainerPlugin
 from pownforge.plugins.kube_bench import KubeBenchPlugin
 from pownforge.plugins.kubernetes import KubernetesPlugin
@@ -19,6 +19,14 @@ from pownforge.plugins.sqlmap import SqlmapPlugin
 from pownforge.plugins.vulncheck import VulncheckPlugin
 from pownforge.plugins.web import WebPlugin
 from pownforge.sdk.testing import assert_plugin_contract
+
+
+def _execution(tmp_path: Path) -> PluginExecution:
+    """A PluginExecution backed by pytest's own tmp_path -- mirrors what
+    ScanRunner creates via tempfile.TemporaryDirectory() for a real run,
+    without needing a separate cleanup step in each test."""
+    return PluginExecution(tmp_path)
+
 
 NMAP_XML = """<?xml version="1.0"?>
 <nmaprun>
@@ -35,39 +43,41 @@ NMAP_XML = """<?xml version="1.0"?>
 """
 
 
-def test_network_plugin_normalizes_nmap_xml(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_network_plugin_normalizes_nmap_xml(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     plugin = NetworkPlugin()
     target = Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1")
     monkeypatch.setattr(NetworkPlugin, "check", lambda self: True)
+    execution = _execution(tmp_path)
 
-    command = plugin.build_command(target, {})
+    command = plugin.build_command(target, {}, execution)
     xml_path = Path(command[command.index("-oX") + 1])
     xml_path.write_text(NMAP_XML)
 
-    output = plugin.normalize(target, "", "")
+    output = plugin.normalize(target, "", "", execution)
 
     assert output["hosts"][0]["address"] == "127.0.0.1"
     assert output["hosts"][0]["ports"][0]["service"] == "http"
     assert output["hosts"][0]["ports"][0]["state"] == "open"
-    assert not xml_path.exists()
 
 
-def test_network_plugin_extracts_host_from_url_kind_target(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_network_plugin_extracts_host_from_url_kind_target(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     plugin = NetworkPlugin()
     target = Target(name="lab-web", kind=TargetKind.URL, address="http://lab-web:3000")
     monkeypatch.setattr(NetworkPlugin, "check", lambda self: True)
 
-    command = plugin.build_command(target, {})
+    command = plugin.build_command(target, {}, _execution(tmp_path))
 
     assert command[-1] == "lab-web"
 
 
-def test_network_plugin_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_network_plugin_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     plugin = NetworkPlugin()
     monkeypatch.setattr(NetworkPlugin, "check", lambda self: False)
     target = Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1")
     with pytest.raises(PluginError):
-        plugin.build_command(target, {})
+        plugin.build_command(target, {}, _execution(tmp_path))
 
 
 FFUF_JSON = json.dumps(
@@ -85,28 +95,28 @@ FFUF_JSON = json.dumps(
 )
 
 
-def test_web_plugin_normalizes_ffuf_json(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_web_plugin_normalizes_ffuf_json(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     plugin = WebPlugin()
     target = Target(name="lab-web", kind=TargetKind.URL, address="http://lab-web:3000")
     monkeypatch.setattr(WebPlugin, "check", lambda self: True)
+    execution = _execution(tmp_path)
 
-    command = plugin.build_command(target, {"wordlist": "wordlist.txt"})
+    command = plugin.build_command(target, {"wordlist": "wordlist.txt"}, execution)
     json_path = Path(command[command.index("-o") + 1])
     json_path.write_text(FFUF_JSON)
 
-    output = plugin.normalize(target, "", "")
+    output = plugin.normalize(target, "", "", execution)
 
     assert output["hits"][0]["path"] == "admin"
     assert output["hits"][0]["status"] == 200
-    assert not json_path.exists()
 
 
-def test_web_plugin_requires_wordlist(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_web_plugin_requires_wordlist(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     plugin = WebPlugin()
     monkeypatch.setattr(WebPlugin, "check", lambda self: True)
     target = Target(name="lab-web", kind=TargetKind.URL, address="http://lab-web:3000")
     with pytest.raises(PluginError):
-        plugin.build_command(target, {})
+        plugin.build_command(target, {}, _execution(tmp_path))
 
 
 def test_network_plugin_version_command() -> None:
@@ -127,40 +137,42 @@ SUBFINDER_JSONL = "\n".join(
 )
 
 
-def test_recon_plugin_normalizes_subfinder_jsonl_and_dedupes(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_recon_plugin_normalizes_subfinder_jsonl_and_dedupes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     plugin = ReconPlugin()
     target = Target(name="lab", kind=TargetKind.HOST, address="example.com")
     monkeypatch.setattr(ReconPlugin, "check", lambda self: True)
+    execution = _execution(tmp_path)
 
-    command = plugin.build_command(target, {})
+    command = plugin.build_command(target, {}, execution)
     jsonl_path = Path(command[command.index("-o") + 1])
     jsonl_path.write_text(SUBFINDER_JSONL)
 
-    output = plugin.normalize(target, "", "")
+    output = plugin.normalize(target, "", "", execution)
 
     assert output["tool"] == "subfinder"
     assert output["subdomains"] == [
         {"host": "www.example.com", "source": "crtsh"},
         {"host": "api.example.com", "source": "crtsh"},
     ]
-    assert not jsonl_path.exists()
 
 
-def test_recon_plugin_passes_sources_option(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_recon_plugin_passes_sources_option(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     plugin = ReconPlugin()
     monkeypatch.setattr(ReconPlugin, "check", lambda self: True)
     target = Target(name="lab", kind=TargetKind.HOST, address="example.com")
-    command = plugin.build_command(target, {"sources": "crtsh,hackertarget"})
+    command = plugin.build_command(target, {"sources": "crtsh,hackertarget"}, _execution(tmp_path))
     assert "-s" in command
     assert command[command.index("-s") + 1] == "crtsh,hackertarget"
 
 
-def test_recon_plugin_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_recon_plugin_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     plugin = ReconPlugin()
     monkeypatch.setattr(ReconPlugin, "check", lambda self: False)
     target = Target(name="lab", kind=TargetKind.HOST, address="example.com")
     with pytest.raises(PluginError):
-        plugin.build_command(target, {})
+        plugin.build_command(target, {}, _execution(tmp_path))
 
 
 def test_recon_plugin_version_command() -> None:
@@ -200,23 +212,23 @@ NUCLEI_JSONL = "\n".join(
 
 
 def test_nuclei_plugin_normalizes_jsonl_into_matches_and_findings(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     plugin = NucleiPlugin()
     target = Target(name="lab-web", kind=TargetKind.URL, address="http://lab-web:3000")
     monkeypatch.setattr(NucleiPlugin, "check", lambda self: True)
+    execution = _execution(tmp_path)
 
-    command = plugin.build_command(target, {"tags": "exposures", "severity": "medium,high"})
+    command = plugin.build_command(target, {"tags": "exposures", "severity": "medium,high"}, execution)
     assert "-tags" in command and "exposures" in command
     assert "-severity" in command and "medium,high" in command
     jsonl_path = Path(command[command.index("-o") + 1])
     jsonl_path.write_text(NUCLEI_JSONL)
 
-    output = plugin.normalize(target, "", "")
+    output = plugin.normalize(target, "", "", execution)
 
     assert len(output["matches"]) == 2
     assert output["matches"][0]["name"] == "Exposed Admin Panel"
-    assert not jsonl_path.exists()
 
     findings = output["_findings"]
     assert findings[0]["title"] == "Exposed Admin Panel"
@@ -225,12 +237,12 @@ def test_nuclei_plugin_normalizes_jsonl_into_matches_and_findings(
     assert findings[1]["severity"] == "unknown"  # ScanRunner/coerce_finding handles the fallback
 
 
-def test_nuclei_plugin_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_nuclei_plugin_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     plugin = NucleiPlugin()
     monkeypatch.setattr(NucleiPlugin, "check", lambda self: False)
     target = Target(name="lab-web", kind=TargetKind.URL, address="http://lab-web:3000")
     with pytest.raises(PluginError):
-        plugin.build_command(target, {})
+        plugin.build_command(target, {}, _execution(tmp_path))
 
 
 def test_nuclei_plugin_version_command() -> None:
@@ -308,21 +320,21 @@ TRIVY_K8S_JSON = json.dumps(
 )
 
 
-def test_kubernetes_plugin_normalizes_trivy_json(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_kubernetes_plugin_normalizes_trivy_json(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     plugin = KubernetesPlugin()
     target = Target(name="kind-lab", kind=TargetKind.HOST, address="kind-pownforge-lab")
     monkeypatch.setattr(KubernetesPlugin, "check", lambda self: True)
+    execution = _execution(tmp_path)
 
-    command = plugin.build_command(target, {"severity": "MEDIUM,HIGH,CRITICAL"})
+    command = plugin.build_command(target, {"severity": "MEDIUM,HIGH,CRITICAL"}, execution)
     assert command[2] == "kind-pownforge-lab"  # context is positional, not a flag
     assert "--severity" in command and "MEDIUM,HIGH,CRITICAL" in command
     json_path = Path(command[command.index("-o") + 1])
     json_path.write_text(TRIVY_K8S_JSON)
 
-    output = plugin.normalize(target, "", "")
+    output = plugin.normalize(target, "", "", execution)
 
     assert len(output["resources"]) == 2
-    assert not json_path.exists()
 
     findings = output["_findings"]
     assert len(findings) == 3
@@ -337,12 +349,12 @@ def test_kubernetes_plugin_normalizes_trivy_json(monkeypatch: pytest.MonkeyPatch
     assert unknown_sev["severity"] == "unknown"  # coerce_finding() handles the fallback to info
 
 
-def test_kubernetes_plugin_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_kubernetes_plugin_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     plugin = KubernetesPlugin()
     monkeypatch.setattr(KubernetesPlugin, "check", lambda self: False)
     target = Target(name="kind-lab", kind=TargetKind.HOST, address="kind-pownforge-lab")
     with pytest.raises(PluginError):
-        plugin.build_command(target, {})
+        plugin.build_command(target, {}, _execution(tmp_path))
 
 
 def test_kubernetes_plugin_version_command() -> None:
@@ -385,10 +397,10 @@ for '--level'/'--risk' options if you wish to perform more tests.
 """
 
 
-def test_sqlmap_plugin_parses_injection_points_and_findings() -> None:
+def test_sqlmap_plugin_parses_injection_points_and_findings(tmp_path: Path) -> None:
     plugin = SqlmapPlugin()
     target = Target(name="sqlmap-lab", kind=TargetKind.URL, address="http://127.0.0.1:15000/product?id=1")
-    output = plugin.normalize(target, SQLMAP_STDOUT_INJECTABLE, "")
+    output = plugin.normalize(target, SQLMAP_STDOUT_INJECTABLE, "", _execution(tmp_path))
 
     assert output["dbms"] == "SQLite"
     assert len(output["injection_points"]) == 1
@@ -409,29 +421,29 @@ def test_sqlmap_plugin_parses_injection_points_and_findings() -> None:
     assert "AND 8652=8652" in findings[0]["detail"]
 
 
-def test_sqlmap_plugin_no_findings_when_not_injectable() -> None:
+def test_sqlmap_plugin_no_findings_when_not_injectable(tmp_path: Path) -> None:
     plugin = SqlmapPlugin()
     target = Target(name="sqlmap-lab", kind=TargetKind.URL, address="http://127.0.0.1:15000/product?id=1&safe=x")
-    output = plugin.normalize(target, SQLMAP_STDOUT_NOT_INJECTABLE, "")
+    output = plugin.normalize(target, SQLMAP_STDOUT_NOT_INJECTABLE, "", _execution(tmp_path))
     assert output["injection_points"] == []
     assert output["_findings"] == []
     assert output["dbms"] is None
 
 
-def test_sqlmap_plugin_requires_url_target(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sqlmap_plugin_requires_url_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     plugin = SqlmapPlugin()
     monkeypatch.setattr(SqlmapPlugin, "check", lambda self: True)
     target = Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1")
     with pytest.raises(PluginError):
-        plugin.build_command(target, {})
+        plugin.build_command(target, {}, _execution(tmp_path))
 
 
-def test_sqlmap_plugin_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sqlmap_plugin_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     plugin = SqlmapPlugin()
     monkeypatch.setattr(SqlmapPlugin, "check", lambda self: False)
     target = Target(name="sqlmap-lab", kind=TargetKind.URL, address="http://127.0.0.1:15000/product?id=1")
     with pytest.raises(PluginError):
-        plugin.build_command(target, {})
+        plugin.build_command(target, {}, _execution(tmp_path))
 
 
 @pytest.mark.parametrize(
@@ -454,42 +466,47 @@ def test_sqlmap_plugin_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch)
         "reg-read",
     ],
 )
-def test_sqlmap_plugin_rejects_denied_options(monkeypatch: pytest.MonkeyPatch, denied_option: str) -> None:
+def test_sqlmap_plugin_rejects_denied_options(
+    monkeypatch: pytest.MonkeyPatch, denied_option: str, tmp_path: Path
+) -> None:
     plugin = SqlmapPlugin()
     monkeypatch.setattr(SqlmapPlugin, "check", lambda self: True)
     target = Target(name="sqlmap-lab", kind=TargetKind.URL, address="http://127.0.0.1:15000/product?id=1")
     with pytest.raises(PluginError):
-        plugin.build_command(target, {denied_option: "true"})
+        plugin.build_command(target, {denied_option: "true"}, _execution(tmp_path))
 
 
-def test_sqlmap_plugin_rejects_denied_option_with_leading_dashes(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sqlmap_plugin_rejects_denied_option_with_leading_dashes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     plugin = SqlmapPlugin()
     monkeypatch.setattr(SqlmapPlugin, "check", lambda self: True)
     target = Target(name="sqlmap-lab", kind=TargetKind.URL, address="http://127.0.0.1:15000/product?id=1")
     with pytest.raises(PluginError):
-        plugin.build_command(target, {"--os-shell": "true"})
+        plugin.build_command(target, {"--os-shell": "true"}, _execution(tmp_path))
 
 
-def test_sqlmap_plugin_build_command_defaults_and_options(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sqlmap_plugin_build_command_defaults_and_options(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     plugin = SqlmapPlugin()
     monkeypatch.setattr(SqlmapPlugin, "check", lambda self: True)
     target = Target(name="sqlmap-lab", kind=TargetKind.URL, address="http://127.0.0.1:15000/product?id=1")
 
-    command = plugin.build_command(target, {})
+    execution1 = _execution(tmp_path / "run1")
+    command = plugin.build_command(target, {}, execution1)
     assert "--risk" in command and "1" in command
     assert "--level" in command and "1" in command
     assert "--batch" in command
     assert "--output-dir" in command
     output_dir = Path(command[command.index("--output-dir") + 1])
     assert output_dir.is_dir()
-    plugin.normalize(target, "", "")  # cleans up the temp --output-dir
-    assert not output_dir.exists()
+    plugin.normalize(target, "", "", execution1)
 
-    command = plugin.build_command(target, {"risk": "2", "level": "3", "dump": "true"})
+    execution2 = _execution(tmp_path / "run2")
+    command = plugin.build_command(target, {"risk": "2", "level": "3", "dump": "true"}, execution2)
     assert command[command.index("--risk") + 1] == "2"
     assert command[command.index("--level") + 1] == "3"
     assert "--dump" in command
-    plugin.normalize(target, "", "")  # cleans up the second temp --output-dir
+    plugin.normalize(target, "", "", execution2)
 
 
 def test_sqlmap_plugin_version_command() -> None:
@@ -542,22 +559,22 @@ TRIVY_IMAGE_JSON = json.dumps(
 )
 
 
-def test_container_plugin_normalizes_trivy_image_json(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_container_plugin_normalizes_trivy_image_json(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     plugin = ContainerPlugin()
     target = Target(name="alpine-image", kind=TargetKind.HOST, address="alpine:3.10")
     monkeypatch.setattr(ContainerPlugin, "check", lambda self: True)
+    execution = _execution(tmp_path)
 
-    command = plugin.build_command(target, {"severity": "HIGH,CRITICAL", "ignore-unfixed": "true"})
+    command = plugin.build_command(target, {"severity": "HIGH,CRITICAL", "ignore-unfixed": "true"}, execution)
     assert command[2] == "alpine:3.10"  # image ref is positional, like trivy k8s's context
     assert "--severity" in command and "HIGH,CRITICAL" in command
     assert "--ignore-unfixed" in command
     json_path = Path(command[command.index("-o") + 1])
     json_path.write_text(TRIVY_IMAGE_JSON)
 
-    output = plugin.normalize(target, "", "")
+    output = plugin.normalize(target, "", "", execution)
 
     assert len(output["results"]) == 2
-    assert not json_path.exists()
 
     findings = output["_findings"]
     assert len(findings) == 3
@@ -573,12 +590,12 @@ def test_container_plugin_normalizes_trivy_image_json(monkeypatch: pytest.Monkey
     assert unknown_sev["severity"] == "unknown"  # coerce_finding() handles the fallback to info
 
 
-def test_container_plugin_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_container_plugin_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     plugin = ContainerPlugin()
     monkeypatch.setattr(ContainerPlugin, "check", lambda self: False)
     target = Target(name="alpine-image", kind=TargetKind.HOST, address="alpine:3.10")
     with pytest.raises(PluginError):
-        plugin.build_command(target, {})
+        plugin.build_command(target, {}, _execution(tmp_path))
 
 
 def test_container_plugin_version_command() -> None:
@@ -657,27 +674,29 @@ VULNCHECK_HOSTSCRIPT_XML = """<?xml version="1.0"?>
 """
 
 
-def test_vulncheck_plugin_requires_script_option(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_vulncheck_plugin_requires_script_option(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     plugin = VulncheckPlugin()
     monkeypatch.setattr(VulncheckPlugin, "check", lambda self: True)
     target = Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1")
     with pytest.raises(PluginError, match="requires --option script="):
-        plugin.build_command(target, {})
+        plugin.build_command(target, {}, _execution(tmp_path))
 
 
-def test_vulncheck_plugin_rejects_script_not_on_allowlist(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_vulncheck_plugin_rejects_script_not_on_allowlist(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     plugin = VulncheckPlugin()
     monkeypatch.setattr(VulncheckPlugin, "check", lambda self: True)
     target = Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1")
     with pytest.raises(PluginError, match="not on the vulncheck allowlist"):
-        plugin.build_command(target, {"script": "http-shellshock"})
+        plugin.build_command(target, {"script": "http-shellshock"}, _execution(tmp_path))
 
 
-def test_vulncheck_plugin_builds_nmap_command_with_allowed_script(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_vulncheck_plugin_builds_nmap_command_with_allowed_script(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     plugin = VulncheckPlugin()
     monkeypatch.setattr(VulncheckPlugin, "check", lambda self: True)
     target = Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1")
-    command = plugin.build_command(target, {"script": "ssl-heartbleed", "port": "8443"})
+    command = plugin.build_command(target, {"script": "ssl-heartbleed", "port": "8443"}, _execution(tmp_path))
     assert command[0] == "nmap"
     assert "--script" in command
     assert command[command.index("--script") + 1] == "ssl-heartbleed"
@@ -686,32 +705,35 @@ def test_vulncheck_plugin_builds_nmap_command_with_allowed_script(monkeypatch: p
 
 
 def test_vulncheck_plugin_normalizes_not_vulnerable_result_without_finding(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     plugin = VulncheckPlugin()
     monkeypatch.setattr(VulncheckPlugin, "check", lambda self: True)
     target = Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1")
-    command = plugin.build_command(target, {"script": "ssl-heartbleed"})
+    execution = _execution(tmp_path)
+    command = plugin.build_command(target, {"script": "ssl-heartbleed"}, execution)
     xml_path = Path(command[command.index("-oX") + 1])
     xml_path.write_text(VULNCHECK_NOT_VULNERABLE_XML)
 
-    output = plugin.normalize(target, "", "")
+    output = plugin.normalize(target, "", "", execution)
 
     assert output["results"][0]["script"] == "ssl-heartbleed"
     assert output["results"][0]["state"] == "NOT VULNERABLE"
     assert output["_findings"] == []
-    assert not xml_path.exists()
 
 
-def test_vulncheck_plugin_normalizes_vulnerable_result_into_finding(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_vulncheck_plugin_normalizes_vulnerable_result_into_finding(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     plugin = VulncheckPlugin()
     monkeypatch.setattr(VulncheckPlugin, "check", lambda self: True)
     target = Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1")
-    command = plugin.build_command(target, {"script": "ssl-heartbleed"})
+    execution = _execution(tmp_path)
+    command = plugin.build_command(target, {"script": "ssl-heartbleed"}, execution)
     xml_path = Path(command[command.index("-oX") + 1])
     xml_path.write_text(VULNCHECK_VULNERABLE_XML)
 
-    output = plugin.normalize(target, "", "")
+    output = plugin.normalize(target, "", "", execution)
 
     assert output["results"][0]["state"] == "VULNERABLE"
     assert len(output["_findings"]) == 1
@@ -719,15 +741,16 @@ def test_vulncheck_plugin_normalizes_vulnerable_result_into_finding(monkeypatch:
     assert "Heartbleed" in output["_findings"][0]["title"]
 
 
-def test_vulncheck_plugin_parses_hostscript_results(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_vulncheck_plugin_parses_hostscript_results(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     plugin = VulncheckPlugin()
     monkeypatch.setattr(VulncheckPlugin, "check", lambda self: True)
     target = Target(name="lab", kind=TargetKind.HOST, address="metasploitable2")
-    command = plugin.build_command(target, {"script": "smb-vuln-ms17-010"})
+    execution = _execution(tmp_path)
+    command = plugin.build_command(target, {"script": "smb-vuln-ms17-010"}, execution)
     xml_path = Path(command[command.index("-oX") + 1])
     xml_path.write_text(VULNCHECK_HOSTSCRIPT_XML)
 
-    output = plugin.normalize(target, "", "")
+    output = plugin.normalize(target, "", "", execution)
 
     assert output["results"] == [
         {
@@ -740,12 +763,12 @@ def test_vulncheck_plugin_parses_hostscript_results(monkeypatch: pytest.MonkeyPa
     assert output["_findings"] == []
 
 
-def test_vulncheck_plugin_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_vulncheck_plugin_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     plugin = VulncheckPlugin()
     monkeypatch.setattr(VulncheckPlugin, "check", lambda self: False)
     target = Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1")
     with pytest.raises(PluginError):
-        plugin.build_command(target, {"script": "ssl-heartbleed"})
+        plugin.build_command(target, {"script": "ssl-heartbleed"}, _execution(tmp_path))
 
 
 def test_vulncheck_plugin_version_command() -> None:
@@ -790,10 +813,10 @@ def test_plugin_declares_expected_kind(plugin_cls: type, expected: TargetKind | 
     ],
 )
 def test_plugin_rejects_mismatched_target_kind(
-    monkeypatch: pytest.MonkeyPatch, plugin_cls: type, wrong_kind: TargetKind
+    monkeypatch: pytest.MonkeyPatch, plugin_cls: type, wrong_kind: TargetKind, tmp_path: Path
 ) -> None:
     plugin = plugin_cls()
     monkeypatch.setattr(plugin_cls, "check", lambda self: True)
     target = Target(name="x", kind=wrong_kind, address="whatever")
     with pytest.raises(PluginError, match="requires a"):
-        plugin.build_command(target, {})
+        plugin.build_command(target, {}, _execution(tmp_path))

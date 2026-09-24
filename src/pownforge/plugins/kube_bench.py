@@ -1,16 +1,13 @@
 from __future__ import annotations
 
 import importlib.resources
-import os
 import re
 import shlex
 import shutil
-import tempfile
-from pathlib import Path
 from typing import Any
 
 from pownforge.core.models import PluginOption, Target, TargetKind
-from pownforge.plugins.base import Plugin, PluginError
+from pownforge.plugins.base import Plugin, PluginError, PluginExecution
 
 JOB_NAME = "kube-bench"
 JOB_NAMESPACE = "default"
@@ -47,13 +44,10 @@ class KubeBenchPlugin(Plugin):
         PluginOption(name="timeout", description="kubectl wait --timeout for the Job.", default="120s"),
     )
 
-    def __init__(self) -> None:
-        self._manifest_path: Path | None = None
-
     def check(self) -> bool:
         return shutil.which("kubectl") is not None
 
-    def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
+    def build_command(self, target: Target, options: dict[str, Any], execution: PluginExecution) -> list[str]:
         if not self.check():
             raise PluginError(f"'{self.required_tool}' is not installed or not on PATH")
         self.require_kind(target)
@@ -64,13 +58,11 @@ class KubeBenchPlugin(Plugin):
         )
         manifest = template.replace("__KUBE_BENCH_IMAGE__", image)
 
-        fd, raw_path = tempfile.mkstemp(prefix="pownforge-kube-bench-", suffix=".yaml")
-        os.close(fd)
-        self._manifest_path = Path(raw_path)
-        self._manifest_path.write_text(manifest)
+        manifest_path = execution.path("kube-bench-job.yaml")
+        manifest_path.write_text(manifest)
 
         ctx = shlex.quote(target.address)
-        manifest_arg = shlex.quote(str(self._manifest_path))
+        manifest_arg = shlex.quote(str(manifest_path))
         timeout = shlex.quote(str(options.get("timeout", "120s")))
         # 前回runのJobが残っていれば消してから作り直す (再実行可能にするため)。
         # waitの失敗はJobが完了できなかったこと自体を示すが、それでも部分的な
@@ -85,11 +77,9 @@ class KubeBenchPlugin(Plugin):
         )
         return ["sh", "-c", script]
 
-    def normalize(self, target: Target, raw_stdout: str, raw_stderr: str) -> dict[str, Any]:
-        manifest_path, self._manifest_path = self._manifest_path, None
-        if manifest_path is not None:
-            manifest_path.unlink(missing_ok=True)
-
+    def normalize(
+        self, target: Target, raw_stdout: str, raw_stderr: str, execution: PluginExecution
+    ) -> dict[str, Any]:
         counts = {"pass": 0, "fail": 0, "warn": 0, "info": 0}
         m = _SUMMARY_RE.search(raw_stdout)
         if m:

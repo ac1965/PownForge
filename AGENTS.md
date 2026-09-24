@@ -35,8 +35,8 @@ make test
 
 - CLI: Typer
 - データモデル・入力検証: Pydantic
-- 外部ツール（nmap/ffuf/docker/llm等）の**コマンド組み立て**は `plugins/` のプラグイン（`build_command`）または `core/lab.py` の `LabManager` に閉じ込める。**実際に `subprocess` を実行するのは** `core/runner.py`（`ScanRunner`）・`core/lab.py`（`LabManager`）・`ai/ollama.py` に限定し、証跡記録（タイムスタンプ・ハッシュ・タイムアウト）をそこに集約する。`cli.py` から直接 `subprocess` を呼ばない
-- プラグインは「（`ScanRunner`がスコープ検証済みのTargetを渡す）→ `build_command` → `normalize`」の順で責務を分離する。中間出力（nmapのXML、ffufのJSON等）を一時ファイルに書いてもよいが、`normalize` 内で読み込み次第削除し、最終的な証跡は `evidence/`（`EvidenceStore`）経由でのみ永続化する
+- 外部ツール（nmap/ffuf/docker/llm等）の**コマンド組み立て**は `plugins/` のプラグイン（`build_command`）または `core/lab.py` の `LabManager` に閉じ込める。**実際に `subprocess` を実行するのは** `core/process.py`（`ProcessExecutor`。`ScanRunner`が呼ぶ）・`core/lab.py`（`LabManager`）・`ai/ollama.py` に限定し、証跡記録（タイムスタンプ・ハッシュ・タイムアウト）をそこに集約する。`cli.py` から直接 `subprocess` を呼ばない
+- プラグインは「（`ScanRunner`がスコープ検証済みのTargetを渡す）→ `build_command` → `normalize`」の順で責務を分離する。`build_command`/`normalize`は`execution`引数（`PluginExecution`、`plugins/base.py`）を受け取り、中間出力（nmapのXML、ffufのJSON等）を書く一時パスは`self`ではなく`execution.path(name)`から得る。`Plugin`インスタンスはプラグイン名ごとに`PluginRegistry`が1つ共有するため、`self`に実行ごとの状態を持たせると並行実行で衝突する。一時ディレクトリは`ScanRunner`が実行ごとに払い出し・実行終了時に丸ごと削除するため、プラグイン側で明示的に消す必要はない。最終的な証跡は `evidence/`（`EvidenceStore`）経由でのみ永続化する
 - 新しい外部ツールを追加する場合は `plugins/base.py` の `Plugin` を実装する
 - コメントは自明でない理由（WHY）がある場合のみ、最小限で記述する
 

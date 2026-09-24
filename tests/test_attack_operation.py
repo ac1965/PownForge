@@ -24,7 +24,7 @@ from pownforge.core.operation import (
 from pownforge.core.policy import ScopePolicy
 from pownforge.core.registry import PluginRegistry
 from pownforge.evidence.store import EvidenceStore
-from pownforge.plugins.base import Plugin
+from pownforge.plugins.base import Plugin, PluginExecution
 
 
 class EchoPlugin(Plugin):
@@ -35,10 +35,10 @@ class EchoPlugin(Plugin):
     def check(self) -> bool:
         return True
 
-    def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
+    def build_command(self, target: Target, options: dict[str, Any], execution: PluginExecution) -> list[str]:
         return ["echo", target.address]
 
-    def normalize(self, target: Target, raw_stdout: str, raw_stderr: str) -> dict[str, Any]:
+    def normalize(self, target: Target, raw_stdout: str, raw_stderr: str, execution: PluginExecution) -> dict[str, Any]:
         return {"raw_stdout": raw_stdout, "raw_stderr": raw_stderr}
 
 

@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import shutil
-import tempfile
 from pathlib import Path
 from typing import Any
 
 from pownforge.core.models import PluginOption, Target, TargetKind
-from pownforge.plugins.base import Plugin, PluginError
+from pownforge.plugins.base import Plugin, PluginError, PluginExecution
 
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -27,9 +25,6 @@ class ReconPlugin(Plugin):
         PluginOption(name="exclude_sources", description="subfinder -es, comma-separated sources."),
     )
 
-    def __init__(self) -> None:
-        self._jsonl_path: Path | None = None
-
     def check(self) -> bool:
         return shutil.which(self.required_tool) is not None
 
@@ -46,22 +41,19 @@ class ReconPlugin(Plugin):
                 return clean.split("]", 1)[-1].strip()
         return super().parse_version_output(stdout, stderr)
 
-    def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
+    def build_command(self, target: Target, options: dict[str, Any], execution: PluginExecution) -> list[str]:
         if not self.check():
             raise PluginError(f"'{self.required_tool}' is not installed or not on PATH")
         self.require_kind(target)
 
-        fd, raw_path = tempfile.mkstemp(prefix="pownforge-subfinder-", suffix=".jsonl")
-        os.close(fd)
-        self._jsonl_path = Path(raw_path)
-
+        jsonl_path = execution.path("subfinder.jsonl")
         args = [
             "subfinder",
             "-d",
             target.address,
             "-oJ",
             "-o",
-            str(self._jsonl_path),
+            str(jsonl_path),
             "-silent",
         ]
         if sources := options.get("sources"):
@@ -70,14 +62,13 @@ class ReconPlugin(Plugin):
             args += ["-es", str(exclude_sources)]
         return args
 
-    def normalize(self, target: Target, raw_stdout: str, raw_stderr: str) -> dict[str, Any]:
+    def normalize(
+        self, target: Target, raw_stdout: str, raw_stderr: str, execution: PluginExecution
+    ) -> dict[str, Any]:
         subdomains: list[dict[str, Any]] = []
-        jsonl_path, self._jsonl_path = self._jsonl_path, None
-        if jsonl_path is not None and jsonl_path.exists():
-            try:
-                subdomains = self._parse_jsonl(jsonl_path)
-            finally:
-                jsonl_path.unlink(missing_ok=True)
+        jsonl_path = execution.path("subfinder.jsonl")
+        if jsonl_path.exists():
+            subdomains = self._parse_jsonl(jsonl_path)
 
         return {
             "target": target.address,

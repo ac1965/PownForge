@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import os
 import shutil
-import tempfile
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 from xml.etree import ElementTree
 
 from pownforge.core.models import PluginOption, Target, TargetKind
-from pownforge.plugins.base import Plugin, PluginError
+from pownforge.plugins.base import Plugin, PluginError, PluginExecution
 
 
 def _scan_host(target: Target) -> str:
@@ -35,38 +33,31 @@ class NetworkPlugin(Plugin):
         PluginOption(name="ports", description="nmap -p, e.g. 22,80,443 or 1-1024."),
     )
 
-    def __init__(self) -> None:
-        self._xml_path: Path | None = None
-
     def check(self) -> bool:
         return shutil.which(self.required_tool) is not None
 
     def version_command(self) -> list[str] | None:
         return ["nmap", "--version"]
 
-    def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
+    def build_command(self, target: Target, options: dict[str, Any], execution: PluginExecution) -> list[str]:
         if not self.check():
             raise PluginError(f"'{self.required_tool}' is not installed or not on PATH")
 
-        fd, raw_path = tempfile.mkstemp(prefix="pownforge-nmap-", suffix=".xml")
-        os.close(fd)
-        self._xml_path = Path(raw_path)
-
-        args = ["nmap", "-sV", "-Pn", "-oX", str(self._xml_path)]
+        xml_path = execution.path("nmap.xml")
+        args = ["nmap", "-sV", "-Pn", "-oX", str(xml_path)]
         ports = options.get("ports")
         if ports:
             args += ["-p", str(ports)]
         args.append(_scan_host(target))
         return args
 
-    def normalize(self, target: Target, raw_stdout: str, raw_stderr: str) -> dict[str, Any]:
+    def normalize(
+        self, target: Target, raw_stdout: str, raw_stderr: str, execution: PluginExecution
+    ) -> dict[str, Any]:
         hosts: list[dict[str, Any]] = []
-        xml_path, self._xml_path = self._xml_path, None
-        if xml_path is not None and xml_path.exists():
-            try:
-                hosts = self._parse_xml(xml_path)
-            finally:
-                xml_path.unlink(missing_ok=True)
+        xml_path = execution.path("nmap.xml")
+        if xml_path.exists():
+            hosts = self._parse_xml(xml_path)
 
         return {
             "target": target.address,

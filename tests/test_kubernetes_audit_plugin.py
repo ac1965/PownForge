@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from pownforge.core.models import Target, TargetKind
-from pownforge.plugins.base import PluginError
+from pownforge.plugins.base import PluginError, PluginExecution
 from pownforge.plugins.kubernetes_audit import (
     KubernetesAuditPlugin,
     audit_network,
@@ -269,12 +269,12 @@ def test_find_image_chains_skips_pod_without_cves() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_build_command_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_command_shape(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     plugin = KubernetesAuditPlugin()
     monkeypatch.setattr(KubernetesAuditPlugin, "check", lambda self: True)
     target = Target(name="kind-lab", kind=TargetKind.HOST, address="kind-kubeforge-lab")
 
-    command = plugin.build_command(target, {"namespaces": "vulnerable-lab"})
+    command = plugin.build_command(target, {"namespaces": "vulnerable-lab"}, PluginExecution(tmp_path))
 
     assert command[0] == "sh" and command[1] == "-c"
     script = command[2]
@@ -284,23 +284,23 @@ def test_build_command_shape(monkeypatch: pytest.MonkeyPatch) -> None:
     assert " && " in script
 
 
-def test_build_command_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_command_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     plugin = KubernetesAuditPlugin()
     monkeypatch.setattr(KubernetesAuditPlugin, "check", lambda self: False)
     target = Target(name="kind-lab", kind=TargetKind.HOST, address="kind-kubeforge-lab")
     with pytest.raises(PluginError):
-        plugin.build_command(target, {})
+        plugin.build_command(target, {}, PluginExecution(tmp_path))
 
 
-def test_normalize_reads_tempfiles_and_flattens_findings(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_normalize_reads_tempfiles_and_flattens_findings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     plugin = KubernetesAuditPlugin()
     monkeypatch.setattr(KubernetesAuditPlugin, "check", lambda self: True)
     target = Target(name="kind-lab", kind=TargetKind.HOST, address="kind-kubeforge-lab")
+    execution = PluginExecution(tmp_path)
 
-    plugin.build_command(target, {})
-    resources_path = plugin._resources_path
-    trivy_path = plugin._trivy_path
-    assert resources_path is not None and trivy_path is not None
+    plugin.build_command(target, {}, execution)
+    resources_path = execution.path("resources.json")
+    trivy_path = execution.path("trivy.json")
 
     resources_path.write_text(
         json.dumps(
@@ -314,10 +314,8 @@ def test_normalize_reads_tempfiles_and_flattens_findings(monkeypatch: pytest.Mon
     )
     trivy_path.write_text(json.dumps({"Resources": []}))
 
-    output = plugin.normalize(target, "", "")
+    output = plugin.normalize(target, "", "", execution)
 
-    assert not resources_path.exists()
-    assert not trivy_path.exists()
     assert output["pod_security"]["breakout_chains"]
     assert output["resources"]["pods"] == [{"namespace": "vulnerable-lab", "name": "privileged-host-breakout", "node": None}]
     titles = [f["title"] for f in output["_findings"]]

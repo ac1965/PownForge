@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
-import tempfile
 from pathlib import Path
 from typing import Any
 
 from pownforge.core.models import PluginOption, Target, TargetKind
 from pownforge.plugins._trivy import findings_from_trivy_results
-from pownforge.plugins.base import Plugin, PluginError
+from pownforge.plugins.base import Plugin, PluginError, PluginExecution
 
 
 class ContainerPlugin(Plugin):
@@ -26,23 +24,18 @@ class ContainerPlugin(Plugin):
         PluginOption(name="scanners", description="trivy --scanners, e.g. vuln,secret."),
     )
 
-    def __init__(self) -> None:
-        self._json_path: Path | None = None
-
     def check(self) -> bool:
         return shutil.which(self.required_tool) is not None
 
     def version_command(self) -> list[str] | None:
         return ["trivy", "--version"]
 
-    def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
+    def build_command(self, target: Target, options: dict[str, Any], execution: PluginExecution) -> list[str]:
         if not self.check():
             raise PluginError(f"'{self.required_tool}' is not installed or not on PATH")
         self.require_kind(target)
 
-        fd, raw_path = tempfile.mkstemp(prefix="pownforge-trivy-image-", suffix=".json")
-        os.close(fd)
-        self._json_path = Path(raw_path)
+        json_path = execution.path("trivy-image.json")
 
         # target.address holds an image reference (e.g. "nginx:1.25" or
         # "registry.example.com/app:latest"), not a host/URL — trivy
@@ -55,7 +48,7 @@ class ContainerPlugin(Plugin):
             "-f",
             "json",
             "-o",
-            str(self._json_path),
+            str(json_path),
             "--no-progress",
         ]
         if severity := options.get("severity"):
@@ -66,14 +59,13 @@ class ContainerPlugin(Plugin):
             args += ["--scanners", str(scanners)]
         return args
 
-    def normalize(self, target: Target, raw_stdout: str, raw_stderr: str) -> dict[str, Any]:
+    def normalize(
+        self, target: Target, raw_stdout: str, raw_stderr: str, execution: PluginExecution
+    ) -> dict[str, Any]:
         results: list[dict[str, Any]] = []
-        json_path, self._json_path = self._json_path, None
-        if json_path is not None and json_path.exists():
-            try:
-                results = self._parse_json(json_path)
-            finally:
-                json_path.unlink(missing_ok=True)
+        json_path = execution.path("trivy-image.json")
+        if json_path.exists():
+            results = self._parse_json(json_path)
 
         located_results = ((result.get("Target") or target.address, result) for result in results)
         return {

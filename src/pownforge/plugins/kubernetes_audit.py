@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import json
-import os
 import shlex
 import shutil
-import tempfile
-from pathlib import Path
 from typing import Any
 
 from pownforge.core.models import PluginOption, Target, TargetKind
-from pownforge.plugins.base import Plugin, PluginError
+from pownforge.plugins.base import Plugin, PluginError, PluginExecution
 
 # CNI/CSI などクラスタ運用上 privileged/hostPath/hostNetwork が正当に必要な
 # system namespace。RBAC/PodSecurity/Network/Imageのチェーン検出すべてで
@@ -586,25 +583,17 @@ class KubernetesAuditPlugin(Plugin):
         PluginOption(name="namespaces", description="trivy --include-namespaces, comma-separated."),
     )
 
-    def __init__(self) -> None:
-        self._resources_path: Path | None = None
-        self._trivy_path: Path | None = None
-
     def check(self) -> bool:
         return shutil.which("kubectl") is not None and shutil.which("trivy") is not None
 
-    def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
+    def build_command(self, target: Target, options: dict[str, Any], execution: PluginExecution) -> list[str]:
         if not self.check():
             missing = "kubectl" if shutil.which("kubectl") is None else "trivy"
             raise PluginError(f"'{missing}' is not installed or not on PATH")
         self.require_kind(target)
 
-        fd1, resources_raw = tempfile.mkstemp(prefix="pownforge-k8s-audit-resources-", suffix=".json")
-        os.close(fd1)
-        fd2, trivy_raw = tempfile.mkstemp(prefix="pownforge-k8s-audit-trivy-", suffix=".json")
-        os.close(fd2)
-        self._resources_path = Path(resources_raw)
-        self._trivy_path = Path(trivy_raw)
+        resources_path = execution.path("resources.json")
+        trivy_path = execution.path("trivy.json")
 
         kubectl_argv = [
             "kubectl",
@@ -616,7 +605,7 @@ class KubernetesAuditPlugin(Plugin):
             "-o",
             "json",
         ]
-        kubectl_cmd = " ".join(shlex.quote(a) for a in kubectl_argv) + f" > {shlex.quote(str(self._resources_path))}"
+        kubectl_cmd = " ".join(shlex.quote(a) for a in kubectl_argv) + f" > {shlex.quote(str(resources_path))}"
 
         # チェーン検出はCRITICAL/HIGHの有無で判定するため、severityは固定
         # (KubeForgeのimage_audit.pyのSEVERITIES_OF_INTERESTと同じ方針)。
@@ -627,7 +616,7 @@ class KubernetesAuditPlugin(Plugin):
             "-f",
             "json",
             "-o",
-            str(self._trivy_path),
+            str(trivy_path),
             "--report",
             "all",
             "--no-progress",
@@ -640,27 +629,25 @@ class KubernetesAuditPlugin(Plugin):
 
         return ["sh", "-c", f"{kubectl_cmd} && {trivy_cmd}"]
 
-    def normalize(self, target: Target, raw_stdout: str, raw_stderr: str) -> dict[str, Any]:
-        resources_path, self._resources_path = self._resources_path, None
-        trivy_path, self._trivy_path = self._trivy_path, None
+    def normalize(
+        self, target: Target, raw_stdout: str, raw_stderr: str, execution: PluginExecution
+    ) -> dict[str, Any]:
+        resources_path = execution.path("resources.json")
+        trivy_path = execution.path("trivy.json")
 
         items: list[dict[str, Any]] = []
-        if resources_path is not None and resources_path.exists():
+        if resources_path.exists():
             try:
                 items = json.loads(resources_path.read_text()).get("items") or []
             except json.JSONDecodeError:
                 items = []
-            finally:
-                resources_path.unlink(missing_ok=True)
 
         trivy_resources: list[dict[str, Any]] = []
-        if trivy_path is not None and trivy_path.exists():
+        if trivy_path.exists():
             try:
                 trivy_resources = json.loads(trivy_path.read_text()).get("Resources") or []
             except json.JSONDecodeError:
                 trivy_resources = []
-            finally:
-                trivy_path.unlink(missing_ok=True)
 
         namespaces = _by_kind(items, "Namespace")
         policies = _by_kind(items, "NetworkPolicy")

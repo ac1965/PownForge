@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import os
 import shutil
-import tempfile
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
 
 from pownforge.core.models import PluginOption, Target
-from pownforge.plugins.base import Plugin, PluginError
+from pownforge.plugins.base import Plugin, PluginError, PluginExecution
 
 # Only nmap NSE scripts nmap itself categorizes as both "vuln" and "safe"
 # (never "exploit"/"intrusive"/"dos"/"brute") are eligible. That excludes,
@@ -70,16 +68,13 @@ class VulncheckPlugin(Plugin):
         PluginOption(name="port", description="nmap -p."),
     )
 
-    def __init__(self) -> None:
-        self._xml_path: Path | None = None
-
     def check(self) -> bool:
         return shutil.which(self.required_tool) is not None
 
     def version_command(self) -> list[str] | None:
         return ["nmap", "--version"]
 
-    def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
+    def build_command(self, target: Target, options: dict[str, Any], execution: PluginExecution) -> list[str]:
         if not self.check():
             raise PluginError(f"'{self.required_tool}' is not installed or not on PATH")
 
@@ -96,10 +91,7 @@ class VulncheckPlugin(Plugin):
                 + ", ".join(sorted(_ALLOWED_SCRIPTS))
             )
 
-        fd, raw_path = tempfile.mkstemp(prefix="pownforge-vulncheck-", suffix=".xml")
-        os.close(fd)
-        self._xml_path = Path(raw_path)
-
+        xml_path = execution.path("vulncheck.xml")
         args = [
             "nmap",
             "-Pn",
@@ -108,21 +100,20 @@ class VulncheckPlugin(Plugin):
             "--script-args",
             "vulns.showall",
             "-oX",
-            str(self._xml_path),
+            str(xml_path),
         ]
         if port := options.get("port"):
             args += ["-p", str(port)]
         args.append(target.address)
         return args
 
-    def normalize(self, target: Target, raw_stdout: str, raw_stderr: str) -> dict[str, Any]:
+    def normalize(
+        self, target: Target, raw_stdout: str, raw_stderr: str, execution: PluginExecution
+    ) -> dict[str, Any]:
         results: list[dict[str, Any]] = []
-        xml_path, self._xml_path = self._xml_path, None
-        if xml_path is not None and xml_path.exists():
-            try:
-                results = self._parse_xml(xml_path)
-            finally:
-                xml_path.unlink(missing_ok=True)
+        xml_path = execution.path("vulncheck.xml")
+        if xml_path.exists():
+            results = self._parse_xml(xml_path)
 
         return {
             "target": target.address,

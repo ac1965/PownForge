@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
-import tempfile
 from pathlib import Path
 from typing import Any
 
 from pownforge.core.models import PluginOption, Target, TargetKind
 from pownforge.plugins._trivy import findings_from_trivy_results
-from pownforge.plugins.base import Plugin, PluginError
+from pownforge.plugins.base import Plugin, PluginError, PluginExecution
 
 
 class KubernetesPlugin(Plugin):
@@ -25,23 +23,18 @@ class KubernetesPlugin(Plugin):
         PluginOption(name="severity", description="trivy --severity, e.g. CRITICAL,HIGH."),
     )
 
-    def __init__(self) -> None:
-        self._json_path: Path | None = None
-
     def check(self) -> bool:
         return shutil.which(self.required_tool) is not None
 
     def version_command(self) -> list[str] | None:
         return ["trivy", "--version"]
 
-    def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
+    def build_command(self, target: Target, options: dict[str, Any], execution: PluginExecution) -> list[str]:
         if not self.check():
             raise PluginError(f"'{self.required_tool}' is not installed or not on PATH")
         self.require_kind(target)
 
-        fd, raw_path = tempfile.mkstemp(prefix="pownforge-trivy-", suffix=".json")
-        os.close(fd)
-        self._json_path = Path(raw_path)
+        json_path = execution.path("trivy-k8s.json")
 
         # target.address holds a kubeconfig context name (e.g.
         # "kind-pownforge-lab"), not a host/URL — trivy reads the matching
@@ -53,7 +46,7 @@ class KubernetesPlugin(Plugin):
             "-f",
             "json",
             "-o",
-            str(self._json_path),
+            str(json_path),
             "--report",
             "all",
             "--no-progress",
@@ -64,14 +57,13 @@ class KubernetesPlugin(Plugin):
             args += ["--severity", str(severity)]
         return args
 
-    def normalize(self, target: Target, raw_stdout: str, raw_stderr: str) -> dict[str, Any]:
+    def normalize(
+        self, target: Target, raw_stdout: str, raw_stderr: str, execution: PluginExecution
+    ) -> dict[str, Any]:
         resources: list[dict[str, Any]] = []
-        json_path, self._json_path = self._json_path, None
-        if json_path is not None and json_path.exists():
-            try:
-                resources = self._parse_json(json_path)
-            finally:
-                json_path.unlink(missing_ok=True)
+        json_path = execution.path("trivy-k8s.json")
+        if json_path.exists():
+            resources = self._parse_json(json_path)
 
         return {
             "target": target.address,

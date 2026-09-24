@@ -122,19 +122,24 @@ sequenceDiagram
     participant User as CLI/Web UI/Emacs
     participant Policy as ScopePolicy
     participant Plugin as Plugin(build_command/normalize)
-    participant Proc as subprocess(外部ツール)
+    participant Proc as ProcessExecutor(外部ツール)
     participant Store as EvidenceStore
 
     User->>Policy: authorize(target, plugin)
     Policy-->>User: Target (登録済み・許可プラグインのみ)
-    User->>Plugin: build_command(target, options)
+    User->>Plugin: build_command(target, options, execution)
     Plugin-->>User: argv
-    User->>Proc: Popen(argv)
-    Proc-->>User: stdout/stderr (--liveなら行ごとに中継)
-    User->>Plugin: normalize(target, stdout, stderr)
+    User->>Proc: run(argv, timeout)
+    Proc-->>User: ProcessResult (stdout/stderrは--liveなら行ごとに中継)
+    User->>Plugin: normalize(target, stdout, stderr, execution)
     Plugin-->>User: dict (+ "_findings"任意)
     User->>Store: save(RunRecord)
 ```
+
+`execution`は`PluginExecution`(`plugins/base.py`)のインスタンスで、
+`ScanRunner`が1回の実行ごとに新しい一時ディレクトリを割り当てて生成し、
+`build_command`/`normalize`の両方に同じインスタンスを渡します(P0
+リファクタリング: §4.1)。
 
 ### 設計原則
 
@@ -171,11 +176,20 @@ sequenceDiagram
   ため。単一文字のフラグ、例えば`-H`はキーワード照合の対象にならないため
   対象外)
 - **コマンド組み立てと実行を分離する**: プラグインは`build_command`/
-  `normalize`のみを担当し、実際に外部プロセスを起動するのは`ScanRunner`
-  (`LabManager`も同様の分離)に一本化しています。証跡の保存形式は
+  `normalize`のみを担当し、実際に外部プロセスを起動するのは
+  `core/process.py`の`ProcessExecutor`(`ScanRunner`がこれを呼ぶ。
+  `LabManager`も同様の分離)に一本化しています。証跡の保存形式は
   `evidence/`が一元管理し、プラグインが独自形式で永続化することは
-  ありません(中間出力を一時ファイルに書いても`normalize`内で読み込み次第
-  削除します)
+  ありません
+- **Pluginインスタンスに実行ごとの状態を持たせない**: `PluginRegistry`は
+  プラグイン名ごとに単一のインスタンスを保持し、複数の実行(Web UIの
+  並行リクエスト等)で共有されます。`build_command`/`normalize`が中間
+  出力(nmapの`-oX`等)を書く一時パスは、`self`に保存するのではなく
+  引数で渡される`PluginExecution`(`execution.path("name")`)から得ます。
+  `ScanRunner`は実行ごとに新しい一時ディレクトリで`PluginExecution`を
+  生成し、実行が終わるとディレクトリごと削除するため、同じPlugin
+  インスタンスへの同時実行が互いの一時ファイルを混同することはありません
+  (P0リファクタリング §4.1)
 - **フロントエンドは薄いラッパーに留める**: ライブ進捗も、根は
   `ScanRunner.run()`の`on_line`コールバック1つ(Web UIはWebSocketへ、
   CLI/Emacsは`--live`で標準出力へ中継)を両方が共有しています
@@ -187,8 +201,8 @@ sequenceDiagram
 | メソッド/属性 | 内容 |
 | --- | --- |
 | `check() -> bool` | 必要な外部ツールが利用可能か |
-| `build_command(target, options) -> list[str]` | 実行するコマンド(検証済みtargetのみを使用) |
-| `normalize(target, raw_stdout, raw_stderr) -> dict` | 生出力をJSON化可能な形式に変換 |
+| `build_command(target, options, execution) -> list[str]` | 実行するコマンド(検証済みtargetのみを使用)。一時ファイルが要る場合は`execution.path("name")`を使う(`self`に保存しない) |
+| `normalize(target, raw_stdout, raw_stderr, execution) -> dict` | 生出力をJSON化可能な形式に変換。`build_command`と同じ`execution`が渡されるので`execution.path("name")`で同じパスを再取得できる |
 | `version_command() -> list[str] \| None` | ツールのバージョン確認コマンド(省略可)。返した場合は`Evidence.tool_version`に記録される |
 | `parse_version_output(stdout, stderr) -> str \| None` | バージョン文字列の抽出(既定は「stdoutの最初の行」)。ツールが警告等を先に出す場合はオーバーライド(`NucleiPlugin`はGoランタイムの警告行を読み飛ばす) |
 | `expected_kind: TargetKind \| None` | このプラグインのaddressが前提とする`Target.kind`(既定`None`=制約なし)。`build_command()`冒頭で`self.require_kind(target)`を呼ぶと、一致しない場合に`PluginError`を送出する |

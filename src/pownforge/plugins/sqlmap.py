@@ -3,12 +3,11 @@ from __future__ import annotations
 import csv
 import re
 import shutil
-import tempfile
 from pathlib import Path
 from typing import Any
 
 from pownforge.core.models import PluginOption, Target, TargetKind
-from pownforge.plugins.base import Plugin, PluginError
+from pownforge.plugins.base import Plugin, PluginError, PluginExecution
 
 # sqlmap flags that escalate beyond SQL injection detection/extraction into
 # OS/registry/file access, an interactive shell, or a mechanism that could
@@ -85,16 +84,13 @@ class SqlmapPlugin(Plugin):
         PluginOption(name="level", description="sqlmap --level (1-5).", default="1", choices=["1", "2", "3", "4", "5"]),
     )
 
-    def __init__(self) -> None:
-        self._output_dir: Path | None = None
-
     def check(self) -> bool:
         return shutil.which(self.required_tool) is not None
 
     def version_command(self) -> list[str] | None:
         return ["sqlmap", "--version"]
 
-    def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
+    def build_command(self, target: Target, options: dict[str, Any], execution: PluginExecution) -> list[str]:
         if not self.check():
             raise PluginError(f"'{self.required_tool}' is not installed or not on PATH")
         self.require_kind(target)
@@ -109,7 +105,8 @@ class SqlmapPlugin(Plugin):
                     "regardless of --risk/--level (see docs/handbook.md #6)"
                 )
 
-        self._output_dir = Path(tempfile.mkdtemp(prefix="pownforge-sqlmap-"))
+        output_dir = execution.path("output")
+        output_dir.mkdir(parents=True, exist_ok=True)
 
         args = [
             "sqlmap",
@@ -117,7 +114,7 @@ class SqlmapPlugin(Plugin):
             target.address,
             "--batch",
             "--output-dir",
-            str(self._output_dir),
+            str(output_dir),
         ]
         args += ["--risk", str(options.get("risk", "1"))]
         args += ["--level", str(options.get("level", "1"))]
@@ -132,16 +129,15 @@ class SqlmapPlugin(Plugin):
                 args += [flag, str(value)]
         return args
 
-    def normalize(self, target: Target, raw_stdout: str, raw_stderr: str) -> dict[str, Any]:
-        output_dir, self._output_dir = self._output_dir, None
+    def normalize(
+        self, target: Target, raw_stdout: str, raw_stderr: str, execution: PluginExecution
+    ) -> dict[str, Any]:
+        output_dir = execution.path("output")
         injection_points = self._parse_injection_points(raw_stdout)
         dbms_match = _DBMS_RE.search(raw_stdout)
         dumped_tables: dict[str, list[dict[str, str]]] = {}
-        if output_dir is not None and output_dir.exists():
-            try:
-                dumped_tables = self._collect_dumps(output_dir)
-            finally:
-                shutil.rmtree(output_dir, ignore_errors=True)
+        if output_dir.exists():
+            dumped_tables = self._collect_dumps(output_dir)
 
         return {
             "target": target.address,

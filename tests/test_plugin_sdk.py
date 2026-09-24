@@ -9,7 +9,7 @@ import pytest
 import pownforge.sdk as sdk
 from pownforge.core.orchestrator import list_playbooks
 from pownforge.core.registry import PluginRegistry, default_registry
-from pownforge.sdk import Plugin, PluginError, PluginOption, Target
+from pownforge.sdk import Plugin, PluginError, PluginExecution, PluginOption, Target
 from pownforge.sdk.testing import assert_findings_shape, assert_plugin_contract
 
 REPO = Path(__file__).resolve().parent.parent
@@ -28,10 +28,10 @@ class DemoPlugin(Plugin):
     def check(self) -> bool:
         return True
 
-    def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
+    def build_command(self, target: Target, options: dict[str, Any], execution: PluginExecution) -> list[str]:
         return ["true"]
 
-    def normalize(self, target: Target, raw_stdout: str, raw_stderr: str) -> dict[str, Any]:
+    def normalize(self, target: Target, raw_stdout: str, raw_stderr: str, execution: PluginExecution) -> dict[str, Any]:
         return {"_findings": [{"title": "x", "severity": "low"}]}
 
 
@@ -83,10 +83,12 @@ def test_metadata_is_complete() -> None:
     assert UndeclaredPlugin().metadata().options is None
 
 
-def test_sdk_testing_helpers_accept_demo_plugin() -> None:
+def test_sdk_testing_helpers_accept_demo_plugin(tmp_path: Path) -> None:
     plugin = DemoPlugin()
     assert_plugin_contract(plugin)
-    assert_findings_shape(plugin.normalize(Target(name="t", kind="host", address="h"), "", ""))
+    assert_findings_shape(
+        plugin.normalize(Target(name="t", kind="host", address="h"), "", "", PluginExecution(tmp_path))
+    )
 
 
 def test_assert_findings_shape_rejects_bad_severity() -> None:

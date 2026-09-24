@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from pownforge.core.concurrency import ConcurrencyGuard
 from pownforge.core.models import Target
 from pownforge.core.registry import PluginRegistry
-from pownforge.plugins.base import Plugin
+from pownforge.plugins.base import Plugin, PluginExecution
 from pownforge.web.app import create_app
 from pownforge.web.deps import get_registry
 
@@ -26,10 +26,10 @@ class EchoPlugin(Plugin):
     def check(self) -> bool:
         return True
 
-    def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
+    def build_command(self, target: Target, options: dict[str, Any], execution: PluginExecution) -> list[str]:
         return ["echo", target.address]
 
-    def normalize(self, target: Target, raw_stdout: str, raw_stderr: str) -> dict[str, Any]:
+    def normalize(self, target: Target, raw_stdout: str, raw_stderr: str, execution: PluginExecution) -> dict[str, Any]:
         return {"raw_stdout": raw_stdout, "raw_stderr": raw_stderr}
 
 

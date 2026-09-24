@@ -4,7 +4,7 @@ import re
 import shutil
 from typing import Any
 
-from pownforge.sdk import FindingDict, Plugin, PluginError, PluginOption, Target, TargetKind
+from pownforge.sdk import FindingDict, Plugin, PluginError, PluginExecution, PluginOption, Target, TargetKind
 
 _TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
 
@@ -25,16 +25,22 @@ class HttpTitlePlugin(Plugin):
     def version_command(self) -> list[str] | None:
         return ["curl", "--version"]
 
-    def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
+    def build_command(self, target: Target, options: dict[str, Any], execution: PluginExecution) -> list[str]:
         # Only argv is returned; PownForge's ScanRunner runs it after
-        # ScopePolicy has authorized the target.
+        # ScopePolicy has authorized the target. EXECUTION is this run's
+        # scratch space (execution.path("name")) -- unused here since this
+        # plugin has no intermediate file, but any temp path a real plugin's
+        # tool writes to should come from it, not from `self` (see
+        # docs/handbook.md's "プラグインインターフェース").
         self.require_kind(target)
         timeout = str(options.get("timeout", "10"))
         if not timeout.isdigit():
             raise PluginError("http-title plugin --option timeout must be an integer")
         return ["curl", "-sS", "--max-time", timeout, "--proto", "=http,https", target.address]
 
-    def normalize(self, target: Target, raw_stdout: str, raw_stderr: str) -> dict[str, Any]:
+    def normalize(
+        self, target: Target, raw_stdout: str, raw_stderr: str, execution: PluginExecution
+    ) -> dict[str, Any]:
         match = _TITLE_RE.search(raw_stdout)
         title = " ".join(match.group(1).split()) if match else None
         findings: list[FindingDict] = []

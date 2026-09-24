@@ -8,13 +8,14 @@ supported surface -- other `pownforge.*` modules may change without notice.
 
 from pownforge.core.models import PluginMetadata, PluginOption, Severity, Target, TargetKind
 from pownforge.core.registry import ENTRY_POINT_GROUP
-from pownforge.plugins.base import FindingDict, Plugin, PluginError
+from pownforge.plugins.base import FindingDict, Plugin, PluginError, PluginExecution
 
 __all__ = [
     "ENTRY_POINT_GROUP",
     "FindingDict",
     "Plugin",
     "PluginError",
+    "PluginExecution",
     "PluginMetadata",
     "PluginOption",
     "Severity",

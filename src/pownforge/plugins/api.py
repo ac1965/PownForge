@@ -5,7 +5,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from pownforge.core.models import PluginOption, Target, TargetKind
-from pownforge.plugins.base import Plugin, PluginError
+from pownforge.plugins.base import Plugin, PluginError, PluginExecution
 
 # State-changing methods (POST/PUT/PATCH/DELETE) are deliberately excluded:
 # this plugin observes an API, it never modifies data on the target.
@@ -69,16 +69,13 @@ class ApiPlugin(Plugin):
         PluginOption(name="timeout", description="curl --max-time, seconds.", default=str(_DEFAULT_TIMEOUT_SECONDS)),
     )
 
-    def __init__(self) -> None:
-        self._request: dict[str, str] | None = None
-
     def check(self) -> bool:
         return shutil.which(self.required_tool) is not None
 
     def version_command(self) -> list[str] | None:
         return ["curl", "--version"]
 
-    def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
+    def build_command(self, target: Target, options: dict[str, Any], execution: PluginExecution) -> list[str]:
         if not self.check():
             raise PluginError(f"'{self.required_tool}' is not installed or not on PATH")
         self.require_kind(target)
@@ -100,7 +97,7 @@ class ApiPlugin(Plugin):
 
         url = target.address.rstrip("/") + path
         require_same_origin(self.name, target.address, url)
-        self._request = {"url": url, "method": method}
+        execution.data["request"] = {"url": url, "method": method}
 
         command = [
             "curl", "-sS", "-i",
@@ -114,8 +111,10 @@ class ApiPlugin(Plugin):
         command.append(url)
         return command
 
-    def normalize(self, target: Target, raw_stdout: str, raw_stderr: str) -> dict[str, Any]:
-        request, self._request = self._request or {}, None
+    def normalize(
+        self, target: Target, raw_stdout: str, raw_stderr: str, execution: PluginExecution
+    ) -> dict[str, Any]:
+        request = execution.data.get("request", {})
         status, reason, headers, body = parse_http_response(raw_stdout)
         truncated = len(body) > _MAX_BODY_CHARS
         return {

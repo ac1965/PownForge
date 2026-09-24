@@ -20,15 +20,13 @@ installs it via `go install`).
 from __future__ import annotations
 
 import json
-import os
 import shutil
-import tempfile
 from pathlib import Path
 from typing import Any
 
 from pownforge.core.models import PluginOption, Target, TargetKind
 from pownforge.plugins.api import require_same_origin
-from pownforge.plugins.base import Plugin, PluginError
+from pownforge.plugins.base import Plugin, PluginError, PluginExecution
 
 _RECORDED_FIELDS = (
     "url",
@@ -66,9 +64,6 @@ class HttpxProbePlugin(Plugin):
         PluginOption(name="timeout", description="httpx -timeout, seconds.", default="10"),
     )
 
-    def __init__(self) -> None:
-        self._input_path: Path | None = None
-
     def check(self) -> bool:
         return shutil.which(self.required_tool) is not None
 
@@ -95,7 +90,7 @@ class HttpxProbePlugin(Plugin):
                 seen.append(path)
         return seen or ["/"]
 
-    def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
+    def build_command(self, target: Target, options: dict[str, Any], execution: PluginExecution) -> list[str]:
         if not self.check():
             raise PluginError(f"'{self.required_tool}' is not installed or not on PATH")
         self.require_kind(target)
@@ -112,27 +107,23 @@ class HttpxProbePlugin(Plugin):
             require_same_origin(self.name, target.address, url)
             urls.append(url)
 
-        fd, input_path = tempfile.mkstemp(prefix="pownforge-httpx-", suffix=".txt")
-        with os.fdopen(fd, "w") as handle:
-            handle.write("\n".join(urls) + "\n")
-        self._input_path = Path(input_path)
+        input_path = execution.path("urls.txt")
+        input_path.write_text("\n".join(urls) + "\n")
 
         # -json: full metadata per line. No -follow-redirects (a redirect is
         # recorded via its location field, never chased off the target).
         return [
             "httpx",
-            "-l", str(self._input_path),
+            "-l", str(input_path),
             "-json",
             "-silent",
             "-no-color",
             "-timeout", str(timeout),
         ]
 
-    def normalize(self, target: Target, raw_stdout: str, raw_stderr: str) -> dict[str, Any]:
-        input_path, self._input_path = self._input_path, None
-        if input_path is not None:
-            input_path.unlink(missing_ok=True)
-
+    def normalize(
+        self, target: Target, raw_stdout: str, raw_stderr: str, execution: PluginExecution
+    ) -> dict[str, Any]:
         results: list[dict[str, Any]] = []
         for line in raw_stdout.splitlines():
             line = line.strip()

@@ -48,7 +48,7 @@ from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.core.registry import default_registry
 from pownforge.evidence.audit import AuditStore
 from pownforge.evidence.store import EvidenceStore
-from pownforge.plugins.base import Plugin
+from pownforge.plugins.base import Plugin, PluginExecution
 from pownforge.plugins.sqlmap import _DENIED_OPTIONS, SqlmapPlugin
 from pownforge.plugins.vulncheck import _ALLOWED_SCRIPTS, VulncheckPlugin
 
@@ -151,10 +151,10 @@ class _EchoPlugin(Plugin):
     def check(self) -> bool:
         return True
 
-    def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
+    def build_command(self, target: Target, options: dict[str, Any], execution: PluginExecution) -> list[str]:
         return ["echo", target.address]
 
-    def normalize(self, target: Target, raw_stdout: str, raw_stderr: str) -> dict[str, Any]:
+    def normalize(self, target: Target, raw_stdout: str, raw_stderr: str, execution: PluginExecution) -> dict[str, Any]:
         return {"raw_stdout": raw_stdout, "raw_stderr": raw_stderr}
 
 
@@ -354,13 +354,15 @@ def test_vulncheck_allowlist_is_exactly_the_baseline_15_scripts() -> None:
     assert len(_ALLOWED_SCRIPTS) == 15
 
 
-def test_vulncheck_rejects_a_script_outside_the_allowlist() -> None:
+def test_vulncheck_rejects_a_script_outside_the_allowlist(tmp_path: Path) -> None:
     plugin = VulncheckPlugin()
     target = Target(name="a", kind=TargetKind.HOST, address="127.0.0.1")
     from pownforge.plugins.base import PluginError
 
     with pytest.raises(PluginError):
-        plugin.build_command(target, {"script": "smb-vuln-ms08-067"})  # exploit-class, not on the list
+        plugin.build_command(
+            target, {"script": "smb-vuln-ms08-067"}, PluginExecution(tmp_path)
+        )  # exploit-class, not on the list
 
 
 def test_sqlmap_denylist_still_blocks_os_and_file_options() -> None:
@@ -368,13 +370,13 @@ def test_sqlmap_denylist_still_blocks_os_and_file_options() -> None:
         assert option in _DENIED_OPTIONS
 
 
-def test_sqlmap_rejects_a_denied_option_regardless_of_risk_level() -> None:
+def test_sqlmap_rejects_a_denied_option_regardless_of_risk_level(tmp_path: Path) -> None:
     from pownforge.plugins.base import PluginError
 
     plugin = SqlmapPlugin()
     target = Target(name="a", kind=TargetKind.URL, address="http://127.0.0.1/?id=1")
     with pytest.raises(PluginError):
-        plugin.build_command(target, {"os-shell": "true", "risk": "3", "level": "5"})
+        plugin.build_command(target, {"os-shell": "true", "risk": "3", "level": "5"}, PluginExecution(tmp_path))
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import subprocess
+import tempfile
+from pathlib import Path
 from typing import Any, Callable
 
 from pownforge.core.concurrency import ConcurrencyError, ConcurrencyGuard
@@ -13,7 +15,7 @@ from pownforge.core.secrets import mask_command
 from pownforge.evidence.audit import AuditStore
 from pownforge.evidence.hashing import sha256_text
 from pownforge.evidence.store import EvidenceStore
-from pownforge.plugins.base import Plugin
+from pownforge.plugins.base import Plugin, PluginExecution
 
 OnLine = Callable[[str], None]
 
@@ -100,18 +102,25 @@ class ScanRunner:
         plugin.validate_options(options)
         tool_version = _tool_version(plugin)
 
-        command = plugin.build_command(target, options)
+        # A fresh scratch directory per run -- see PluginExecution
+        # (plugins/base.py). Two concurrent runs of this same shared Plugin
+        # instance (PluginRegistry keeps one per name) each get their own
+        # directory here, so a plugin's temp file (nmap -oX, ffuf -o, ...)
+        # never collides with another run's.
+        with tempfile.TemporaryDirectory(prefix=f"pownforge-{plugin_name}-") as workdir:
+            execution = PluginExecution(Path(workdir))
+            command = plugin.build_command(target, options, execution)
 
-        process_result = self._process_executor.run(command, timeout=self._timeout, on_stdout_line=on_line)
-        if process_result.timed_out:
-            raise RunnerError(f"plugin '{plugin_name}' timed out after {self._timeout}s")
+            process_result = self._process_executor.run(command, timeout=self._timeout, on_stdout_line=on_line)
+            if process_result.timed_out:
+                raise RunnerError(f"plugin '{plugin_name}' timed out after {self._timeout}s")
 
-        started_at = process_result.started_at
-        finished_at = process_result.finished_at
-        stdout_text = process_result.stdout
-        stderr_text = process_result.stderr
+            started_at = process_result.started_at
+            finished_at = process_result.finished_at
+            stdout_text = process_result.stdout
+            stderr_text = process_result.stderr
 
-        output = plugin.normalize(target, stdout_text, stderr_text)
+            output = plugin.normalize(target, stdout_text, stderr_text, execution)
         # Convention: a plugin may pop-able-ly include an "_findings" key of
         # loosely-typed dicts (its own tool-native matches, not LLM output)
         # in the normalized output. ScanRunner turns those into real Finding

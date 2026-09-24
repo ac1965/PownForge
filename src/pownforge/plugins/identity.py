@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 
 from pownforge.core.models import PluginOption, Target, TargetKind
 from pownforge.plugins.api import parse_http_response, require_same_origin
-from pownforge.plugins.base import Plugin, PluginError
+from pownforge.plugins.base import Plugin, PluginError, PluginExecution
 
 # Public, unauthenticated discovery documents only (OpenID Connect Discovery
 # 1.0 and RFC 8414). This plugin never sends credentials and never contacts
@@ -53,16 +53,13 @@ class IdentityPlugin(Plugin):
         PluginOption(name="timeout", description="curl --max-time, seconds.", default=str(_DEFAULT_TIMEOUT_SECONDS)),
     )
 
-    def __init__(self) -> None:
-        self._url: str | None = None
-
     def check(self) -> bool:
         return shutil.which(self.required_tool) is not None
 
     def version_command(self) -> list[str] | None:
         return ["curl", "--version"]
 
-    def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
+    def build_command(self, target: Target, options: dict[str, Any], execution: PluginExecution) -> list[str]:
         if not self.check():
             raise PluginError(f"'{self.required_tool}' is not installed or not on PATH")
         self.require_kind(target)
@@ -79,7 +76,7 @@ class IdentityPlugin(Plugin):
 
         url = target.address.rstrip("/") + _DOCUMENTS[document]
         require_same_origin(self.name, target.address, url)
-        self._url = url
+        execution.data["url"] = url
         return [
             "curl", "-sS", "-i",
             "--max-time", str(timeout),
@@ -88,8 +85,10 @@ class IdentityPlugin(Plugin):
             url,
         ]
 
-    def normalize(self, target: Target, raw_stdout: str, raw_stderr: str) -> dict[str, Any]:
-        url, self._url = self._url or target.address, None
+    def normalize(
+        self, target: Target, raw_stdout: str, raw_stderr: str, execution: PluginExecution
+    ) -> dict[str, Any]:
+        url = execution.data.get("url", target.address)
         status, _reason, headers, body = parse_http_response(raw_stdout)
 
         metadata: dict[str, Any] | None = None

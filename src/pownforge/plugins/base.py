@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any, ClassVar, TypedDict
 
 from pownforge.core.models import PluginMetadata, PluginOption, Target, TargetKind
@@ -8,6 +9,42 @@ from pownforge.core.models import PluginMetadata, PluginOption, Target, TargetKi
 
 class PluginError(RuntimeError):
     """Raised when a plugin cannot run or its required tool is missing."""
+
+
+class PluginExecution:
+    """Per-run scratch space for one build_command()/normalize() pair.
+
+    PluginRegistry keeps exactly one Plugin instance per name, shared by
+    every run of that plugin (see core/registry.py) -- concurrent scans of
+    the same plugin (e.g. two Web UI requests running 'network' against two
+    targets at once) share that instance. Plugins that stashed a temp path
+    on `self` between build_command() and normalize() (self._xml_path and
+    friends) raced under that sharing: two concurrent runs could clobber
+    each other's path.
+
+    ScanRunner creates a fresh PluginExecution, backed by a unique temp
+    directory, for every run and passes the SAME instance to both
+    build_command() and normalize() for that run -- so a plugin calls
+    `execution.path("output.xml")` in each and always gets the same Path
+    back *for that run*, without ever writing to `self`. Two concurrent
+    runs of the same Plugin instance get two different PluginExecution
+    objects with two different directories, so nothing can collide. See
+    refactor §4.1."""
+
+    def __init__(self, workdir: Path) -> None:
+        self.workdir = workdir
+        self.data: dict[str, Any] = {}
+        """Scratch storage for small per-run values that aren't worth a temp
+        file (e.g. the exact URL/method build_command() constructed, needed
+        again by normalize() -- see ApiPlugin/IdentityPlugin). Same
+        per-execution isolation as `path()`, just for values instead of
+        files."""
+
+    def path(self, filename: str) -> Path:
+        """A path under this execution's own scratch directory. Stable
+        across repeated calls with the same FILENAME within one run;
+        never shared with any other run."""
+        return self.workdir / filename
 
 
 class FindingDict(TypedDict, total=False):
@@ -60,12 +97,22 @@ class Plugin(ABC):
         """Return True if the plugin's required external tool is available."""
 
     @abstractmethod
-    def build_command(self, target: Target, options: dict[str, Any]) -> list[str]:
-        """Return the argv for the external tool, given an already-authorized target."""
+    def build_command(self, target: Target, options: dict[str, Any], execution: PluginExecution) -> list[str]:
+        """Return the argv for the external tool, given an already-authorized
+        target. EXECUTION is this run's scratch space (see PluginExecution) --
+        use `execution.path(name)` for any temp file the command needs to
+        write to (an nmap -oX target, an ffuf -o target, ...) instead of
+        storing it on `self`, which is shared across concurrent runs."""
 
     @abstractmethod
-    def normalize(self, target: Target, raw_stdout: str, raw_stderr: str) -> dict[str, Any]:
+    def normalize(
+        self, target: Target, raw_stdout: str, raw_stderr: str, execution: PluginExecution
+    ) -> dict[str, Any]:
         """Turn raw tool output into a normalized, JSON-serializable result.
+        EXECUTION is the SAME PluginExecution passed to build_command() for
+        this run -- `execution.path(name)` returns the identical Path, so a
+        temp file build_command() had the tool write to is found the same
+        way here, again without touching `self`.
 
         May include an "_findings" key: a list of {"title", "severity",
         "detail"} dicts for tool-native matches (e.g. nuclei template hits).
