@@ -651,6 +651,13 @@ pownforge scan container --target web-app-image \
 `--option`のキー: `severity`(`trivy image --severity`)、`ignore-unfixed`
 (`true`で修正版が無い脆弱性を除外)、`scanners`(`vuln,misconfig,secret`)。
 
+**Dockerランタイムイメージの既知の制約**: `pownforge-lab`ネットワークは
+`--internal`のため、`docker compose run pownforge`経由でパブリック
+レジストリのイメージ参照を直接スキャンすることはできない(レジストリ
+への到達経路が無い)。実機検証はホスト側`.venv`経由(通常の
+インターネット到達性を持つ)で行っている(同じ制約が`sbom`/`imagevuln`
+にも適用される、[§6のsbom](#6-プラグイン)参照)。
+
 **実機検証**: サポート終了済みの`alpine:3.10`イメージを対象に実際のtrivyで
 検証し、実在のCVE(`CVE-2021-36159`)がfinding(`severity: critical`)として
 記録されることを確認済み。**再検証**(別セッション)でも同じ`alpine:3.10`
@@ -1067,6 +1074,76 @@ SQL文字列連結を含むダミーのフィクスチャファイルに対し�
 `docker compose build`した実行時イメージ(semgrepをpipで同梱)でも
 同じ検出結果を確認し、上記のバージョン確認ハングとその対策も
 実行時イメージ内で再現・検証した。
+
+### sbom(`syft`)
+
+コンテナイメージの構成要素(パッケージ名・バージョン・種別)をSBOM
+(Software Bill of Materials)として取得し、CycloneDX JSON形式で証跡化
+します。`container`(trivy image)と同じ`kind=host`・イメージ参照を
+`address`とする規約です。
+
+```bash
+pownforge scan run sbom --target alpine-image
+```
+
+`--option`のキー: `scope`(`squashed`(既定)/`all-layers`/`deep-squashed`、
+`syft --scope`)。SBOM自体は脆弱性ではないため`_findings`は生成せず、
+パッケージ件数・種別ごとの内訳・パッケージ一覧を`output`に記録するのみ
+(`EvidenceStore`のatomic writeで永続化される既存の仕組みに乗る)。
+`--enrich`(オンラインレジストリからの追加メタデータ取得)は常に未指定。
+
+`imagevuln`(grype)の入力としてSBOMを共有する設計は採用していません。
+共有の複雑さより実装の単純さを優先し、各プラグインが独立して対象
+イメージをスキャンします(指示書の許容する選択)。
+
+**実機検証**: `alpine:3.10`を対象に実際のsyft(v1.52.0)で実行し、
+75パッケージ(library 14 / operating-system 1 / file 60)の検出を確認。
+
+### imagevuln(`grype`)
+
+`container`(trivy)とは別の脆弱性DBによるコンテナイメージ脆弱性検出です。
+2つの独立したDBで突き合わせることで、片方の見落としを減らす狙いです。
+
+```bash
+pownforge scan run imagevuln --target alpine-image
+```
+
+`--option`のキー: `only-fixed`(`true`で修正版が存在する脆弱性のみに
+限定、`grype --only-fixed`)。
+
+**DB更新は通常のスキャンから分離する**: `GRYPE_DB_AUTO_UPDATE=false`を
+常に指定し、スキャン中の暗黙のDB取得を行わない。DB更新は`grype db update`
+を明示的に実行する別手順とし(Dockerランタイムイメージ
+(`docker/Dockerfile.runtime`)はビルド時に一度取得して同梱)、DBの取得日時
+(`grype db status`の`built`フィールド)を`output.db_built_at`として
+証跡に記録する。
+
+重大度写像: grypeの`Critical`→`critical`、`High`→`high`、
+`Medium`→`medium`、`Low`→`low`、`Negligible`/`Unknown`→`info`。
+重複排除キーは`(CVE ID, パッケージ名, バージョン)`。
+
+**既知の問題と対策(`sast`と同種)**: `semgrep`と同じく、`syft`/`grype`も
+既定でバージョン確認のための外部通信を試みる。Dockerランタイムイメージ
+では`SYFT_CHECK_FOR_APP_UPDATE=false`・`GRYPE_CHECK_FOR_APP_UPDATE=false`
+(imagevulnプラグイン自身がコマンド組み立て時に指定)で無効化している。
+
+**Dockerランタイムイメージの既知の制約**: `pownforge-lab`ネットワークは
+`--internal`のため、前述の`container`(trivy image)と同様、
+`docker compose run pownforge`経由でパブリックレジストリのイメージ参照
+(`alpine:3.10`等)を直接スキャンすることはできない(レジストリへの
+到達経路が無い)。`grype`のDB自体は
+ビルド時に同梱済みのため到達性問題はないが、スキャン対象イメージの
+取得そのものがブロックされる。ホスト側`.venv`経由での実行(通常の
+インターネット到達性を持つ)が、パブリックレジストリイメージに対する
+実行方法として想定されている。
+
+**実機検証**: `alpine:3.10`を対象に実際のgrype(v0.119.0)で実行し、
+既存の`container`実機検証と同じ実在のCVE(`CVE-2021-36159`、
+severity: critical)が検出されることを確認。DBは事前に`grype db update`
+で明示的に取得(取得日時が`db_built_at`に記録されることを確認)。
+`docker compose build`した実行時イメージでも、ビルド時に同梱した
+DBが`--internal`ネットワーク上でも参照可能であること(`grype db status`)
+を確認した(イメージ自体の取得はホスト`.venv`側で検証、上記の制約参照)。
 
 ## 7. ラボネットワーク
 

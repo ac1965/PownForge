@@ -110,6 +110,30 @@ RUN ARCH="$(dpkg --print-architecture)" \
     && tar -C /usr/local/bin -xzf /tmp/gitleaks.tar.gz gitleaks \
     && rm /tmp/gitleaks.tar.gz
 
+# syft (the `sbom` plugin) / grype (the `imagevuln` plugin): official
+# multi-arch release binaries, dpkg's amd64/arm64 naming matches these
+# projects' own asset naming directly (unlike gitleaks/trivy above).
+ARG SYFT_VERSION=1.52.0
+RUN ARCH="$(dpkg --print-architecture)" \
+    && curl -sSL -o /tmp/syft.tar.gz \
+      "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_${ARCH}.tar.gz" \
+    && tar -C /usr/local/bin -xzf /tmp/syft.tar.gz syft \
+    && rm /tmp/syft.tar.gz
+ARG GRYPE_VERSION=0.119.0
+RUN ARCH="$(dpkg --print-architecture)" \
+    && curl -sSL -o /tmp/grype.tar.gz \
+      "https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_${ARCH}.tar.gz" \
+    && tar -C /usr/local/bin -xzf /tmp/grype.tar.gz grype \
+    && rm /tmp/grype.tar.gz
+# grype's vulnerability DB must be fetched now, at build time (while this
+# stage still has network access) -- pownforge-lab is --internal by design
+# (AGENTS.md), so a scan-time `grype db update` would never succeed there,
+# same rationale as nuclei's template fetch above. The `imagevuln` plugin
+# itself always disables GRYPE_DB_AUTO_UPDATE (see plugins/imagevuln.py),
+# so this baked-in DB is the only one it will ever use inside this image;
+# rebuild the image to refresh it.
+RUN GRYPE_CHECK_FOR_APP_UPDATE=false grype db update
+
 WORKDIR /app
 COPY pyproject.toml README.md /app/
 COPY src /app/src
@@ -117,14 +141,16 @@ COPY src /app/src
 # semgrep (the `sast` plugin): a proper pip package, unlike the Go tools
 # above. Installed alongside pownforge itself rather than via `go install`.
 RUN pip install --break-system-packages '.[pdf]' semgrep
-# semgrep checks for a newer release over the network by default, even for
-# `--version` alone -- on pownforge-lab (--internal, no route to the
-# internet by design) this doesn't fail fast, it hangs until the OS-level
-# connect timeout, adding well over a minute to every single scan (measured
-# directly: `semgrep --version` took >30s here, vs ~1s with this variable
-# set). This is exactly the "diagnostic-target以外への通信" this plugin's
-# spec requires disabled by default -- see docs/handbook.md §6.
+# semgrep/syft/grype all check for a newer release over the network by
+# default, even for a bare `--version`/`version` -- on pownforge-lab
+# (--internal, no route to the internet by design) this doesn't fail fast,
+# it hangs until the OS-level connect timeout, adding well over a minute to
+# every single scan (measured directly: `semgrep --version` took >30s here,
+# vs ~1s with this variable set). This is exactly the "diagnostic-target
+# 以外への通信" each plugin's spec requires disabled by default -- see
+# docs/handbook.md §6.
 ENV SEMGREP_ENABLE_VERSION_CHECK=0
+ENV SYFT_CHECK_FOR_APP_UPDATE=false
 
 ENTRYPOINT ["pownforge"]
 CMD ["--help"]

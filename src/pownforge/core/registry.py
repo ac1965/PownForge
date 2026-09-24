@@ -8,6 +8,7 @@ from pownforge.plugins.base import Plugin
 from pownforge.plugins.container import ContainerPlugin
 from pownforge.plugins.httpx_probe import HttpxProbePlugin
 from pownforge.plugins.identity import IdentityPlugin
+from pownforge.plugins.imagevuln import ImagevulnPlugin
 from pownforge.plugins.kube_bench import KubeBenchPlugin
 from pownforge.plugins.kubernetes import KubernetesPlugin
 from pownforge.plugins.kubernetes_audit import KubernetesAuditPlugin
@@ -15,6 +16,7 @@ from pownforge.plugins.network import NetworkPlugin
 from pownforge.plugins.nuclei import NucleiPlugin
 from pownforge.plugins.recon import ReconPlugin
 from pownforge.plugins.sast import SastPlugin
+from pownforge.plugins.sbom import SbomPlugin
 from pownforge.plugins.secrets import SecretsPlugin
 from pownforge.plugins.sqlmap import SqlmapPlugin
 from pownforge.plugins.vulncheck import VulncheckPlugin
@@ -90,5 +92,7 @@ def default_registry() -> PluginRegistry:
     registry.register(HttpxProbePlugin())
     registry.register(SecretsPlugin())
     registry.register(SastPlugin())
+    registry.register(SbomPlugin())
+    registry.register(ImagevulnPlugin())
     registry.load_entry_points()
     return registry
