@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pownforge.core.identifiers import IdentifierError, validate_identifier
 from pownforge.core.models import AttackSession, AttackSessionStage
 from pownforge.evidence.store import EvidenceStore
 
@@ -48,6 +49,10 @@ def create_attack_session(
     description: str = "",
     engagement: str | None = None,
 ) -> AttackSession:
+    try:
+        validate_identifier(name, kind="attack session")
+    except IdentifierError as exc:
+        raise AttackSessionError(str(exc)) from exc
     try:
         store.load(name)
     except AttackSessionError:

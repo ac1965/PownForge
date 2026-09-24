@@ -4,6 +4,7 @@ from pathlib import Path
 
 import yaml
 
+from pownforge.core.identifiers import IdentifierError, validate_identifier
 from pownforge.core.models import (
     AllowedAction,
     Engagement,
@@ -77,6 +78,10 @@ class ScopePolicy:
         return self._safety
 
     def add_target(self, target: Target) -> None:
+        try:
+            validate_identifier(target.name, kind="target")
+        except IdentifierError as exc:
+            raise PolicyError(str(exc)) from exc
         if target.name in self._targets:
             raise PolicyError(f"target '{target.name}' is already registered")
         if target.environment == TargetEnvironment.PRODUCTION and not target.notes:
@@ -190,6 +195,10 @@ class ScopePolicy:
         return target
 
     def add_engagement(self, engagement: Engagement) -> None:
+        try:
+            validate_identifier(engagement.name, kind="engagement")
+        except IdentifierError as exc:
+            raise PolicyError(str(exc)) from exc
         if engagement.name in self._engagements:
             raise PolicyError(f"engagement '{engagement.name}' is already registered")
         if not engagement.targets:

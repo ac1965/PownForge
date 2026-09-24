@@ -10,6 +10,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from pownforge.core.concurrency import ConcurrencyGuard
+from pownforge.core.identifiers import IdentifierError, validate_identifier
 from pownforge.core.manual_evidence import import_manual_run
 from pownforge.core.models import (
     Capability,
@@ -159,6 +160,10 @@ def create_operation(
     objective: str = "",
     engagement: str | None = None,
 ) -> AttackOperation:
+    try:
+        validate_identifier(name, kind="operation")
+    except IdentifierError as exc:
+        raise OperationError(str(exc)) from exc
     try:
         store.load(name)
     except OperationError:

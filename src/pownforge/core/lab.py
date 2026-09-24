@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from pownforge.core.identifiers import IdentifierError, validate_identifier
 from pownforge.core.models import TargetKind
 
 LAB_NETWORK = "pownforge-lab"
@@ -75,6 +76,10 @@ class LabManager:
             )
 
     def add(self, name: str, image: str, env: dict[str, str] | None = None) -> LabHost:
+        try:
+            validate_identifier(name, kind="lab host")
+        except IdentifierError as exc:
+            raise LabError(str(exc)) from exc
         self.ensure_network()
         # -i (keep stdin open) matters for images whose default CMD ends in
         # an interactive shell after starting background services (a common
@@ -168,6 +173,10 @@ class KindClusterManager:
     def create(
         self, name: str, kubeconfig_path: Path, kind_config: Path | None = None
     ) -> KindCluster:
+        try:
+            validate_identifier(name, kind="kind cluster")
+        except IdentifierError as exc:
+            raise LabError(str(exc)) from exc
         command = ["kind", "create", "cluster", "--name", name]
         if kind_config is not None:
             command += ["--config", str(kind_config)]
