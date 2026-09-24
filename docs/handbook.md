@@ -2461,7 +2461,7 @@ stage追加→Markdown/HTMLレポート表示までブラウザから一気通�
 
 `AttackOperation`は、既存の`ScanRunner → Plugin → EvidenceStore`の上位に
 追加された、攻撃経路そのものを第一級オブジェクトとして扱うモデルです
-(`core/operation.py`)。[§13.4のAttackSession](#13-証跡とレポート)が
+(`core/operation/`)。[§13.4のAttackSession](#13-証跡とレポート)が
 「実行済みのrunを事後的に束ねる」記録専用の枠組みであるのに対し、
 `AttackOperation`は「これから何を・どういう順番で・誰の承認を得て
 実行するか」を事前に計画する枠組みです。両者は独立しており、既存の
@@ -2647,7 +2647,7 @@ safety:
   `PrimitiveRunRecord`。`Capability`は`operation.py`からここへ移動し再エクスポート)
 - `core/policy.py`: `SafetyPolicy`のロード/保存と`authorize_primitive()`、
   `SafetyError`(= `PolicyError`のサブクラス)
-- `core/operation.py`: `ValidationPrimitive`(ABC)、`PrimitiveContext`、
+- `core/operation.py`(P1リファクタリングで`core/primitives/`へ移動): `ValidationPrimitive`(ABC)、`PrimitiveContext`、
   `ResourceRegistry`、`PrimitiveRunner`
 
 ### 具体プリミティブ第3号: `http.response-diff`

@@ -79,8 +79,13 @@ make test
 ## ディレクトリ構成の概要
 
 - `src/pownforge/cli.py`: Typerエントリポイント
-- `src/pownforge/core/`: モデル・スコープポリシー・実行エンジン・プラグインレジストリ・ラボネットワーク管理（`lab.py`）・
-  複数run経路の名前付き永続化（`attack_session.py`）・攻撃経路のモデル化と承認フロー（`operation.py`、Phase 2設計）
+- `src/pownforge/core/`: モデル（`models/`パッケージ。`from pownforge.core.models import X`は
+  維持されるFacade）・スコープポリシー・実行エンジン（`process.py`のProcessExecutor）・
+  プラグインレジストリ・ラボネットワーク管理（`lab.py`）・複数run経路の名前付き永続化
+  （`attack_session.py`）・攻撃経路のモデル化と承認フロー（`operation/`パッケージ。
+  `from pownforge.core.operation import X`は維持されるFacade。Phase 2設計）・
+  検証プリミティブフレームワーク（`primitives/`パッケージ。具体プリミティブ実装は
+  トップレベルの`src/pownforge/primitives/`で別物）
 - `src/pownforge/plugins/`: 個別ツール（nmap, ffuf, nuclei, trivy(kubernetes/container), sqlmap 等）の
   プラグイン実装。`_trivy.py`は`KubernetesPlugin`/`ContainerPlugin`共通のtrivy JSON抽出ロジック
 - `src/pownforge/core/finding_utils.py`: LLM応答/プラグインの`_findings`規約から
