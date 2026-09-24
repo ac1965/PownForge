@@ -3392,6 +3392,37 @@ Docker経由、アクティブスキャンのオプション自体が存在し�
   人間が別ツールで実施し`result import`で証跡化する分離を維持する
   (AGENTS.md「PownForge自身はexploitを実行しない」不変条件)
 
+### 内部アーキテクチャのリファクタリング(Domain/Execution/Store分離)
+
+上記M1〜M7が「何を実装したか」のサマリーであるのに対し、こちらは
+PownForgeを「単なるツールランナー」から「Security Assessment
+Orchestrator」へ段階的に移行するための内部構造リファクタリング
+(2026-09-24実施)の状況です。新機能追加ではなく、既存機能・永続化
+スキーマ・公開APIを維持したまま責務を分離する作業であるため、上記の
+機能マイルストーンとは別枠で記録します。
+
+| フェーズ | 内容 | 状況 |
+| --- | --- | --- |
+| **P0残** | Evidence相当Storeへのatomic write適用漏れ解消、`core/file_lock.py`への排他ロック共通化(`AttackOperationStore`/`ScopePolicy`/`AttackSessionStore`)、`core/runner.py::_tool_version`のProcessExecutor経由化、`ScanRunner`への`ExecutionResult`配線(タイムアウト時もEvidenceを保存するよう仕様変更) | ✅ 完了 |
+| **P1残** | `application/context.py`(composition root)への配線一本化、`application/targets.py`(target登録/削除/除外/復帰のApplication Service化)、`cli.py`(2,017行・72コマンド)の`cli/`パッケージへの分割(`pownforge.cli:app`は維持) | ✅ 完了 |
+| **P2** | `application/scans.py`(scan実行のApplication Service化)、`ExecutionRequest`への`action_id`/`approval_id`紐付け、`Action.requires`/`provides`による前提条件評価(既存`Capability`は転用せず)、`OperationRunner`のActionExecutor化(kind分岐のprivateメソッド分割)、`AttackNode.state`のActionExecutor経由遷移配線 | ✅ 完了 |
+| **P3(指示書§17名称整理)** | `ai/ollama.py::OllamaAdapter`→`LLMAdapter`への改名(実体が`llm` CLI経由の汎用ルーターであることを反映) | ✅ 完了 |
+| **P3(指示書§19 Store Protocol化)** | Application Serviceが具体Storeクラスに依存して困る、という具体的な兆候が無いため見送り。テストスイート全体(約700件)を調査し、Storeクラスの代替実装(フェイク/モック)を必要とした箇所が無いことを確認済み | 見送り(トリガー条件未充足) |
+| **P3(指示書§15 Web/API/Emacs統合)** | AttackOperationをWeb UIから操作できるようにするための`operation`系ルーター追加。指示書・ユーザー判断のいずれも「新機能」として本リファクタリングの範囲外とした | 見送り(新機能につき別途要相談) |
+
+**責務分離の要点**: CLIとWebがそれぞれ独自に行っていた
+`ScopePolicy`/`EvidenceStore`/`AuditStore`等の組み立てを
+`application/context.py`の1箇所に集約し、target登録・scan実行の
+業務ロジック(kind=pathのアドレス解決、`ScanRunner`の構築等)を
+Typer/FastAPI非依存の`application/`層(Application Service)へ切り出した。
+`OperationRunner`はクラス名を維持したまま「ActionExecutor」として
+発展させ、requires/provides評価と`ExecutionResult`の経路をこの1箇所に
+集約している。
+
+**互換性**: `core.models`/`core.operation`/`core.policy`の各Facade
+再エクスポート、`pownforge.cli:app`エントリポイント、`.pownforge/`配下の
+既存永続化データ(JSON)はいずれも無変更・そのまま読み込み可能。
+
 ### ラボ検証ロードマップ: M1〜M7の実装を実機で裏付ける
 
 上記M1〜M7は「何を実装したか」のサマリーです。2026-09-23、これが
