@@ -196,7 +196,7 @@ Phase 2では、既存の `ScanRunner → Plugin → EvidenceStore` を維持し
 | `imagevuln`（grype） | `alpine:3.10` | `container`と同じ実在のCVE（CVE-2021-36159、severity: critical）を別DBで検出することを確認。DB取得日時の証跡記録、`--internal`ネットワーク上での同梱DB参照を確認。**`syft`/`grype`にも同種のバージョン確認ハングを発見・`SYFT_CHECK_FOR_APP_UPDATE=false`/`GRYPE_CHECK_FOR_APP_UPDATE=false`で修正** |
 | `iac`（checkov） | `privileged: true`を含む自作Podマニフェスト | `CKV_K8S_16`の実検出→finding化を確認。ホスト`.venv`・Docker実行時イメージ（`--internal`ネットワーク上）の両方で確認 |
 | `httpprobe`（httpx、複数ホスト一括） | `example.com`/`example.org`（登録済み）+許可外・未登録Target名 | 許可された2対象のみ実プローブされ、残り2件は通信せず`excluded_hosts`とAuditStoreの両方に記録されることを確認 |
-| `tls`（testssl.sh） | `example.com` | TLS1/TLS1.1非推奨プロトコル提供（LOW）、証明書keyUsage不整合（HIGH）等、実在の検出を確認 |
+| `tls`（testssl.sh） | `example.com` | TLS1/TLS1.1非推奨プロトコル提供（LOW）、証明書keyUsage不整合（HIGH）等、実在の検出を確認。ホスト`.venv`・Docker実行時イメージの両方で確認。**testssl.shがhexdump/ps/dig（`bsdmainutils`/`procps`/`dnsutils`）無しでは起動しないバグをDocker実行時イメージで発見・修正**（[Dockerfile.runtime](docker/Dockerfile.runtime)） |
 | `zapbaseline`（OWASP ZAP baseline） | OWASP Juice Shop | ZAP公式Dockerイメージ経由で実際のパッシブスキャンを実行、CSPヘッダー欠如等4件の実検出→finding化をCLI経由で確認 |
 | `pownforge result import`/`add-finding`（手動証跡取り込み） | Metasploitable2 | 実スキャン→手動exploit記録→findingの追加→`evidence verify`→ウォークスルー生成までの一気通貫を確認 |
 | `Engagement`（横展開の記録） | 実nmapスキャン+手動pivot記録 | Engagement外の対象への記録が拒否されること、正規メンバー間のpivot記録とウォークスルーへの反映を確認 |
