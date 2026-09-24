@@ -31,6 +31,19 @@
 ;;     anything: only records a reference to a run that already happened.
 ;;   `pownforge-attack-session-report' -- render a session's stages (in
 ;;     order) into a Markdown report and open it.
+;;   `pownforge-operation-list', `pownforge-operation-show' -- browse
+;;     AttackOperations (a planned graph of nodes/edges/candidate actions,
+;;     distinct from AttackSession above -- see docs/handbook.md §14).
+;;   `pownforge-operation-create', `pownforge-operation-add-node',
+;;     `pownforge-operation-add-edge', `pownforge-operation-add-action' --
+;;     build up an operation's graph and candidate actions. Never executes
+;;     anything by itself.
+;;   `pownforge-operation-approve' -- record human approval for a
+;;     candidate action; required before it can be executed.
+;;   `pownforge-operation-execute' -- execute an approved action. A SCAN
+;;     action runs through the real ScanRunner; MANUAL/PIVOT actions never
+;;     execute anything themselves, only record a transcript the operator
+;;     already ran (same as `pownforge-result-import').
 ;;   `pownforge-result-list', `pownforge-result-show' -- browse past runs;
 ;;     `result-show' renders findings with `pownforge-review-finding-at-point'
 ;;     bound locally to update a finding's review status in place.
@@ -638,6 +651,213 @@ anything."
     (unless path
       (user-error "could not determine report path from: %s" out))
     (find-file (string-trim path))))
+
+;;; Attack operations (plan a graph of nodes/edges/candidate actions and
+;;; carry them through approval before execution -- distinct from Attack
+;;; sessions above, which only record already-recorded runs as a named
+;;; path; see docs/handbook.md §14)
+
+(defun pownforge-parse-operation-list (output)
+  "Parse `pownforge operation list' textual OUTPUT into a list of plists."
+  (cl-loop for line in (split-string (string-trim output) "\n" t)
+           when (string-match-p "\t" line)
+           collect (let ((fields (split-string line "\t")))
+                     (list :name (nth 0 fields)
+                           :nodes (nth 1 fields)
+                           :actions (nth 2 fields)
+                           :objective (nth 3 fields)))))
+
+(defun pownforge--operation-names ()
+  "Return every existing attack operation's name, for `completing-read'."
+  (mapcar (lambda (op) (plist-get op :name))
+          (pownforge-parse-operation-list (pownforge--run '("operation" "list") '(:workdir)))))
+
+(defvar pownforge-operation-list-mode-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map tabulated-list-mode-map)
+    (define-key map (kbd "RET") #'pownforge-operation-list-show)
+    (define-key map "c" #'pownforge-operation-create)
+    (define-key map "n" #'pownforge-operation-add-node)
+    (define-key map "e" #'pownforge-operation-add-edge)
+    (define-key map "a" #'pownforge-operation-add-action)
+    (define-key map "p" #'pownforge-operation-approve)
+    (define-key map "x" #'pownforge-operation-execute)
+    map)
+  "Keymap for `pownforge-operation-list-mode'.")
+
+(define-derived-mode pownforge-operation-list-mode tabulated-list-mode "PownForge-Operations"
+  "Major mode listing pownforge attack operations.
+\\{pownforge-operation-list-mode-map}"
+  (setq tabulated-list-format
+        [("Name" 18 t) ("Nodes" 10 t) ("Actions" 10 t) ("Objective" 40 t)])
+  (setq tabulated-list-padding 2)
+  (setq tabulated-list-entries #'pownforge--operation-list-entries)
+  (tabulated-list-init-header))
+
+(defun pownforge--operation-list-entries ()
+  (mapcar (lambda (op)
+            (list (plist-get op :name)
+                  (vector (plist-get op :name) (plist-get op :nodes)
+                          (plist-get op :actions) (plist-get op :objective))))
+          (pownforge-parse-operation-list (pownforge--run '("operation" "list") '(:workdir)))))
+
+;;;###autoload
+(defun pownforge-operation-list ()
+  "Show pownforge attack operations in a tabulated-list buffer.
+Press RET to view an operation's nodes/edges/actions/approvals, `c' to
+create a new operation, `n'/`e'/`a' to add a node/edge/action, `p' to
+approve an action, `x' to execute an approved action."
+  (interactive)
+  (let ((buf (get-buffer-create "*pownforge-operations*")))
+    (with-current-buffer buf
+      (pownforge-operation-list-mode)
+      (tabulated-list-print))
+    (pop-to-buffer buf)))
+
+(defun pownforge-operation-list-show ()
+  "Show the attack operation at point."
+  (interactive)
+  (let ((name (tabulated-list-get-id)))
+    (unless name (user-error "No attack operation on this line"))
+    (pownforge-operation-show name)))
+
+;;;###autoload
+(defun pownforge-operation-show (name)
+  "Show attack operation NAME's nodes/edges/actions/approvals
+(`pownforge operation show NAME')."
+  (interactive (list (completing-read "Operation: " (pownforge--operation-names) nil t)))
+  (let ((output (pownforge--run (list "operation" "show" name) '(:workdir))))
+    (with-current-buffer (get-buffer-create (format "*pownforge-operation: %s*" name))
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert output))
+      (special-mode)
+      (pop-to-buffer (current-buffer)))))
+
+;;;###autoload
+(defun pownforge-operation-create (name objective engagement)
+  "Create a new attack operation NAME with OBJECTIVE/ENGAGEMENT.
+Never executes anything -- only registers a name that
+`pownforge-operation-add-node'/`-add-edge'/`-add-action' can then attach a
+graph and candidate actions to."
+  (interactive
+   (list (read-string "New operation name: ")
+         (read-string "Objective (blank for none): ")
+         (read-string "Engagement (blank for none): ")))
+  (let ((args (append (list "operation" "create" name)
+                       (unless (string-empty-p objective) (list "--objective" objective))
+                       (unless (string-empty-p engagement) (list "--engagement" engagement)))))
+    (message "%s" (string-trim (pownforge--run args '(:workdir))))))
+
+;;;###autoload
+(defun pownforge-operation-add-node (name node-id target label)
+  "Add NODE-ID (an already-registered TARGET, with optional LABEL) to
+operation NAME's graph.  Purely descriptive bookkeeping -- grants no
+execution right beyond TARGET's own `allowed_plugins'."
+  (interactive
+   (list (completing-read "Operation: " (pownforge--operation-names) nil t)
+         (read-string "Node id: ")
+         (completing-read "Target: "
+                           (mapcar (lambda (r) (plist-get r :name))
+                                   (pownforge-parse-target-list
+                                    (pownforge--run '("target" "list") '(:config))))
+                           nil t)
+         (read-string "Label (blank for none): ")))
+  (let ((args (append (list "operation" "add-node" name node-id "--target" target)
+                       (unless (string-empty-p label) (list "--label" label)))))
+    (message "%s" (string-trim (pownforge--run args '(:config :workdir))))))
+
+;;;###autoload
+(defun pownforge-operation-add-edge (name source destination capabilities)
+  "Add an edge between two nodes of operation NAME, connecting their
+already-added SOURCE/DESTINATION *targets* (not node ids -- see
+`pownforge-operation-add-node').  CAPABILITIES is a comma-separated list of
+Capability values (blank for the CLI's own default: network-pivot).
+Purely descriptive: recording an edge grants no execution or pivot right
+on its own -- a PIVOT action still needs its own approval and, at execute
+time, an Engagement both targets belong to."
+  (interactive
+   (let ((name (completing-read "Operation: " (pownforge--operation-names) nil t))
+         (target-names (lambda ()
+                          (mapcar (lambda (r) (plist-get r :name))
+                                  (pownforge-parse-target-list
+                                   (pownforge--run '("target" "list") '(:config)))))))
+     (list name
+           (completing-read "Source target: " (funcall target-names) nil t)
+           (completing-read "Destination target: " (funcall target-names) nil t)
+           (read-string "Capabilities (comma separated, blank for default): "))))
+  (let ((args (append (list "operation" "add-edge" name "--source" source "--destination" destination)
+                       (unless (string-empty-p capabilities) (list "--capabilities" capabilities)))))
+    (message "%s" (string-trim (pownforge--run args '(:config :workdir))))))
+
+;;;###autoload
+(defun pownforge-operation-add-action (name action-id action-name target phase kind plugin)
+  "Add a candidate ACTION-ID/ACTION-NAME (PHASE/KIND, against TARGET, with an
+optional PLUGIN for `scan' actions) to operation NAME.  Never executes
+anything -- only `pownforge-operation-execute' does, and only once the
+action has been approved via `pownforge-operation-approve'."
+  (interactive
+   (let* ((name (completing-read "Operation: " (pownforge--operation-names) nil t))
+          (action-id (read-string "Action id: "))
+          (action-name (read-string "Action name: "))
+          (target (completing-read "Target: "
+                                    (mapcar (lambda (r) (plist-get r :name))
+                                            (pownforge-parse-target-list
+                                             (pownforge--run '("target" "list") '(:config))))
+                                    nil t))
+          (phase (completing-read "Phase: "
+                                   '("recon" "initial-access" "execution" "privilege-escalation"
+                                     "credential-access" "discovery" "lateral-movement"
+                                     "persistence" "impact")
+                                   nil t))
+          (kind (completing-read "Kind: " '("scan" "manual" "pivot") nil t nil nil "scan"))
+          (plugin (if (equal kind "scan")
+                      (completing-read "Plugin: "
+                                        (mapcar (lambda (p) (plist-get p :name))
+                                                (pownforge-parse-plugin-list
+                                                 (pownforge--run '("plugin" "list") '())))
+                                        nil t)
+                    "")))
+     (list name action-id action-name target phase kind plugin)))
+  (let ((args (append (list "operation" "add-action" name action-id action-name
+                             "--target" target "--phase" phase "--kind" kind)
+                       (unless (string-empty-p plugin) (list "--plugin" plugin)))))
+    (message "%s" (string-trim (pownforge--run args '(:config :workdir))))))
+
+;;;###autoload
+(defun pownforge-operation-approve (name action-id approved-by note)
+  "Record human approval for ACTION-ID in operation NAME.
+Required before `pownforge-operation-execute' will run it."
+  (interactive
+   (let ((name (completing-read "Operation: " (pownforge--operation-names) nil t)))
+     (list name
+           (read-string "Action id: ")
+           (read-string "Approved by: ")
+           (read-string "Note (blank for none): "))))
+  (let ((args (append (list "operation" "approve" name action-id "--approved-by" approved-by)
+                       (unless (string-empty-p note) (list "--note" note)))))
+    (message "%s" (string-trim (pownforge--run args '(:workdir))))))
+
+;;;###autoload
+(defun pownforge-operation-execute (name action-id command output tool)
+  "Execute approved ACTION-ID in operation NAME.
+A SCAN action runs through the existing ScanRunner, same as
+`pownforge-scan'.  MANUAL/PIVOT actions never execute anything -- OUTPUT
+must already be the transcript of what a human ran with an external TOOL
+\(optionally naming the COMMAND); this only records it, exactly like
+`pownforge-result-import'."
+  (interactive
+   (let ((name (completing-read "Operation: " (pownforge--operation-names) nil t)))
+     (list name
+           (read-string "Action id: ")
+           (read-string "Command (MANUAL/PIVOT only, blank for none): ")
+           (read-string "Output (MANUAL/PIVOT only, blank for none): ")
+           (read-string "Tool (MANUAL/PIVOT only, blank for none): "))))
+  (let ((args (append (list "operation" "execute" name action-id)
+                       (unless (string-empty-p command) (list "--command" command))
+                       (unless (string-empty-p output) (list "--output" output))
+                       (unless (string-empty-p tool) (list "--tool" tool)))))
+    (message "%s" (string-trim (pownforge--run args '(:config :workdir))))))
 
 ;;; Results (list + detail)
 

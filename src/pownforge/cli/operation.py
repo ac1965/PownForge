@@ -24,6 +24,19 @@ def operation_create(
     typer.echo(f"created attack operation '{name}'")
 
 
+@operation_app.command("list")
+def operation_list(workdir: Path = typer.Option(DEFAULT_WORKDIR)) -> None:
+    """List attack operations."""
+    operations = _operations(workdir).list()
+    if not operations:
+        typer.echo("no attack operations recorded yet; use `pownforge operation create`")
+        raise typer.Exit()
+    for operation in operations:
+        typer.echo(
+            f"{operation.name}\t{len(operation.nodes)} nodes\t{len(operation.actions)} actions\t{operation.objective}"
+        )
+
+
 @operation_app.command("show")
 def operation_show(name: str, workdir: Path = typer.Option(DEFAULT_WORKDIR)) -> None:
     """Show an attack operation's nodes, edges, actions, and approvals."""
