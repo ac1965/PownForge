@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from pownforge.core.atomic_write import atomic_write_text
 from pownforge.core.models import Artifact, EvidenceVerification, HashCheck, RunRecord
 from pownforge.evidence.hashing import sha256_file, sha256_text
 
@@ -14,7 +15,7 @@ class EvidenceStore:
 
     def save(self, record: RunRecord) -> Path:
         path = self._runs_dir / f"{record.run_id}.json"
-        path.write_text(record.model_dump_json(indent=2))
+        atomic_write_text(path, record.model_dump_json(indent=2))
         return path
 
     def load(self, run_id: str) -> RunRecord:

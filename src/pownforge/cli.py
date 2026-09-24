@@ -736,20 +736,21 @@ def operation_execute(
     operation to have an --engagement and a graph edge ending at the
     action's target, see `operation add-edge`)."""
     try:
-        operation = _operations(workdir).load(name)
         runner = OperationRunner(
             _policy(config), default_registry(), _store(workdir), _audit(workdir), concurrency=_concurrency(workdir)
         )
-        updated = runner.execute(
-            operation,
-            action_id,
-            manual_command=command,
-            manual_output=output,
-            manual_tool=tool,
-            manual_tool_version=tool_version,
-            manual_returncode=returncode,
+        updated = _operations(workdir).update(
+            name,
+            lambda operation: runner.execute(
+                operation,
+                action_id,
+                manual_command=command,
+                manual_output=output,
+                manual_tool=tool,
+                manual_tool_version=tool_version,
+                manual_returncode=returncode,
+            ),
         )
-        _operations(workdir).save(updated)
     except OperationError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc

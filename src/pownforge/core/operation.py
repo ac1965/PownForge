@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import fcntl
+import os
+import time
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterator
 
 from pydantic import BaseModel, Field
 
+from pownforge.core.atomic_write import atomic_write_text
 from pownforge.core.concurrency import ConcurrencyGuard
 from pownforge.core.identifiers import IdentifierError, validate_identifier
 from pownforge.core.manual_evidence import import_manual_run
@@ -132,13 +137,69 @@ class OperationError(RuntimeError):
 
 
 class AttackOperationStore:
+    """One JSON file per AttackOperation. `load`-mutate-`save` is not
+    inherently safe against two concurrent callers (CLI + Web UI, or two
+    CLI invocations) racing on the same operation -- see `lock()`/`update()`
+    and refactor §4.6."""
+
+    # How long lock() waits for a concurrent holder before giving up.
+    # Bounded, not blocking forever, so a caller gets an explicit
+    # OperationError instead of hanging if a lock is somehow wedged.
+    _LOCK_TIMEOUT_SECONDS = 5.0
+    _LOCK_POLL_INTERVAL_SECONDS = 0.05
+
     def __init__(self, operations_dir: Path) -> None:
         self._dir = operations_dir
         self._dir.mkdir(parents=True, exist_ok=True)
 
+    def _lock_path(self, name: str) -> Path:
+        return self._dir / f".{name}.lock"
+
+    @contextmanager
+    def lock(self, name: str) -> Iterator[None]:
+        """Exclusive, cross-process lock over a load-mutate-save sequence
+        for operation NAME, via fcntl.flock on a sibling `.<name>.lock`
+        file (same approach as ConcurrencyGuard in core/concurrency.py).
+        Every module-level mutator below (add_node, add_action, ...) and
+        `update()` hold this for their whole load+save; a bare `save()`
+        call outside one of those is the caller's own responsibility."""
+        lock_path = self._lock_path(name)
+        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        deadline = time.monotonic() + self._LOCK_TIMEOUT_SECONDS
+        try:
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise OperationError(
+                            f"could not acquire the update lock for attack operation "
+                            f"'{name}' within {self._LOCK_TIMEOUT_SECONDS}s"
+                        )
+                    time.sleep(self._LOCK_POLL_INTERVAL_SECONDS)
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+
+    def update(
+        self, name: str, mutate: Callable[[AttackOperation], AttackOperation | None]
+    ) -> AttackOperation:
+        """Load NAME under lock(), call `mutate(operation)`, save the result
+        (or the same operation, mutated in place, if MUTATE returns None),
+        and return it -- still holding the lock for the whole sequence so
+        two concurrent updates can't silently drop one of them."""
+        with self.lock(name):
+            operation = self.load(name)
+            result = mutate(operation)
+            operation = result if result is not None else operation
+            self.save(operation)
+            return operation
+
     def save(self, operation: AttackOperation) -> Path:
         path = self._dir / f"{operation.name}.json"
-        path.write_text(operation.model_dump_json(indent=2))
+        atomic_write_text(path, operation.model_dump_json(indent=2))
         return path
 
     def load(self, name: str) -> AttackOperation:
@@ -164,19 +225,20 @@ def create_operation(
         validate_identifier(name, kind="operation")
     except IdentifierError as exc:
         raise OperationError(str(exc)) from exc
-    try:
-        store.load(name)
-    except OperationError:
-        pass
-    else:
-        raise OperationError(f"attack operation '{name}' already exists")
-    operation = AttackOperation(
-        name=name,
-        objective=objective,
-        engagement=engagement,
-    )
-    store.save(operation)
-    return operation
+    with store.lock(name):
+        try:
+            store.load(name)
+        except OperationError:
+            pass
+        else:
+            raise OperationError(f"attack operation '{name}' already exists")
+        operation = AttackOperation(
+            name=name,
+            objective=objective,
+            engagement=engagement,
+        )
+        store.save(operation)
+        return operation
 
 
 def add_node(
@@ -187,13 +249,14 @@ def add_node(
     target: str,
     label: str = "",
 ) -> AttackOperation:
-    operation = store.load(operation_name)
     policy.resolve(target)
-    if any(node.id == node_id for node in operation.nodes):
-        raise OperationError(f"node '{node_id}' already exists")
-    operation.nodes.append(AttackNode(id=node_id, target=target, label=label))
-    store.save(operation)
-    return operation
+    with store.lock(operation_name):
+        operation = store.load(operation_name)
+        if any(node.id == node_id for node in operation.nodes):
+            raise OperationError(f"node '{node_id}' already exists")
+        operation.nodes.append(AttackNode(id=node_id, target=target, label=label))
+        store.save(operation)
+        return operation
 
 
 def add_edge(
@@ -204,25 +267,26 @@ def add_edge(
     destination: str,
     capabilities: list[Capability] | None = None,
 ) -> AttackOperation:
-    operation = store.load(operation_name)
     policy.resolve(source)
     policy.resolve(destination)
     if source == destination:
         raise OperationError("an attack graph edge cannot point to itself")
-    if not any(node.target == source for node in operation.nodes):
-        raise OperationError(f"source target '{source}' is not a graph node")
-    if not any(node.target == destination for node in operation.nodes):
-        raise OperationError(f"destination target '{destination}' is not a graph node")
-    edge = AttackEdge(
-        source=source,
-        destination=destination,
-        capabilities=capabilities or [Capability.NETWORK_PIVOT],
-    )
-    if edge in operation.edges:
-        raise OperationError("attack graph edge already exists")
-    operation.edges.append(edge)
-    store.save(operation)
-    return operation
+    with store.lock(operation_name):
+        operation = store.load(operation_name)
+        if not any(node.target == source for node in operation.nodes):
+            raise OperationError(f"source target '{source}' is not a graph node")
+        if not any(node.target == destination for node in operation.nodes):
+            raise OperationError(f"destination target '{destination}' is not a graph node")
+        edge = AttackEdge(
+            source=source,
+            destination=destination,
+            capabilities=capabilities or [Capability.NETWORK_PIVOT],
+        )
+        if edge in operation.edges:
+            raise OperationError("attack graph edge already exists")
+        operation.edges.append(edge)
+        store.save(operation)
+        return operation
 
 
 def add_action(
@@ -231,17 +295,18 @@ def add_action(
     operation_name: str,
     action: Action,
 ) -> AttackOperation:
-    operation = store.load(operation_name)
     policy.resolve(action.target)
-    if any(existing.id == action.id for existing in operation.actions):
-        raise OperationError(f"action '{action.id}' already exists")
-    if action.kind == ActionKind.SCAN and not action.plugin:
-        raise OperationError("scan actions require plugin")
-    if action.kind != ActionKind.SCAN and action.plugin:
-        raise OperationError("only scan actions may specify a plugin")
-    operation.actions.append(action)
-    store.save(operation)
-    return operation
+    with store.lock(operation_name):
+        operation = store.load(operation_name)
+        if any(existing.id == action.id for existing in operation.actions):
+            raise OperationError(f"action '{action.id}' already exists")
+        if action.kind == ActionKind.SCAN and not action.plugin:
+            raise OperationError("scan actions require plugin")
+        if action.kind != ActionKind.SCAN and action.plugin:
+            raise OperationError("only scan actions may specify a plugin")
+        operation.actions.append(action)
+        store.save(operation)
+        return operation
 
 
 def approve_action(
@@ -251,20 +316,21 @@ def approve_action(
     approved_by: str,
     note: str = "",
 ) -> AttackOperation:
-    operation = store.load(operation_name)
-    action = _action(operation, action_id)
-    if action.status not in {ActionStatus.PLANNED, ActionStatus.REJECTED}:
-        raise OperationError(f"action '{action_id}' cannot be approved from status {action.status.value}")
-    approval = Approval(
-        id=f"approval-{action_id}-{len(operation.approvals) + 1}",
-        action_id=action_id,
-        approved_by=approved_by,
-        note=note,
-    )
-    operation.approvals.append(approval)
-    action.status = ActionStatus.APPROVED
-    store.save(operation)
-    return operation
+    with store.lock(operation_name):
+        operation = store.load(operation_name)
+        action = _action(operation, action_id)
+        if action.status not in {ActionStatus.PLANNED, ActionStatus.REJECTED}:
+            raise OperationError(f"action '{action_id}' cannot be approved from status {action.status.value}")
+        approval = Approval(
+            id=f"approval-{action_id}-{len(operation.approvals) + 1}",
+            action_id=action_id,
+            approved_by=approved_by,
+            note=note,
+        )
+        operation.approvals.append(approval)
+        action.status = ActionStatus.APPROVED
+        store.save(operation)
+        return operation
 
 
 def _action(operation: AttackOperation, action_id: str) -> Action:
