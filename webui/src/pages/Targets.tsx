@@ -157,13 +157,16 @@ export default function Targets() {
           >
             <option value="host">host</option>
             <option value="url">url</option>
+            <option value="path">path</option>
           </select>
         </label>
         <label>
           address
           <input
             required
-            placeholder={form.kind === "url" ? "http://127.0.0.1:3000" : "127.0.0.1"}
+            placeholder={
+              form.kind === "url" ? "http://127.0.0.1:3000" : form.kind === "path" ? "./src" : "127.0.0.1"
+            }
             value={form.address}
             onChange={(e) => setForm({ ...form, address: e.target.value })}
           />
@@ -179,6 +182,8 @@ export default function Targets() {
             <option value="web">web</option>
             <option value="api">api</option>
             <option value="kubernetes">kubernetes</option>
+            <option value="container">container</option>
+            <option value="source-code">source-code</option>
           </select>
         </label>
         <label>

@@ -1,5 +1,5 @@
-export type TargetKind = "host" | "url";
-export type TargetType = "network" | "web" | "api" | "kubernetes" | "container";
+export type TargetKind = "host" | "url" | "path";
+export type TargetType = "network" | "web" | "api" | "kubernetes" | "container" | "source-code";
 export type TargetEnvironment = "local-lab" | "staging" | "production";
 
 export interface Target {
