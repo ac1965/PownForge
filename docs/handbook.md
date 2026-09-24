@@ -1995,8 +1995,9 @@ Playbook実行(ステップ単位のライブ進捗、
 stage追加・レポート表示([§13](#13-証跡とレポート)の
 `AttackSession`節参照)、Analyze実行、finding検証、evidence検証、
 複数runをまたぐウォークスルー生成、AI既定モデル・出力言語の設定
-(Settings)までひととおり操作できます。`AttackOperation`はWeb UIからは
-未対応です([§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)参照)。
+(Settings)までひととおり操作できます。`AttackOperation`はREST API
+(`/api/operations`系)としては利用できますが、専用のReact画面は
+まだありません([§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)参照)。
 
 ![Run detail画面(findings表示)](images/web-rundetail.png)
 
@@ -2040,6 +2041,14 @@ medium/青=low/灰=info)付きで、検証状態(確認済み/要確認/誤検�
 | `GET /api/attack-sessions/{name}` | AttackSessionのステージ一覧(JSON) |
 | `POST /api/attack-sessions` | 空のAttackSessionを作成(何も実行しない) |
 | `POST /api/attack-sessions/{name}/stages` | 既存run-idを次のステージとして追加(run-id未検出時は404) |
+| `GET /api/operations` | `AttackOperation`の一覧([§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)) |
+| `GET /api/operations/{name}` | `AttackOperation`の詳細(nodes/edges/actions/approvals) |
+| `POST /api/operations` | 空の`AttackOperation`を作成(何も実行しない) |
+| `POST /api/operations/{name}/nodes` | ノード(登録済みtarget)を追加 |
+| `POST /api/operations/{name}/edges` | ノード間のedgeを追加(`capabilities`省略時は`network-pivot`) |
+| `POST /api/operations/{name}/actions` | 候補Action(scan/manual/pivot)を追加。リクエストボディに`status`/`run_id`は存在せず、常に`planned`/`null`から始まる |
+| `POST /api/operations/{name}/actions/{action_id}/approve` | Actionへの人間の承認を記録(`{approved_by, note}`) |
+| `POST /api/operations/{name}/actions/{action_id}/execute` | 承認済みActionを実行。`scan`は既存`ScanRunner`経由、`manual`/`pivot`は`{output, ...}`必須の記録専用(`pownforge operation execute`と同じ`OperationRunner`) |
 | `GET /api/attack-sessions/{name}/report[?format=markdown\|html\|pdf]` | 経路レポート文字列(または`format=pdf`時は`application/pdf`のバイナリ)を返す(詳細は[§13](#13-証跡とレポート)の`AttackSession`節)。`pdf`はreportlab未インストール時`501`を返す |
 | `GET /api/runs` | 実行結果の一覧 |
 | `POST /api/runs/import` | 手動exploit工程の証跡を登録(multipart。target/command/output/tool/phase/cve+成果物ファイルのアップロード)。PownForgeは`command`を実行しない。詳細は[§13](#13-証跡とレポート) |
@@ -2962,9 +2971,25 @@ scan種別と異なり、manual/pivotの`execute`はコマンドを一切実行�
 いません。AIが`AttackOperation`やActionを直接操作する経路は追加して
 いません(すべて人間がCLI/将来のフロントエンドから操作する想定)。
 
+### Web API
+
+`web/routers/operations.py`(`/api/operations`系)がCLIの`operation`サブ
+コマンドと同じ`core/operation/`の関数群(`create_operation`/`add_node`/
+`add_edge`/`add_action`/`approve_action`/`OperationRunner.execute()`)を
+直接呼ぶだけの薄いラッパーとして、list/get/create/add-node/add-edge/
+add-action/approve/executeの全操作をREST APIとして提供します
+(AGENTS.mdの「Web層は薄いラッパーに保つ」原則どおり、Application
+Serviceを介さず`core.operation`のドメイン関数を直接呼ぶ。これらの関数は
+元からTyper/FastAPI非依存のため、それで十分)。`POST
+/api/operations/{name}/actions`のリクエストボディ(`ActionCreate`)は
+意図的に`status`/`run_id`を持たず、クライアントがこれらを偽装して
+承認・実行フローを迂回できないようにしている(新規Actionは常に
+`status=planned`/`run_id=null`から始まる)。
+
 ### 既知の未実装項目
 
-Web UI/Emacsからの操作は未対応です(`AttackSession`と異なり、CLIのみ)。
+Web UIの専用画面(React)とEmacsからの操作は未対応です(`AttackSession`と
+異なり、バックエンドAPIのみ実装済み)。
 
 **実機検証**: `operation create --engagement` → `add-node`(2件) →
 `add-edge` → `add-action --kind manual`/`--kind pivot` → `approve` →
@@ -3409,7 +3434,7 @@ Orchestrator」へ段階的に移行するための内部構造リファクタ�
 | **P2** | `application/scans.py`(scan実行のApplication Service化)、`ExecutionRequest`への`action_id`/`approval_id`紐付け、`Action.requires`/`provides`による前提条件評価(既存`Capability`は転用せず)、`OperationRunner`のActionExecutor化(kind分岐のprivateメソッド分割)、`AttackNode.state`のActionExecutor経由遷移配線 | ✅ 完了 |
 | **P3(指示書§17名称整理)** | `ai/ollama.py::OllamaAdapter`→`LLMAdapter`への改名(実体が`llm` CLI経由の汎用ルーターであることを反映) | ✅ 完了 |
 | **P3(指示書§19 Store Protocol化)** | Application Serviceが具体Storeクラスに依存して困る、という具体的な兆候が無いため見送り。テストスイート全体(約700件)を調査し、Storeクラスの代替実装(フェイク/モック)を必要とした箇所が無いことを確認済み | 見送り(トリガー条件未充足) |
-| **P3(指示書§15 Web/API/Emacs統合)** | AttackOperationをWeb UIから操作できるようにするための`operation`系ルーター追加。指示書・ユーザー判断のいずれも「新機能」として本リファクタリングの範囲外とした | 見送り(新機能につき別途要相談) |
+| **P3(指示書§15 Web/API統合)** | `web/routers/operations.py`(`/api/operations`系)を追加し、`core.operation`のドメイン関数を直接呼ぶ薄いラッパーとしてAttackOperationのlist/get/create/add-node/add-edge/add-action/approve/executeをREST APIとして提供(2026-09-24、ユーザー依頼により着手)。React専用画面・Emacs連携は引き続き未実装 | ✅ APIのみ完了 |
 
 **副次的な発見と対応(リファクタリング範囲外)**: `tests/web/test_audit_routes.py`の
 間欠的にハングするテストを発見・修正した。原因は`TestClient(app)`を
