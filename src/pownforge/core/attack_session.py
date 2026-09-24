@@ -6,7 +6,7 @@ from typing import Iterator
 
 from pownforge.core.atomic_write import atomic_write_text
 from pownforge.core.file_lock import flock_path
-from pownforge.core.identifiers import IdentifierError, validate_identifier
+from pownforge.core.identifiers import IdentifierError, resolve_contained_path, validate_identifier
 from pownforge.core.models import AttackSession, AttackSessionStage
 from pownforge.evidence.store import EvidenceStore
 
@@ -28,6 +28,16 @@ class AttackSessionStore:
         self._sessions_dir = sessions_dir
         self._sessions_dir.mkdir(parents=True, exist_ok=True)
 
+    def _path(self, filename: str) -> Path:
+        """Build self._sessions_dir / filename, guarded against it
+        resolving outside self._sessions_dir (refactor §7 -- NAME may not
+        have gone through validate_identifier(), e.g. on a load/update
+        path)."""
+        try:
+            return resolve_contained_path(self._sessions_dir, filename, kind="attack session")
+        except IdentifierError as exc:
+            raise AttackSessionError(str(exc)) from exc
+
     @contextmanager
     def lock(self, name: str) -> Iterator[None]:
         """Exclusive, cross-process lock over a load-mutate-save sequence
@@ -36,7 +46,7 @@ class AttackSessionStore:
         refactor §6.5). `add_stage()` holds this for its whole
         load+append+save."""
         try:
-            with flock_path(self._sessions_dir / f".{name}.lock"):
+            with flock_path(self._path(f".{name}.lock")):
                 yield
         except TimeoutError as exc:
             raise AttackSessionError(
@@ -44,12 +54,12 @@ class AttackSessionStore:
             ) from exc
 
     def save(self, session: AttackSession) -> Path:
-        path = self._sessions_dir / f"{session.name}.json"
+        path = self._path(f"{session.name}.json")
         atomic_write_text(path, session.model_dump_json(indent=2))
         return path
 
     def load(self, name: str) -> AttackSession:
-        path = self._sessions_dir / f"{name}.json"
+        path = self._path(f"{name}.json")
         if not path.exists():
             raise AttackSessionError(f"no attack session named '{name}'")
         return AttackSession.model_validate_json(path.read_text())
