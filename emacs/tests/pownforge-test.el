@@ -341,6 +341,77 @@ signal wrong-type-argument instead of annotating the buffer."
      ;; must fire next.
      (should (equal (car calls) '("walkthrough" "generate" "--target" "lab-web" "--format" "markdown"))))))
 
+;;; Validation primitives
+
+(ert-deftest pownforge-test-parse-primitive-list ()
+  (let ((ps (pownforge-parse-primitive-list
+              (concat
+               "http.oob-interaction\t[oob-interaction]\tmax_level=validation\tOOB HTTP interaction check\n"
+               "    --option path (required): Absolute path containing {callback}\n"
+               "jndi.oob-lookup-probe\t[oob-interaction]\tmax_level=validation\tLog4Shell-class indicator\n"))))
+    (should (= (length ps) 2))
+    (should (equal (plist-get (nth 0 ps) :id) "http.oob-interaction"))
+    (should (equal (plist-get (nth 0 ps) :category) "oob-interaction"))
+    (should (equal (plist-get (nth 0 ps) :max-level) "validation"))
+    (should (equal (plist-get (nth 1 ps) :id) "jndi.oob-lookup-probe"))))
+
+(ert-deftest pownforge-test-parse-primitive-runs ()
+  (let ((rs (pownforge-parse-primitive-runs
+              "p001\thttp.oob-interaction\tlab-web\tlevel=validation\t2026-09-22T11:00:00+00:00\n")))
+    (should (= (length rs) 1))
+    (should (equal (plist-get (car rs) :run-id) "p001"))
+    (should (equal (plist-get (car rs) :primitive) "http.oob-interaction"))
+    (should (equal (plist-get (car rs) :level) "validation"))))
+
+(ert-deftest pownforge-test-primitive-list-entries ()
+  (pownforge-test-with-fake-cli
+   (let ((entries (pownforge--primitive-list-entries)))
+     (should (= (length entries) 2))
+     (should (equal (aref (nth 1 (nth 0 entries)) 0) "http.oob-interaction")))))
+
+(ert-deftest pownforge-test-primitive-run-builds-args ()
+  (let (calls)
+    (cl-letf (((symbol-function 'pownforge--run-to-string)
+               (lambda (args) (push args calls)
+                 "primitive run p001 completed (level_reached=validation)"))
+              ((symbol-function 'pop-to-buffer) #'ignore))
+      (pownforge-primitive-run "http.oob-interaction" "lab-web" "validation"
+                                "path=/fetch?url={callback}" "CVE-2021-44228"))
+    (should (equal (car calls)
+                   '("primitive" "run" "http.oob-interaction" "--target" "lab-web"
+                     "--level" "validation" "--option" "path=/fetch?url={callback}"
+                     "--cve" "CVE-2021-44228")))))
+
+(ert-deftest pownforge-test-result-import-builds-args ()
+  (let (calls)
+    (cl-letf (((symbol-function 'pownforge--run-to-string)
+               (lambda (args) (push args calls) "run imp001 recorded (target=lab, plugin=manual)")))
+      (pownforge-result-import "lab" "msfconsole -x run" "got shell" "msfconsole"
+                                "exploit" "CVE-2021-44228" '("/tmp/proof.txt")))
+    (should (equal (car calls)
+                   '("result" "import" "--target" "lab" "--command" "msfconsole -x run"
+                     "--output" "got shell" "--tool" "msfconsole" "--phase" "exploit"
+                     "--cve" "CVE-2021-44228" "--artifact" "/tmp/proof.txt")))))
+
+(ert-deftest pownforge-test-result-import-omits-blank-optionals ()
+  (let (calls)
+    (cl-letf (((symbol-function 'pownforge--run-to-string)
+               (lambda (args) (push args calls) "run imp002 recorded (target=lab, plugin=manual)")))
+      (pownforge-result-import "lab" "cmd" "out" "" "" "" nil))
+    (should (equal (car calls)
+                   '("result" "import" "--target" "lab" "--command" "cmd" "--output" "out")))))
+
+(ert-deftest pownforge-test-result-tag-builds-args ()
+  (let (calls)
+    (cl-letf (((symbol-function 'pownforge--run-to-string)
+               (lambda (args) (push args calls) "run run001 cves: CVE-2021-44228")))
+      (pownforge-result-tag "run001" "CVE-2021-44228, CVE-2022-22965" nil)
+      (pownforge-result-tag "run001" "CVE-2021-44228" t))
+    (should (equal (nth 1 calls)
+                   '("result" "tag" "run001" "--cve" "CVE-2021-44228" "--cve" "CVE-2022-22965")))
+    (should (equal (car calls)
+                   '("result" "tag" "run001" "--cve" "CVE-2021-44228" "--remove")))))
+
 (provide 'pownforge-test)
 
 ;;; pownforge-test.el ends here

@@ -926,6 +926,155 @@ match."
       (message "%s" (pownforge--run (list "result" "review" run-id finding-id status) '(:workdir)))
       (org-todo (pownforge-status-to-todo status)))))
 
+;;; Validation primitives (docs/handbook.md §15)
+
+(defun pownforge-parse-primitive-list (output)
+  "Parse `pownforge primitive list' OUTPUT into a list of plists.
+Only the primitive header lines are parsed (id\\t[category]\\tmax_level=..\\t
+description); the indented `    --option ...' lines are skipped."
+  (cl-loop for line in (split-string (string-trim output) "\n" t)
+           unless (string-prefix-p " " line)
+           when (string-match-p "\t" line)
+           collect (let ((fields (split-string line "\t")))
+                     (list :id (nth 0 fields)
+                           :category (string-trim (or (nth 1 fields) "") "\\[" "\\]")
+                           :max-level (string-remove-prefix "max_level=" (or (nth 2 fields) ""))
+                           :description (or (nth 3 fields) "")))))
+
+(defun pownforge-parse-primitive-runs (output)
+  "Parse `pownforge primitive runs' OUTPUT into a list of plists."
+  (cl-loop for line in (split-string (string-trim output) "\n" t)
+           when (string-match-p "\t" line)
+           collect (let ((fields (split-string line "\t")))
+                     (list :run-id (nth 0 fields)
+                           :primitive (nth 1 fields)
+                           :target (nth 2 fields)
+                           :level (string-remove-prefix "level=" (or (nth 3 fields) ""))
+                           :created-at (or (nth 4 fields) "")))))
+
+(defun pownforge--primitive-list-entries ()
+  (mapcar (lambda (p)
+            (list (plist-get p :id)
+                  (vector (plist-get p :id)
+                          (plist-get p :category)
+                          (plist-get p :max-level)
+                          (plist-get p :description))))
+          (pownforge-parse-primitive-list (pownforge--run '("primitive" "list") '()))))
+
+(define-derived-mode pownforge-primitive-list-mode tabulated-list-mode "PownForge-Primitives"
+  "Major mode listing available pownforge validation primitives."
+  (setq tabulated-list-format
+        [("Id" 22 t) ("Category" 16 t) ("Max level" 12 t) ("Description" 60 t)])
+  (setq tabulated-list-padding 2)
+  (setq tabulated-list-entries #'pownforge--primitive-list-entries)
+  (tabulated-list-init-header))
+
+;;;###autoload
+(defun pownforge-primitive-list ()
+  "Show available validation primitives in a tabulated-list buffer."
+  (interactive)
+  (let ((buf (get-buffer-create "*pownforge-primitives*")))
+    (with-current-buffer buf
+      (pownforge-primitive-list-mode)
+      (tabulated-list-print))
+    (pop-to-buffer buf)))
+
+;;;###autoload
+(defun pownforge-primitive-run (primitive target level options cves)
+  "Run PRIMITIVE against TARGET at LEVEL, persist it, and show the summary.
+OPTIONS is a space-separated key=value string (blank for none); CVES is a
+comma-separated CVE list (blank for none).  PownForge never runs an exploit
+-- a primitive's ceiling is a controlled observation (see docs/handbook.md
+§15)."
+  (interactive
+   (let* ((primitives (pownforge-parse-primitive-list
+                        (pownforge--run '("primitive" "list") '())))
+          (primitive (completing-read "Primitive: "
+                                       (mapcar (lambda (p) (plist-get p :id)) primitives)
+                                       nil t))
+          (targets (pownforge-parse-target-list (pownforge--run '("target" "list") '(:config))))
+          (target (completing-read "Target: "
+                                    (mapcar (lambda (r) (plist-get r :name)) targets) nil t))
+          (level (completing-read "Level: " '("detection" "validation" "execution") nil t
+                                   nil nil "validation"))
+          (options (read-string "Options (key=value, space separated, blank for none): "))
+          (cves (read-string "CVEs (comma separated, blank for none): ")))
+     (list primitive target level options cves)))
+  (let* ((option-args (cl-loop for kv in (split-string (or options "") " " t)
+                               append (list "--option" kv)))
+         (cve-args (cl-loop for c in (split-string (or cves "") "[, ]+" t)
+                            append (list "--cve" c)))
+         (args (append (list "primitive" "run" primitive "--target" target "--level" level)
+                        option-args cve-args))
+         (out (pownforge--run args '(:config :workdir)))
+         (buf (get-buffer-create "*pownforge-primitive-run*")))
+    (with-current-buffer buf
+      (special-mode)
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert out))
+      (goto-char (point-min)))
+    (pop-to-buffer buf)
+    (message "%s" (string-trim (car (split-string out "\n"))))))
+
+;;;###autoload
+(defun pownforge-result-import (target command output tool phase cves artifacts)
+  "Record a human-performed exploit step (`pownforge result import').
+PownForge never runs COMMAND; this only records what the operator reports.
+TOOL/PHASE may be blank.  CVES is a comma-separated CVE list; ARTIFACTS is a
+list of file paths to attach (hashed into the evidence store).  See
+docs/handbook.md §13."
+  (interactive
+   (let* ((targets (pownforge-parse-target-list (pownforge--run '("target" "list") '(:config))))
+          (target (completing-read "Target: "
+                                    (mapcar (lambda (r) (plist-get r :name)) targets) nil t))
+          (command (read-string "Command (recorded, never executed): "))
+          (output (read-string "Output/transcript: "))
+          (tool (read-string "Tool (blank for none): "))
+          (phase (completing-read "Phase (blank for none): "
+                                   '("" "discovery" "vuln-confirm" "exploit" "initial-access"
+                                     "privilege-escalation" "lateral-movement" "persistence" "impact")
+                                   nil t))
+          (cves (read-string "CVEs (comma separated, blank for none): "))
+          (artifacts (let (files (f t))
+                        (while (and f (not (string-empty-p f)))
+                          (setq f (read-file-name "Artifact (blank to finish): " nil "" nil))
+                          (unless (string-empty-p f) (push (expand-file-name f) files)))
+                        (nreverse files))))
+     (list target command output tool phase cves artifacts)))
+  (let* ((args (append (list "result" "import" "--target" target
+                              "--command" command "--output" output)
+                        (unless (string-empty-p (or tool "")) (list "--tool" tool))
+                        (unless (string-empty-p (or phase "")) (list "--phase" phase))
+                        (cl-loop for c in (split-string (or cves "") "[, ]+" t)
+                                 append (list "--cve" c))
+                        (cl-loop for a in artifacts append (list "--artifact" a))))
+         (out (pownforge--run args '(:config :workdir))))
+    (message "%s" (string-trim out))
+    out))
+
+;;;###autoload
+(defun pownforge-result-tag (run-id cves remove)
+  "Add (or with REMOVE, delete) CVE tags on RUN-ID.
+CVES is a comma-separated CVE list.  Tags are correlation labels for the
+engagement report's CVE exposure matrix."
+  (interactive
+   (let ((run-id (completing-read "Run id: "
+                                   (mapcar (lambda (r) (plist-get r :run-id))
+                                           (pownforge-parse-result-list
+                                            (pownforge--run '("result" "list") '(:workdir))))
+                                   nil t))
+         (cves (read-string "CVEs (comma separated): "))
+         (remove (y-or-n-p "Remove these CVEs instead of adding? ")))
+     (list run-id cves remove)))
+  (let* ((cve-args (cl-loop for c in (split-string (or cves "") "[, ]+" t)
+                            append (list "--cve" c)))
+         (args (append (list "result" "tag" run-id) cve-args
+                        (when remove (list "--remove"))))
+         (out (pownforge--run args '(:workdir))))
+    (message "%s" (string-trim out))
+    out))
+
 (provide 'pownforge)
 
 ;;; pownforge.el ends here

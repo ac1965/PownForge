@@ -104,6 +104,25 @@ TXT
   "attack-session report")
     echo "wrote /tmp/fake-pownforge-attack-session-$3.md"
     ;;
+  "primitive list")
+    printf 'http.oob-interaction\t[oob-interaction]\tmax_level=validation\tOOB HTTP interaction check\n'
+    printf '    --option path (required): Absolute path containing {callback}\n'
+    printf 'jndi.oob-lookup-probe\t[oob-interaction]\tmax_level=validation\tLog4Shell-class exposure indicator\n'
+    ;;
+  "primitive runs")
+    printf 'p001\thttp.oob-interaction\tlab-web\tlevel=validation\t2026-09-22T11:00:00+00:00\n'
+    ;;
+  "primitive run")
+    echo "primitive run p001 completed (level_reached=validation)"
+    echo "preconditions: P1.controllable_input=met, P2.url_target=met"
+    echo "evidence: observations=1 findings=1 claims=1"
+    ;;
+  "result import")
+    echo "run imp001 recorded (target=$4, plugin=manual)"
+    ;;
+  "result tag")
+    echo "run $3 cves: CVE-2021-44228"
+    ;;
   *)
     echo "fake-pownforge: unhandled args: $*" >&2
     exit 2

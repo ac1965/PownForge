@@ -1767,7 +1767,9 @@ Emacs Lispラッパーです。スコープ検証・プラグイン実行・証�
 (use-package pownforge
   :load-path "/path/to/PownForge/emacs"
   :commands (pownforge-target-list pownforge-scan pownforge-result-list
-             pownforge-audit-list pownforge-findings-to-org))
+             pownforge-audit-list pownforge-findings-to-org
+             pownforge-primitive-list pownforge-primitive-run
+             pownforge-result-import pownforge-result-tag))
 ```
 
 ### コマンド一覧
@@ -1787,6 +1789,10 @@ Emacs Lispラッパーです。スコープ検証・プラグイン実行・証�
 | `pownforge-attack-session-report` | 経路レポートを生成しファイルを開く |
 | `pownforge-result-list` | 過去の実行一覧。`RET`で詳細、`o`でその実行のfindingsをOrgとして挿入 |
 | `pownforge-result-show` | 実行の詳細を表示。findingsはseverity降順。行上で`r`を押すと`pownforge result review`でステータス変更 |
+| `pownforge-primitive-list` | 利用可能な検証プリミティブを`tabulated-list-mode`で表示([§15](#15-検証プリミティブフレームワークphase-2設計骨格)) |
+| `pownforge-primitive-run` | プリミティブ・対象・level・option・CVEを`completing-read`/`read-string`で選び`primitive run`を実行、要約とrun記録を表示。exploitは実行しない |
+| `pownforge-result-import` | 手動exploit工程の証跡を`result import`で記録(command/output/tool/phase/CVE/成果物ファイル)。PownForgeは`command`を実行しない |
+| `pownforge-result-tag` | 既存runのCVEタグを追加/削除(`result tag`)。CVE露出マトリクスの相関キー |
 | `pownforge-report-generate` | レポートを生成しファイルを開く |
 | `pownforge-walkthrough-generate` | 複数runをまたぐウォークスルーを生成。読み取り専用。生成後ファイルを開く |
 | `pownforge-audit-list` | `ScopePolicy`が拒否した実行試行の一覧 |
