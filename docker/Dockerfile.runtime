@@ -138,9 +138,10 @@ WORKDIR /app
 COPY pyproject.toml README.md /app/
 COPY src /app/src
 
-# semgrep (the `sast` plugin): a proper pip package, unlike the Go tools
-# above. Installed alongside pownforge itself rather than via `go install`.
-RUN pip install --break-system-packages '.[pdf]' semgrep
+# semgrep (the `sast` plugin) / checkov (the `iac` plugin): proper pip
+# packages, unlike the Go tools above. Installed alongside pownforge itself
+# rather than via `go install`.
+RUN pip install --break-system-packages '.[pdf]' semgrep checkov
 # semgrep/syft/grype all check for a newer release over the network by
 # default, even for a bare `--version`/`version` -- on pownforge-lab
 # (--internal, no route to the internet by design) this doesn't fail fast,

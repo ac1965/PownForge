@@ -7,6 +7,7 @@ from pownforge.plugins.api import ApiPlugin
 from pownforge.plugins.base import Plugin
 from pownforge.plugins.container import ContainerPlugin
 from pownforge.plugins.httpx_probe import HttpxProbePlugin
+from pownforge.plugins.iac import IacPlugin
 from pownforge.plugins.identity import IdentityPlugin
 from pownforge.plugins.imagevuln import ImagevulnPlugin
 from pownforge.plugins.kube_bench import KubeBenchPlugin
@@ -94,5 +95,6 @@ def default_registry() -> PluginRegistry:
     registry.register(SastPlugin())
     registry.register(SbomPlugin())
     registry.register(ImagevulnPlugin())
+    registry.register(IacPlugin())
     registry.load_entry_points()
     return registry

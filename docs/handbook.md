@@ -1145,6 +1145,77 @@ severity: critical)が検出されることを確認。DBは事前に`grype db u
 DBが`--internal`ネットワーク上でも参照可能であること(`grype db status`)
 を確認した(イメージ自体の取得はホスト`.venv`側で検証、上記の制約参照)。
 
+### iac(`checkov`)
+
+適用前のKubernetesマニフェスト・Terraform・Dockerfile等、IaC(Infrastructure
+as Code)ファイルの設定ミスを検査します。`secrets`/`sast`と同じ
+`kind=path`専用。
+
+```bash
+pownforge target add my-manifests --address ./k8s --kind path \
+  --allowed-plugins iac
+pownforge scan run iac --target my-manifests --option framework=kubernetes
+```
+
+`--option`のキー: `framework`(カンマ区切り、既定
+`kubernetes,terraform,dockerfile`。checkovが対応する任意の値を指定可能)。
+
+**オフライン専用・クラウド連携なし**: `--skip-download`(Bridgecrew/Prisma
+Cloudからのポリシー・重大度情報の取得を無効化)と`--skip-results-upload`
+(結果のアップロード無効化。`--bc-api-key`を一切指定しないため実質的には
+冗長だが明示)を常に指定する。checkov自体に「対象ファイルを書き換える」
+オプションは存在しない(診断専用ツール)ため、読み取り専用は
+ツール自体の設計により保証される。
+
+**重大度**: checkovは`--bc-api-key`によるクラウド認証時のみ
+per-check重大度を返し、オフライン専用の本プラグインでは常に`None`となる
+(gitleaksが重大度を返さないのと同じ理由による固定写像)。全FAILを固定で
+`medium`として扱う(「検出されたが重大度は不明」を表す妥当な既定値、
+`unknown`として握りつぶさない)。重複排除キーは
+`(check_id, resource, file_path)`。
+
+**`--output-file-path`の実装上の注意**: checkov 3.3.10時点で、この
+オプションはファイルパスではなく**ディレクトリ**として扱われ、
+`<dir>/results_json.json`に書き込まれる(`--help`には明記されていない
+挙動、実機検証で確認)。対象フレームワークが1つの場合はJSONオブジェクト、
+複数の場合はJSON配列(フレームワークごとに1要素)を返す点もパース時に
+吸収している。
+
+**実機検証**: `privileged: true`を含む意図的に危険なPodマニフェストに
+対して実際のcheckov(v3.3.10、Dockerランタイムイメージ内はv3.3.19)で
+実行し、`CKV_K8S_16`("Container should not be privileged")が
+finding(severity: medium)として検出されることを確認。ホスト`.venv`・
+Docker実行時イメージ(`--internal`ネットワーク上、外部通信不要)の
+両方で確認した。
+
+### kubebench(未実装 — 実行形態の制約により見送り)
+
+指示書が要求する制約(読み取り専用、クラスタリソースの作成・変更・削除を
+伴わない、in-clusterジョブ形式は不採用)を、本プロジェクトの既存ラボ環境
+(`kind`)で満たす実行形態を検討したが、以下の理由により実装を見送った
+(指示書§9「読み取り専用・パッシブ限定を守れない実行形態しか取れない場合」
+に該当するため、実装せず報告する)。
+
+- `kind`クラスタのノードは`kindest/node`イメージのDockerコンテナであり、
+  kube-benchバイナリは同梱されていない
+- ノード設定ファイル(kubeletの設定、`/etc/kubernetes/manifests/`等)へ
+  読み取り専用でアクセスする現実的な経路は、(a) Kubernetes API経由で
+  Pod/Jobを作成する(指示書が明示的に禁止)、(b) ノードコンテナへ
+  `docker exec`する、の2つに限られることを実機で確認した
+- (b)は本体はKubernetes APIリソースを作成しないため字義通りには
+  「クラスタのリソースを作成・変更・削除」には該当しないが、実現には
+  PownForgeプロセス自身がホストのDockerソケット(`/var/run/docker.sock`)
+  へアクセスできる必要がある。これは現在のPownForgeアーキテクチャが
+  一切持たない権限であり、ホスト上の任意コンテナを操作できる強力な
+  権限を新たに付与することになる。単一プラグイン追加の範囲を大きく
+  超える設計判断のため、この作業の中で導入しない
+- 実クラスタ(SSHでノードにアクセス可能な環境)向けの実装も検討したが、
+  PownForgeには現状SSH認証情報を扱う仕組みが無く、同様に本作業の範囲を
+  超える
+
+`kube-bench`によるCISベンチマーク検査自体は、本セクション(§6)前段の
+既存`kube-bench`プラグイン(in-clusterジョブ方式)で既に利用可能。
+
 ## 7. ラボネットワーク
 
 `pownforge lab`サブコマンドは、意図的に脆弱なコンテナイメージを
