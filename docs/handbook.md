@@ -3430,9 +3430,6 @@ Docker経由、アクティブスキャンのオプション自体が存在し�
   登録対象配下の複数パス一括プローブは`httpx`プラグインとして実装済み)
 - 認証情報を扱う`identity`系プラグイン(`identity`プラグインは公開
   discovery文書の取得のみで、認証情報は扱わない)
-- Web UI/Emacsからの`AttackOperation`操作(CLIのみ対応。`add-node`/
-  `add-edge`のCLI公開とmanual/pivot実行プロバイダは実装済み、
-  [§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)参照)
 - 実Vulhubチェックアウトでの実機スモーク(`lab provider`はfake compose runnerで
   単体検証済み。実Vulhub環境での「start→primitive run→report engagement」の
   実機確認は、意図的に脆弱なコンテナを起動するため隔離ラボホストで実施する想定で未実施)
@@ -3454,10 +3451,10 @@ Orchestrator」へ段階的に移行するための内部構造リファクタ�
 | --- | --- | --- |
 | **P0残** | Evidence相当Storeへのatomic write適用漏れ解消、`core/file_lock.py`への排他ロック共通化(`AttackOperationStore`/`ScopePolicy`/`AttackSessionStore`)、`core/runner.py::_tool_version`のProcessExecutor経由化、`ScanRunner`への`ExecutionResult`配線(タイムアウト時もEvidenceを保存するよう仕様変更) | ✅ 完了 |
 | **P0残(指示書§7低優先度)** | `AttackOperationStore`/`AttackSessionStore`の`load`/`save`/`lock`は、`create_operation`等の新規登録経由でしか`validate_identifier`を通らない`name`をそのままpathへ組み込んでいた(`operation show <name>`等のload/updateパスは元々検証対象外)。文字種制限ではなく`core/identifiers.py::resolve_contained_path`による「解決後パスがStoreディレクトリ配下であること」の確認を追加し、既存データの互換性を保ったままpath traversalを防ぐ | ✅ 完了 |
-| **P1残** | `application/context.py`(composition root)への配線一本化、`application/targets.py`(target登録/削除/除外/復帰のApplication Service化)、`cli.py`(2,017行・72コマンド)の`cli/`パッケージへの分割(`pownforge.cli:app`は維持) | ✅ 完了 |
+| **P1残** | `application/context.py`(composition root)への配線一本化、`application/targets.py`(target登録/削除/除外/復帰のApplication Service化)、`cli.py`(2,017行・分割当時72コマンド、以後の`operation list`追加等で現在73コマンド)の`cli/`パッケージへの分割(`pownforge.cli:app`は維持) | ✅ 完了 |
 | **P2** | `application/scans.py`(scan実行のApplication Service化)、`ExecutionRequest`への`action_id`/`approval_id`紐付け、`Action.requires`/`provides`による前提条件評価(既存`Capability`は転用せず)、`OperationRunner`のActionExecutor化(kind分岐のprivateメソッド分割)、`AttackNode.state`のActionExecutor経由遷移配線 | ✅ 完了 |
 | **P3(指示書§17名称整理)** | `ai/ollama.py::OllamaAdapter`→`LLMAdapter`への改名(実体が`llm` CLI経由の汎用ルーターであることを反映) | ✅ 完了 |
-| **P3(指示書§19 Store Protocol化)** | Application Serviceが具体Storeクラスに依存して困る、という具体的な兆候が無いため見送り。テストスイート全体(約700件)を調査し、Storeクラスの代替実装(フェイク/モック)を必要とした箇所が無いことを確認済み | 見送り(トリガー条件未充足) |
+| **P3(指示書§19 Store Protocol化)** | Application Serviceが具体Storeクラスに依存して困る、という具体的な兆候が無いため見送り。テストスイート全体(約700件)を調査し、Storeクラスの代替実装(フェイク/モック)を必要とした箇所が無いことを確認済み。(2026-09-24追試)`EvidenceStoreProtocol`を実際に書いて`ScanRunner`に仮配線し、mypy(本プロジェクトには未導入)で構造的部分型が機械的には成立すること自体は確認したが、(1)本プロジェクトはmypy/pyright等の型チェックをCI/`make test`/`make lint`のいずれにも組み込んでおらず、素の状態で`src/pownforge/`全体に対しmypyを走らせると本件と無関係な既存エラーが22件(8ファイル)出る=型注釈の恩恵を実行時に強制する仕組みがそもそも無い、(2)`ScopePolicy`は16個の公開メソッド+`@classmethod load()`を持ち、これをProtocol化すると`load`/`save`(composition rootのみが呼ぶ構築用メソッド)をProtocolに含めるかどうかという設計判断が新たに発生し、対象クラス8種×呼び出し元30ファイル超に及ぶ書き換えの見返りが「型チェッカーを導入すれば得られたはずの恩恵」止まりで実証できなかったため、トライアル後も見送りのまま(トリガー条件未充足)。既存の`primitives/`配下のProtocol(`CallbackListener`等)は実ソケットを避けるための狭いI/O差し替え用途であり、今回検討したStore全体のProtocol化とは動機が異なる別物 | 見送り(トリガー条件未充足、2026-09-24にトライアル実施の上で再確認) |
 | **P3(指示書§15 Web/API統合)** | `web/routers/operations.py`(`/api/operations`系)を追加し、`core.operation`のドメイン関数を直接呼ぶ薄いラッパーとしてAttackOperationのlist/get/create/add-node/add-edge/add-action/approve/executeをREST APIとして提供(2026-09-24、ユーザー依頼により着手)。続けて`webui/src/pages/Operations.tsx`を追加し、REST APIを呼ぶOperation画面(node/edge/action追加、承認、実行)を実装、`App.tsx`のナビゲーションに登録(2026-09-24)。さらにCLIに欠けていた`pownforge operation list`を追加した上で、`emacs/pownforge.el`に`pownforge-operation-*`(list/show/create/add-node/add-edge/add-action/approve/execute)を追加しEmacs連携も完了(2026-09-24) | ✅ 完了 |
 
 **副次的な発見と対応(リファクタリング範囲外)**: `tests/web/test_audit_routes.py`の
