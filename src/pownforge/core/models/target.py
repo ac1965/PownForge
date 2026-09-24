@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from pathlib import Path
 
 from pydantic import BaseModel, Field
 
@@ -8,6 +9,10 @@ from pydantic import BaseModel, Field
 class TargetKind(str, Enum):
     HOST = "host"
     URL = "url"
+    # A local filesystem directory (source code checkout, IaC manifests).
+    # `address` holds an absolute, symlink-resolved path -- see
+    # resolve_path_target_address() and docs/handbook.md §6.
+    PATH = "path"
 
 
 class TargetType(str, Enum):
@@ -24,6 +29,34 @@ class TargetType(str, Enum):
     API = "api"
     KUBERNETES = "kubernetes"
     CONTAINER = "container"
+    SOURCE_CODE = "source-code"
+
+
+class TargetPathError(ValueError):
+    """Raised when a `path`-kind target's address can't be resolved to a
+    real, existing directory."""
+
+
+def resolve_path_target_address(raw_path: str) -> str:
+    """Resolve RAW_PATH (as given to `target add --kind path`) to an
+    absolute, symlink-resolved directory path, and return it as the string
+    to store as Target.address.
+
+    Storing the fully-resolved path at registration time -- rather than the
+    raw string the operator typed -- means a plugin re-resolving
+    target.address at scan time (see plugins/_source_path.py) can detect a
+    symlink swap after registration by simple string comparison, without
+    needing to remember or re-derive the original input. Shared by the CLI
+    and the web API's equivalent endpoint (mirrors
+    core/lab.py::resolve_lab_target_address())."""
+    path = Path(raw_path)
+    try:
+        resolved = path.resolve(strict=True)
+    except OSError as exc:
+        raise TargetPathError(f"path '{raw_path}' does not exist: {exc}") from exc
+    if not resolved.is_dir():
+        raise TargetPathError(f"path '{raw_path}' is not a directory")
+    return str(resolved)
 
 
 class TargetEnvironment(str, Enum):

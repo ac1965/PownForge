@@ -43,7 +43,15 @@ from pownforge.core.models.primitive import (
     validation_level_at_most,
     validation_level_exceeds,
 )
-from pownforge.core.models.target import Engagement, Target, TargetEnvironment, TargetKind, TargetType
+from pownforge.core.models.target import (
+    Engagement,
+    Target,
+    TargetEnvironment,
+    TargetKind,
+    TargetPathError,
+    TargetType,
+    resolve_path_target_address,
+)
 
 __all__ = [
     "AllowedAction",
@@ -88,8 +96,10 @@ __all__ = [
     "Target",
     "TargetEnvironment",
     "TargetKind",
+    "TargetPathError",
     "TargetType",
     "ValidationLevel",
+    "resolve_path_target_address",
     "validation_level_at_most",
     "validation_level_exceeds",
 ]

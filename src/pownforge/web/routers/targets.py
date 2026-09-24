@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from pownforge.core.models import Target
+from pownforge.core.models import Target, TargetKind, TargetPathError, resolve_path_target_address
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.web.deps import get_config_path, get_policy
 
@@ -27,6 +27,11 @@ def add_target(
     policy: ScopePolicy = Depends(get_policy),
     config: Path = Depends(get_config_path),
 ) -> Target:
+    if target.kind == TargetKind.PATH:
+        try:
+            target = target.model_copy(update={"address": resolve_path_target_address(target.address)})
+        except TargetPathError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     try:
         policy.add_target(target)
     except PolicyError as exc:

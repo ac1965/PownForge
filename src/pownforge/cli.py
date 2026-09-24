@@ -48,8 +48,10 @@ from pownforge.core.models import (
     Target,
     TargetEnvironment,
     TargetKind,
+    TargetPathError,
     TargetType,
     ValidationLevel,
+    resolve_path_target_address,
 )
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.core.registry import RegistryError, default_registry
@@ -210,8 +212,10 @@ def target_list(config: Path = typer.Option(DEFAULT_CONFIG)) -> None:
 @target_app.command("add")
 def target_add(
     name: str,
-    address: str = typer.Option(..., help="Authorized host/IP or base URL for this target."),
-    kind: TargetKind = typer.Option(TargetKind.HOST, help="host or url"),
+    address: str = typer.Option(
+        ..., help="Authorized host/IP, base URL, or (for --kind path) a local directory."
+    ),
+    kind: TargetKind = typer.Option(TargetKind.HOST, help="host, url, or path"),
     type: Optional[TargetType] = typer.Option(
         None, "--type", help="Assessment domain (network/web/api/kubernetes); purely descriptive."
     ),
@@ -232,6 +236,12 @@ def target_add(
     """Register a new authorized target."""
     policy = _policy(config)
     plugins = [p.strip() for p in allowed_plugins.split(",") if p.strip()]
+    if kind == TargetKind.PATH:
+        try:
+            address = resolve_path_target_address(address)
+        except TargetPathError as exc:
+            typer.echo(f"error: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
     target = Target(
         name=name,
         kind=kind,
