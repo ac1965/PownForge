@@ -5,10 +5,11 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from pownforge.application import targets as target_service
 from pownforge.core.lab import LabError, LabScenario, VulhubProvider, vulhub_target_name
 from pownforge.core.models import Target, TargetKind
-from pownforge.core.policy import PolicyError, ScopePolicy
-from pownforge.web.deps import get_config_path, get_policy, get_vulhub_provider
+from pownforge.core.policy import PolicyError
+from pownforge.web.deps import get_config_path, get_vulhub_provider
 
 # Kept under the /lab prefix conceptually but with its own path space; scenario
 # ids contain slashes ("log4j/CVE-2021-44228"), so they travel in the request
@@ -62,7 +63,6 @@ def scenario_status(
 def start_scenario(
     body: StartRequest,
     provider: VulhubProvider = Depends(get_vulhub_provider),
-    policy: ScopePolicy = Depends(get_policy),
     config: Path = Depends(get_config_path),
 ) -> StartResult:
     try:
@@ -85,10 +85,9 @@ def start_scenario(
         notes=f"vulhub scenario '{body.scenario}' (deliberately vulnerable; lifecycle via lab provider)",
     )
     try:
-        policy.add_target(target)
+        target = target_service.register_target(config, target)
     except PolicyError as exc:
         return StartResult(scenario=scenario, registration_warning=str(exc))
-    policy.save(config)
     return StartResult(scenario=scenario, registered_target=target)
 
 
@@ -114,7 +113,6 @@ def reset_scenario(
 def cleanup_scenario(
     body: CleanupRequest,
     provider: VulhubProvider = Depends(get_vulhub_provider),
-    policy: ScopePolicy = Depends(get_policy),
     config: Path = Depends(get_config_path),
 ) -> None:
     try:
@@ -124,7 +122,6 @@ def cleanup_scenario(
     if not body.purge:
         return
     try:
-        policy.remove_target(vulhub_target_name(body.scenario))
+        target_service.remove_target(config, vulhub_target_name(body.scenario))
     except PolicyError:
         return
-    policy.save(config)

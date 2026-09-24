@@ -4,12 +4,21 @@ from pathlib import Path
 
 from fastapi import Depends, Request
 
+from pownforge.application.context import (
+    build_attack_sessions,
+    build_audit,
+    build_concurrency,
+    build_policy,
+    build_primitive_runs,
+    build_registry,
+    build_store,
+)
 from pownforge.core.attack_session import AttackSessionStore
 from pownforge.core.concurrency import ConcurrencyGuard
 from pownforge.core.lab import KindClusterManager, LabManager, VulhubProvider
 from pownforge.core.operation import PrimitiveRunner
 from pownforge.core.policy import ScopePolicy
-from pownforge.core.registry import PluginRegistry, default_registry
+from pownforge.core.registry import PluginRegistry
 from pownforge.core.runner import ScanRunner
 from pownforge.core.settings import AppSettings, load_settings
 from pownforge.evidence.audit import AuditStore
@@ -41,30 +50,34 @@ def get_app_settings(path: Path = Depends(get_settings_path)) -> AppSettings:
     return load_settings(path)
 
 
+# Thin delegations to the composition root (application/context.py,
+# refactor §18 step 2) -- kept as these names since routers already
+# `Depends()` on them, but the actual construction lives in one place
+# shared with cli.py's _policy()/_store()/....
 def get_policy(config: Path = Depends(get_config_path)) -> ScopePolicy:
     # Reloaded from disk on every request, same as each CLI invocation does,
     # so on-disk edits (by the CLI or another web request) are always seen.
-    return ScopePolicy.load(config)
+    return build_policy(config)
 
 
 def get_registry() -> PluginRegistry:
-    return default_registry()
+    return build_registry()
 
 
 def get_store(workdir: Path = Depends(get_workdir)) -> EvidenceStore:
-    return EvidenceStore(workdir / "runs")
+    return build_store(workdir)
 
 
 def get_audit_store(workdir: Path = Depends(get_workdir)) -> AuditStore:
-    return AuditStore(workdir / "violations")
+    return build_audit(workdir)
 
 
 def get_attack_sessions(workdir: Path = Depends(get_workdir)) -> AttackSessionStore:
-    return AttackSessionStore(workdir / "attack_sessions")
+    return build_attack_sessions(workdir)
 
 
 def get_concurrency_guard(workdir: Path = Depends(get_workdir)) -> ConcurrencyGuard:
-    return ConcurrencyGuard(workdir / "active")
+    return build_concurrency(workdir)
 
 
 def get_runner(
@@ -78,7 +91,7 @@ def get_runner(
 
 
 def get_primitive_store(workdir: Path = Depends(get_workdir)) -> PrimitiveRunStore:
-    return PrimitiveRunStore(workdir / "primitive_runs")
+    return build_primitive_runs(workdir)
 
 
 def get_primitive_runner(
