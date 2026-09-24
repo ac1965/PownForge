@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pownforge.application import scans as scan_service
 from pownforge.cli._shared import *  # noqa: F401,F403
 
 
@@ -19,15 +20,9 @@ def _run_scan(
         key, value = item.split("=", 1)
         options[key] = value
 
-    policy = _policy(config)
-    registry = default_registry()
-    store = _store(workdir)
-    runner = ScanRunner(
-        policy=policy, registry=registry, store=store, audit=_audit(workdir), concurrency=_concurrency(workdir)
-    )
     on_line = (lambda line: typer.echo(f"| {line}")) if live else None
     try:
-        record = runner.run(target, plugin_name, options, on_line=on_line)
+        record = scan_service.run_scan(config, workdir, plugin_name, target, options, on_line=on_line)
     except (PolicyError, RunnerError, PluginError, RegistryError) as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
