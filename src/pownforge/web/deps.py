@@ -8,6 +8,7 @@ from pownforge.application.context import (
     build_attack_sessions,
     build_audit,
     build_concurrency,
+    build_operations,
     build_policy,
     build_primitive_runs,
     build_registry,
@@ -16,7 +17,7 @@ from pownforge.application.context import (
 from pownforge.core.attack_session import AttackSessionStore
 from pownforge.core.concurrency import ConcurrencyGuard
 from pownforge.core.lab import KindClusterManager, LabManager, VulhubProvider
-from pownforge.core.operation import PrimitiveRunner
+from pownforge.core.operation import AttackOperationStore, OperationRunner, PrimitiveRunner
 from pownforge.core.policy import ScopePolicy
 from pownforge.core.registry import PluginRegistry
 from pownforge.core.runner import ScanRunner
@@ -76,6 +77,10 @@ def get_attack_sessions(workdir: Path = Depends(get_workdir)) -> AttackSessionSt
     return build_attack_sessions(workdir)
 
 
+def get_operations(workdir: Path = Depends(get_workdir)) -> AttackOperationStore:
+    return build_operations(workdir)
+
+
 def get_concurrency_guard(workdir: Path = Depends(get_workdir)) -> ConcurrencyGuard:
     return build_concurrency(workdir)
 
@@ -88,6 +93,16 @@ def get_runner(
     concurrency: ConcurrencyGuard = Depends(get_concurrency_guard),
 ) -> ScanRunner:
     return ScanRunner(policy=policy, registry=registry, store=store, audit=audit, concurrency=concurrency)
+
+
+def get_operation_runner(
+    policy: ScopePolicy = Depends(get_policy),
+    registry: PluginRegistry = Depends(get_registry),
+    store: EvidenceStore = Depends(get_store),
+    audit: AuditStore = Depends(get_audit_store),
+    concurrency: ConcurrencyGuard = Depends(get_concurrency_guard),
+) -> OperationRunner:
+    return OperationRunner(policy=policy, registry=registry, store=store, audit=audit, concurrency=concurrency)
 
 
 def get_primitive_store(workdir: Path = Depends(get_workdir)) -> PrimitiveRunStore:
