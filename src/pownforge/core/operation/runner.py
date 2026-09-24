@@ -3,6 +3,7 @@ from __future__ import annotations
 from pownforge.core.concurrency import ConcurrencyGuard
 from pownforge.core.manual_evidence import import_manual_run
 from pownforge.core.models import KillChainPhase
+from pownforge.core.operation.graph import attack_graph
 from pownforge.core.operation.model import (
     ActionKind,
     ActionStatus,
@@ -115,7 +116,7 @@ class OperationRunner:
                         f"pivot action '{action_id}' requires the operation to have "
                         "an engagement (set at `operation create --engagement`)"
                     )
-                incoming = [edge for edge in operation.edges if edge.destination == action.target]
+                incoming = attack_graph(operation).incoming_edges(action.target)
                 if not incoming:
                     raise OperationError(
                         f"pivot action '{action_id}' targets '{action.target}', but no "

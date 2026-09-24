@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from pownforge.core.models import Capability
 from pownforge.core.operation.approval import approve_action
+from pownforge.core.operation.graph import AttackGraph, attack_graph
 from pownforge.core.operation.model import (
     Action,
     ActionKind,
@@ -29,6 +30,7 @@ from pownforge.core.operation.model import (
     Approval,
     AttackEdge,
     AttackNode,
+    AttackNodeState,
     AttackOperation,
     AttackPhase,
     OperationError,
@@ -45,7 +47,9 @@ __all__ = [
     "ActionStatus",
     "Approval",
     "AttackEdge",
+    "AttackGraph",
     "AttackNode",
+    "AttackNodeState",
     "AttackOperation",
     "AttackOperationStore",
     "AttackPhase",
@@ -60,6 +64,7 @@ __all__ = [
     "add_edge",
     "add_node",
     "approve_action",
+    "attack_graph",
     "create_operation",
     "validation_level_reaches",
 ]

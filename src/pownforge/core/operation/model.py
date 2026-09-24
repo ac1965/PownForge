@@ -34,11 +34,33 @@ class ActionStatus(str, Enum):
     REJECTED = "rejected"
 
 
+class AttackNodeState(str, Enum):
+    """A node's own progress in the attack graph, as distinct from any one
+    Action's lifecycle (ActionStatus) -- a node can be the target of several
+    Actions over time, so its state isn't simply one Action's status. Not
+    auto-derived from Actions (that would need a policy for what happens
+    when a node has actions in different states, which nothing currently
+    needs); it's set explicitly, the same way it always has been, just
+    through a validated enum now instead of an untyped string (refactor
+    §5.3.1). KNOWN keeps the exact value every existing AttackNode on disk
+    already has (every node has always defaulted to it, and nothing sets
+    any other value yet -- see AGENTS.md 識別子/既存データ互換 principle)."""
+
+    KNOWN = "known"
+    CANDIDATE = "candidate"
+    PLANNED = "planned"
+    APPROVED = "approved"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
 class AttackNode(BaseModel):
     id: str
     target: str
     label: str = ""
-    state: str = "known"
+    state: AttackNodeState = AttackNodeState.KNOWN
 
 
 class AttackEdge(BaseModel):

@@ -111,7 +111,9 @@ def test_core_operation_facade_imports() -> None:
         ActionStatus,
         Approval,
         AttackEdge,
+        AttackGraph,
         AttackNode,
+        AttackNodeState,
         AttackOperation,
         AttackOperationStore,
         AttackPhase,
@@ -124,6 +126,7 @@ def test_core_operation_facade_imports() -> None:
         add_edge,
         add_node,
         approve_action,
+        attack_graph,
         create_operation,
     )
 

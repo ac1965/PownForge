@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pownforge.core.identifiers import IdentifierError, validate_identifier
 from pownforge.core.models import Capability
+from pownforge.core.operation.graph import attack_graph
 from pownforge.core.operation.model import Action, ActionKind, AttackEdge, AttackNode, AttackOperation, OperationError
 from pownforge.core.operation.store import AttackOperationStore
 from pownforge.core.policy import ScopePolicy
@@ -65,9 +66,10 @@ def add_edge(
         raise OperationError("an attack graph edge cannot point to itself")
     with store.lock(operation_name):
         operation = store.load(operation_name)
-        if not any(node.target == source for node in operation.nodes):
+        graph = attack_graph(operation)
+        if not graph.has_target(source):
             raise OperationError(f"source target '{source}' is not a graph node")
-        if not any(node.target == destination for node in operation.nodes):
+        if not graph.has_target(destination):
             raise OperationError(f"destination target '{destination}' is not a graph node")
         edge = AttackEdge(
             source=source,

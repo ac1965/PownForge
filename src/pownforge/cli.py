@@ -614,7 +614,7 @@ def operation_show(name: str, workdir: Path = typer.Option(DEFAULT_WORKDIR)) -> 
         f"actions={len(operation.actions)} approvals={len(operation.approvals)}"
     )
     for node in operation.nodes:
-        typer.echo(f"  node {node.id}\ttarget={node.target}\tstate={node.state}\t{node.label}")
+        typer.echo(f"  node {node.id}\ttarget={node.target}\tstate={node.state.value}\t{node.label}")
     for edge in operation.edges:
         caps = ",".join(c.value for c in edge.capabilities)
         typer.echo(f"  edge {edge.source} -> {edge.destination}\t{edge.relationship}\t[{caps}]")
