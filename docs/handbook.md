@@ -1925,7 +1925,7 @@ findings/analysisも一切書き換えません**(読み取り専用)。
   各runの詳細セクション(検証状態を含む)とセットで提示されます
 
 **AIの提案(Suggestion)**: ナラティブに加えて、「次に試すべきこと」を
-AIが構造化された提案として出します。`core/models.py::Suggestion`
+AIが構造化された提案として出します。`core/models::Suggestion`
 (`title`/`plugin`/`rationale`のみ)は`Finding`とは完全に別のモデルで、
 `status`を持たず、**どのRunRecordにも永続化されません**(walkthrough自体が
 生成する度に使い捨てで作る一時的な出力)。「AIに直接スキャンを任せない」
@@ -2303,7 +2303,7 @@ generate --target ... --model qwen3:14b`(ローカルOllama)で実際に
 `pownforge result import`には`--phase`オプションがあり、その工程が
 攻撃チェーン上どこに位置するか(`discovery`/`vuln-confirm`/`exploit`/
 `initial-access`/`privilege-escalation`/`lateral-movement`/
-`persistence`/`impact`、`core/models.py::KillChainPhase`)を記録できます。
+`persistence`/`impact`、`core/models::KillChainPhase`)を記録できます。
 
 ```bash
 pownforge result import --target lab-web \
