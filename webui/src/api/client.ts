@@ -342,6 +342,79 @@ export interface EngagementJson {
   cve_exposure: CveExposure[];
 }
 
+// --- Attack operations (docs/handbook.md §15) ---
+export type AttackPhase =
+  | "recon"
+  | "initial-access"
+  | "execution"
+  | "privilege-escalation"
+  | "credential-access"
+  | "discovery"
+  | "lateral-movement"
+  | "persistence"
+  | "impact";
+
+export type ActionKind = "scan" | "manual" | "pivot";
+export type ActionStatus = "planned" | "approved" | "completed" | "rejected";
+export type AttackNodeState =
+  | "known"
+  | "candidate"
+  | "planned"
+  | "approved"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "skipped";
+export type Capability = "read-only" | "state-changing" | "credential-related" | "network-pivot" | "persistence";
+
+export interface AttackNode {
+  id: string;
+  target: string;
+  label: string;
+  state: AttackNodeState;
+}
+
+export interface AttackEdge {
+  source: string;
+  destination: string;
+  relationship: string;
+  capabilities: Capability[];
+}
+
+export interface OperationAction {
+  id: string;
+  name: string;
+  phase: AttackPhase;
+  kind: ActionKind;
+  target: string;
+  plugin: string | null;
+  options: Record<string, unknown>;
+  prerequisites: string[];
+  capabilities: Capability[];
+  requires: string[];
+  provides: string[];
+  status: ActionStatus;
+  run_id: string | null;
+}
+
+export interface Approval {
+  id: string;
+  action_id: string;
+  approved_by: string;
+  approved_at: string;
+  note: string;
+}
+
+export interface AttackOperation {
+  name: string;
+  objective: string;
+  engagement: string | null;
+  nodes: AttackNode[];
+  edges: AttackEdge[];
+  actions: OperationAction[];
+  approvals: Approval[];
+}
+
 export const api = {
   listTargets: () => request<Target[]>("/targets"),
   addTarget: (target: Target) =>
@@ -498,4 +571,56 @@ export const api = {
   getSettings: () => request<AppSettings>("/settings"),
   updateSettings: (body: AppSettings) =>
     request<AppSettings>("/settings", { method: "PUT", body: JSON.stringify(body) }),
+
+  listOperations: () => request<AttackOperation[]>("/operations"),
+  getOperation: (name: string) => request<AttackOperation>(`/operations/${encodeURIComponent(name)}`),
+  createOperation: (body: { name: string; objective?: string; engagement?: string | null }) =>
+    request<AttackOperation>("/operations", { method: "POST", body: JSON.stringify(body) }),
+  addOperationNode: (name: string, body: { node_id: string; target: string; label?: string }) =>
+    request<AttackOperation>(`/operations/${encodeURIComponent(name)}/nodes`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  addOperationEdge: (
+    name: string,
+    body: { source: string; destination: string; capabilities?: Capability[] | null },
+  ) =>
+    request<AttackOperation>(`/operations/${encodeURIComponent(name)}/edges`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  addOperationAction: (
+    name: string,
+    body: {
+      id: string;
+      name: string;
+      phase: AttackPhase;
+      kind: ActionKind;
+      target: string;
+      plugin?: string | null;
+      options?: Record<string, unknown>;
+      prerequisites?: string[];
+      capabilities?: Capability[];
+      requires?: string[];
+      provides?: string[];
+    },
+  ) =>
+    request<AttackOperation>(`/operations/${encodeURIComponent(name)}/actions`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  approveOperationAction: (name: string, actionId: string, approved_by: string, note?: string) =>
+    request<AttackOperation>(
+      `/operations/${encodeURIComponent(name)}/actions/${encodeURIComponent(actionId)}/approve`,
+      { method: "POST", body: JSON.stringify({ approved_by, note: note ?? "" }) },
+    ),
+  executeOperationAction: (
+    name: string,
+    actionId: string,
+    body: { command?: string; output?: string; tool?: string; tool_version?: string; returncode?: number },
+  ) =>
+    request<AttackOperation>(
+      `/operations/${encodeURIComponent(name)}/actions/${encodeURIComponent(actionId)}/execute`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
 };

@@ -1984,7 +1984,7 @@ pownforge web serve  # 同一オリジンでAPIとSPAの両方を配信
 ![Targets画面](images/web-targets.png)
 
 Dashboard/Targets/Lab/Runs/Run detail/Audit/New Scan/Scan live/
-Playbooks/Playbook live/Attack Session/Primitives/Engagement/Walkthrough/Settingsの各画面から、
+Playbooks/Playbook live/Attack Session/Operation/Primitives/Engagement/Walkthrough/Settingsの各画面から、
 target追加・削除、labホスト起動・削除、kindクラスタ操作(Labページ、作成/削除・kubernetes対象登録)、
 VulhubシナリオのLab Provider操作(Labページ、起動/停止/破棄・url対象登録)、
 横断エンゲージメント・レポート生成とCVE露出マトリクスの表示
@@ -1993,11 +1993,12 @@ VulhubシナリオのLab Provider操作(Labページ、起動/停止/破棄・ur
 Playbook実行(ステップ単位のライブ進捗、
 [§8](#8-playbook-複数プラグインの連続実行)参照)、Attack Sessionの作成・
 stage追加・レポート表示([§13](#13-証跡とレポート)の
-`AttackSession`節参照)、Analyze実行、finding検証、evidence検証、
+`AttackSession`節参照)、`AttackOperation`の作成・node/edge/action追加・
+承認・実行(Operationページ、[§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)
+の`/api/operations`系REST APIを呼ぶ)、Analyze実行、finding検証、evidence検証、
 複数runをまたぐウォークスルー生成、AI既定モデル・出力言語の設定
-(Settings)までひととおり操作できます。`AttackOperation`はREST API
-(`/api/operations`系)としては利用できますが、専用のReact画面は
-まだありません([§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)参照)。
+(Settings)までひととおり操作できます。Emacs連携は`AttackOperation`に対しては
+引き続き未対応です。
 
 ![Run detail画面(findings表示)](images/web-rundetail.png)
 
@@ -2988,8 +2989,8 @@ Serviceを介さず`core.operation`のドメイン関数を直接呼ぶ。これ
 
 ### 既知の未実装項目
 
-Web UIの専用画面(React)とEmacsからの操作は未対応です(`AttackSession`と
-異なり、バックエンドAPIのみ実装済み)。
+Web UIの専用画面(React、`webui/src/pages/Operations.tsx`)は実装済みです。
+Emacsからの操作のみ未対応です。
 
 **実機検証**: `operation create --engagement` → `add-node`(2件) →
 `add-edge` → `add-action --kind manual`/`--kind pivot` → `approve` →
@@ -3434,7 +3435,7 @@ Orchestrator」へ段階的に移行するための内部構造リファクタ�
 | **P2** | `application/scans.py`(scan実行のApplication Service化)、`ExecutionRequest`への`action_id`/`approval_id`紐付け、`Action.requires`/`provides`による前提条件評価(既存`Capability`は転用せず)、`OperationRunner`のActionExecutor化(kind分岐のprivateメソッド分割)、`AttackNode.state`のActionExecutor経由遷移配線 | ✅ 完了 |
 | **P3(指示書§17名称整理)** | `ai/ollama.py::OllamaAdapter`→`LLMAdapter`への改名(実体が`llm` CLI経由の汎用ルーターであることを反映) | ✅ 完了 |
 | **P3(指示書§19 Store Protocol化)** | Application Serviceが具体Storeクラスに依存して困る、という具体的な兆候が無いため見送り。テストスイート全体(約700件)を調査し、Storeクラスの代替実装(フェイク/モック)を必要とした箇所が無いことを確認済み | 見送り(トリガー条件未充足) |
-| **P3(指示書§15 Web/API統合)** | `web/routers/operations.py`(`/api/operations`系)を追加し、`core.operation`のドメイン関数を直接呼ぶ薄いラッパーとしてAttackOperationのlist/get/create/add-node/add-edge/add-action/approve/executeをREST APIとして提供(2026-09-24、ユーザー依頼により着手)。React専用画面・Emacs連携は引き続き未実装 | ✅ APIのみ完了 |
+| **P3(指示書§15 Web/API統合)** | `web/routers/operations.py`(`/api/operations`系)を追加し、`core.operation`のドメイン関数を直接呼ぶ薄いラッパーとしてAttackOperationのlist/get/create/add-node/add-edge/add-action/approve/executeをREST APIとして提供(2026-09-24、ユーザー依頼により着手)。続けて`webui/src/pages/Operations.tsx`を追加し、REST APIを呼ぶOperation画面(node/edge/action追加、承認、実行)を実装、`App.tsx`のナビゲーションに登録(2026-09-24)。Emacs連携は引き続き未実装 | ✅ 完了(Emacs連携除く) |
 
 **副次的な発見と対応(リファクタリング範囲外)**: `tests/web/test_audit_routes.py`の
 間欠的にハングするテストを発見・修正した。原因は`TestClient(app)`を

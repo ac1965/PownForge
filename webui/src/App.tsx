@@ -10,6 +10,7 @@ import ScanLive from "./pages/ScanLive";
 import Playbooks from "./pages/Playbooks";
 import PlaybookLive from "./pages/PlaybookLive";
 import AttackSessions from "./pages/AttackSessions";
+import Operations from "./pages/Operations";
 import Primitives from "./pages/Primitives";
 import Engagement from "./pages/Engagement";
 import ImportRun from "./pages/ImportRun";
@@ -48,6 +49,9 @@ export default function App() {
           <NavLink to="/attack-sessions" className={navClass}>
             Attack Session
           </NavLink>
+          <NavLink to="/operations" className={navClass}>
+            Operation
+          </NavLink>
           <NavLink to="/primitives" className={navClass}>
             Primitives
           </NavLink>
@@ -77,6 +81,7 @@ export default function App() {
             <Route path="/playbooks" element={<Playbooks />} />
             <Route path="/playbooks/runs/:jobId/live" element={<PlaybookLive />} />
             <Route path="/attack-sessions" element={<AttackSessions />} />
+            <Route path="/operations" element={<Operations />} />
             <Route path="/primitives" element={<Primitives />} />
             <Route path="/engagement" element={<Engagement />} />
             <Route path="/import" element={<ImportRun />} />
