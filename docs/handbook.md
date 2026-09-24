@@ -3429,9 +3429,6 @@ Docker経由、アクティブスキャンのオプション自体が存在し�
   登録対象配下の複数パス一括プローブは`httpx`プラグインとして実装済み)
 - 認証情報を扱う`identity`系プラグイン(`identity`プラグインは公開
   discovery文書の取得のみで、認証情報は扱わない)
-- Web UI/Emacsからの`AttackOperation`操作(CLIのみ対応。`add-node`/
-  `add-edge`のCLI公開とmanual/pivot実行プロバイダは実装済み、
-  [§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)参照)
 - 実Vulhubチェックアウトでの実機スモーク(`lab provider`はfake compose runnerで
   単体検証済み。実Vulhub環境での「start→primitive run→report engagement」の
   実機確認は、意図的に脆弱なコンテナを起動するため隔離ラボホストで実施する想定で未実施)
