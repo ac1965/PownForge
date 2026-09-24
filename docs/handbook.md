@@ -3186,7 +3186,7 @@ findingsが正しく記録・表示されることを確認してから完了と
 | **M1** | CLI + Target + Plugin Registry | ✅ 完了 |
 | **M2** | Network Plugin + Result Store | ✅ 完了 |
 | **M3** | Evidence + Markdown Report | 🟡 部分完了(保存構造・検証コマンドが当初案と異なる。Markdown/HTMLに加えPDF出力(`--format pdf`、Noto Sans JP埋め込み)も実装済み) |
-| **M4** | Web/API Plugin | ✅ 完了(`web`/`nuclei`/`sqlmap`/`api`(curl)/`httpx`(projectdiscovery)実装済み) |
+| **M4** | Web/API Plugin | ✅ 完了(`web`/`nuclei`/`sqlmap`/`api`(curl)/`httpx`(projectdiscovery)に加え、`httpprobe`(複数ホスト一括トリアージ)/`tls`(testssl.sh)/`zapbaseline`(OWASP ZAP baseline scan)を実装済み) |
 | **M5** | Ollama Analysis | ✅ 完了 |
 | **M6** | Kubernetes Lab | 🟡 部分完了(誤設定/RBAC/イメージ脆弱性検出に加え、攻撃チェーン検出(`kubernetes-audit`)・kube-bench連携・ダッシュボード可視化・`pownforge lab kind`によるkindクラスタ起動/登録をCLI・Web API/UI両方で実装) |
 | **M7** | Emacs Integration + SDK | ✅ 完了(Emacs連携、`pownforge.sdk`・entry pointによる外部プラグイン読み込み・オプションスキーマ検証を実装) |
@@ -3260,6 +3260,32 @@ Vulhubは取り込まず外部参照とし、`start --register`は最初の公�
 `pownforge report engagement`(--target/--engagement/全run)とWeb API/UI
 (`/api/reports/engagement`、Engagementページ)。確認済みのスキャンFindingと
 確認済みのprimitive Claimを同じ節に並べ、残留リソースを運用リスクとして集約する。
+
+**プラグイン追加(ソースコード/コンテナ/IaC/Web、[§6](#6-プラグイン))**:
+当初のM1〜M7ロードマップには無かった4系統・8プラグインを追加した。
+ソースコード系: `secrets`(gitleaks、`--redact`で値自体は記録しない)・
+`sast`(semgrep、オフライン専用の自作ルールセットを同梱、`auto`/`p/`/
+`r/`等のレジストリ参照やURLはオプションとして拒否)。この2つ向けに
+ローカルディレクトリを対象とする`TargetKind.PATH`を新設(シンボリック
+リンクはTarget登録時と実行時の2段階で解決・再検証し、登録後の差し替え
+(TOCTOU)を防ぐ)。コンテナ系: `sbom`(syft、CycloneDX JSON生成、finding化
+しない)・`imagevuln`(grype、trivyとは別DBによる脆弱性検出、DB更新は
+ビルド時のみでスキャン時は無効化)。IaC系: `iac`(checkov、適用前の
+Kubernetes/Terraform/Dockerfile設定ミス検出、`--skip-download`/
+`--skip-results-upload`で常にオフライン)。同じ指示書が要求した
+`kubebench`(ノード単位のCISベンチマーク、in-clusterジョブ以外の形態)は、
+読み取り専用を保ったまま実現する経路がDockerソケットアクセスという
+大きな新規権限の追加を要することが実機検証で判明したため実装を見送った
+(既存の`kube-bench`(in-clusterジョブ方式、M6)はそのまま利用可能。
+詳細は[§6のkubebench節](#6-プラグイン)を参照)。Web系:
+`httpprobe`(httpx、複数の登録済みホストの生存確認・技術スタック一括
+トリアージ)・`tls`(testssl.sh)・`zapbaseline`(OWASP ZAP baseline scan、
+Docker経由、アクティブスキャンのオプション自体が存在しないため構造的に
+パッシブ専用)。`httpprobe`の実装にあわせて`Plugin.host_list_option`
+(オプション値を登録済みTarget名のカンマ区切りとして扱い、主対象と同じ
+`ScopePolicy.authorize()`で個別に認可する汎用フック)を新設した。全8
+プラグインとも実機検証(ホスト`.venv`・該当する場合はDocker実行時
+イメージの両方)を実施済み。
 
 **実装したが重複と判断し削除したもの**: `Campaign`(既存の
 `Engagement`(複数targetの名前付きグループ)と`Playbook`(1targetに対する
