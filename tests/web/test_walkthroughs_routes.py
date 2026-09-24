@@ -9,7 +9,7 @@ pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient
 
-from pownforge.ai.ollama import OllamaAdapter, OllamaError
+from pownforge.ai.ollama import LLMAdapter, LLMError
 from pownforge.core.models import Evidence, Finding, RunRecord
 from pownforge.evidence.store import EvidenceStore
 from pownforge.web.app import create_app
@@ -49,7 +49,7 @@ def _seed_record(tmp_path: Path, target: str = "lab", created_at: str = "2026-01
 
 def test_create_walkthrough_by_run_ids(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     record = _seed_record(tmp_path)
-    monkeypatch.setattr(OllamaAdapter, "analyze", lambda self, prompt: "First we scanned the target.")
+    monkeypatch.setattr(LLMAdapter, "analyze", lambda self, prompt: "First we scanned the target.")
     client = _client(tmp_path)
 
     resp = client.post("/api/walkthroughs", json={"run_ids": [record.run_id]})
@@ -70,7 +70,7 @@ def test_create_walkthrough_returns_structured_suggestions(tmp_path: Path, monke
             ],
         }
     )
-    monkeypatch.setattr(OllamaAdapter, "analyze", lambda self, prompt: response)
+    monkeypatch.setattr(LLMAdapter, "analyze", lambda self, prompt: response)
     client = _client(tmp_path)
 
     resp = client.post("/api/walkthroughs", json={"run_ids": [record.run_id]})
@@ -89,7 +89,7 @@ def test_create_walkthrough_returns_structured_suggestions(tmp_path: Path, monke
 
 def test_create_walkthrough_html_format(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     record = _seed_record(tmp_path)
-    monkeypatch.setattr(OllamaAdapter, "analyze", lambda self, prompt: "Narrative text.")
+    monkeypatch.setattr(LLMAdapter, "analyze", lambda self, prompt: "Narrative text.")
     client = _client(tmp_path)
 
     resp = client.post("/api/walkthroughs", json={"run_ids": [record.run_id], "format": "html"})
@@ -102,7 +102,7 @@ def test_create_walkthrough_html_format(tmp_path: Path, monkeypatch: pytest.Monk
 def test_create_walkthrough_by_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _seed_record(tmp_path, target="lab", created_at="2026-01-01T00:00:00Z")
     _seed_record(tmp_path, target="lab", created_at="2026-01-02T00:00:00Z")
-    monkeypatch.setattr(OllamaAdapter, "analyze", lambda self, prompt: "Two steps happened.")
+    monkeypatch.setattr(LLMAdapter, "analyze", lambda self, prompt: "Two steps happened.")
     client = _client(tmp_path)
 
     resp = client.post("/api/walkthroughs", json={"target": "lab"})
@@ -133,10 +133,10 @@ def test_create_walkthrough_unknown_run_id_is_400(tmp_path: Path) -> None:
 def test_create_walkthrough_llm_failure_is_502(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     record = _seed_record(tmp_path)
 
-    def raise_ollama_error(self, prompt: str) -> str:
-        raise OllamaError("llm router not found")
+    def raise_llm_error(self, prompt: str) -> str:
+        raise LLMError("llm router not found")
 
-    monkeypatch.setattr(OllamaAdapter, "analyze", raise_ollama_error)
+    monkeypatch.setattr(LLMAdapter, "analyze", raise_llm_error)
     client = _client(tmp_path)
     resp = client.post("/api/walkthroughs", json={"run_ids": [record.run_id]})
     assert resp.status_code == 502

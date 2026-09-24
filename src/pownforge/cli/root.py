@@ -35,7 +35,7 @@ def analyze(
     """Ask the local LLM router to classify findings and draft a summary for a run."""
     store = _store(workdir)
     app_settings = load_settings(settings)
-    adapter = OllamaAdapter(model=model or app_settings.model)
+    adapter = LLMAdapter(model=model or app_settings.model)
     try:
         _, result = run_analysis(store, run_id, adapter, language=language or app_settings.language)
     except AnalysisError as exc:

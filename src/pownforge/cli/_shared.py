@@ -22,7 +22,7 @@ from typing import Optional
 
 import typer
 
-from pownforge.ai.ollama import OllamaAdapter
+from pownforge.ai.ollama import LLMAdapter
 from pownforge.application.context import (
     build_attack_sessions,
     build_audit,
@@ -225,10 +225,10 @@ __all__ = [
     "KillChainPhase",
     "KindClusterManager",
     "LAB_NETWORK",
+    "LLMAdapter",
     "LabError",
     "LabManager",
     "Language",
-    "OllamaAdapter",
     "OperationError",
     "OperationRunner",
     "Optional",
