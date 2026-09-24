@@ -25,6 +25,7 @@ lab.md/web.md/emacs.md/walkthrough-report.md/walkthrough.md/roadmap.md)は
 15. [検証プリミティブ・フレームワーク(Phase 2設計・骨格)](#15-検証プリミティブフレームワークphase-2設計骨格)
 16. [テスト](#16-テスト)
 17. [付録: 実装状況サマリー](#17-付録-実装状況サマリー)
+18. [RiskForgeとの関係(姉妹プロジェクト)](#18-riskforgeとの関係姉妹プロジェクト)
 
 ---
 
@@ -3520,3 +3521,72 @@ pivotとして)で全段階を記録し、5 stageの`AttackSession`
 (`l1-l4-chain`)として1つの経路レポートにまとめられることを確認した。
 `ScopePolicy.authorize_pivot()`もL3の記録で実際に機能することを確認
 できた。
+
+## 18. RiskForgeとの関係(姉妹プロジェクト)
+
+[RiskForge](https://github.com/ac1965/RiskForge)は、PownForgeと対になる
+防御側のプロジェクトです(別リポジトリ、Go/PostgreSQL製)。PownForgeが
+発見・検証を担う攻撃側の能力であるのに対し、RiskForgeはAsset→Software→
+Vulnerability→Risk→Prioritization→Remediation→Verification→Evidenceの
+ライフサイクル全体を管理します。
+
+```text
+PownForge(攻撃側)
+     │
+     │ Finding / Evidence
+     ▼
+RiskForge(防御側)
+     │
+     │ Remediation
+     ▼
+対象Asset
+     │
+     │ Verification(PownForgeによる再スキャン)
+     ▼
+RiskForge
+```
+
+連携の設計制約はRiskForge側の`AGENTS.md`
+「20. PownForge Integration」章が正本(source of truth)です。本節は
+PownForge側の開発者が知っておくべき要点のみをまとめ、内容を重複・
+分岐させないようにします。連携自体はRiskForge側でPhase 5
+(Integrations)として設計されており、**両プロジェクトとも未実装**です。
+
+### 18.1 基本原則: PownForgeはRiskForgeの外部Scannerとして扱われる
+
+- PownForgeの`Finding`/`evidence/`配下の証跡は、RiskForgeの`Finding`へ
+  そのまま取り込まれるのではなく、RiskForge側のScanner経路
+  (RawFinding → Normalizer → Matcher → Finding)を経由します
+- PownForgeはこの変換ロジックを一切持ちません。既存の`pownforge report`/
+  `evidence`が提供する出力をそのまま使い、RiskForge向けの専用出力形式・
+  エクスポートAPIをユーザーの明示的な依頼なしに先行実装しません
+
+### 18.2 責務分離
+
+```text
+PownForge = 発見・検証のための攻撃側の能力(スキャン・検証プリミティブ・
+            手動exploitの証跡化)
+RiskForge = 是正の計画・承認・実行管理・検証結果の記録
+```
+
+- PownForgeはRemediationを実行しません(AGENTS.mdの既存不変条件と一致)
+- RiskForgeがVerificationの一種としてPownForgeを再実行する場合でも、
+  その承認・allowlist・実行権限の分離はRiskForge側の責務です。
+  PownForgeから見れば通常の`pownforge scan`が呼ばれるだけで、
+  RiskForge専用の特別な実行経路を持ちません
+
+### 18.3 Evidenceの受け渡し
+
+- RiskForgeはPownForgeが生成したEvidenceをコピーではなく、参照と
+  `content_hash`で引き継ぐ想定です。PownForge側は`evidence verify`が
+  返すハッシュ・stdout/stderr・タイムスタンプが既存のまま参照可能で
+  あり続けることを保証する以上の対応はしません
+
+### 18.4 現状と注意
+
+- 連携コードはPownForge・RiskForgeどちらのリポジトリにも存在しません
+- 連携仕様の重要な判断はRiskForge側の`docs/adr/`にADRとして残される
+  想定です(例: `0005-pownforge-integration.md`。本書執筆時点では未作成)
+- どちらかのPhase実装に便乗させてRiskForge連携を先行実装しない、という
+  制約はRiskForge側のAGENTS.mdに明記されています。PownForge側でも同様に、
+  ユーザーから明示的な依頼がない限りRiskForge向けの専用コードは追加しません

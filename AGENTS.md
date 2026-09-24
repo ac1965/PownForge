@@ -12,6 +12,17 @@ Pown.js の「モジュールを独立させ、CLIから呼び出す」という
 詳細な設計方針・コマンド一覧・利用方法は [docs/handbook.md](docs/handbook.md)
 (設計・ビルド・利用の手引書)を参照してください。
 
+## 関連プロジェクト
+
+[RiskForge](https://github.com/ac1965/RiskForge)は、PownForgeと対になる
+防御側(Vulnerability & Exposure Management)の姉妹プロジェクトです(別
+リポジトリ)。連携の設計制約はRiskForge側の`AGENTS.md`「20. PownForge
+Integration」章が正本で、PownForge側から見た要点は
+[docs/handbook.md §18](docs/handbook.md#18-riskforgeとの関係姉妹プロジェクト)
+にまとめています。連携自体は両プロジェクトとも未実装(RiskForge側の
+Phase 5待ち)です。ユーザーから明示的な依頼がない限り、RiskForge向けの
+専用出力形式・エクスポートAPI・実行経路を先行実装しないでください。
+
 ## セットアップ
 
 Python 3.11以上が必要です(`pyproject.toml` の `requires-python`)。
