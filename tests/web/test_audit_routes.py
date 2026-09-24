@@ -22,18 +22,28 @@ def _client(tmp_path: Path) -> TestClient:
 
 
 def test_scan_against_unregistered_target_is_recorded_in_audit(tmp_path: Path) -> None:
-    client = _client(tmp_path)
+    # Must be `with ... as client:` (a single persistent portal/event loop
+    # for the whole test), not a bare TestClient(app) -- see the other
+    # websocket tests (tests/web/test_scans_routes.py,
+    # tests/web/test_playbook_routes.py) for the same pattern. Without it,
+    # each call gets its own throwaway event loop (starlette's
+    # TestClient._portal_factory), so the background job thread can end up
+    # scheduling its `job.queue` message onto the loop that served the
+    # POST /api/scans call after that loop has already been torn down --
+    # an intermittent hang here (the websocket's ws.receive_json() below
+    # never returns) rather than a deterministic failure, since it only
+    # happens when the background thread is slower than the request.
+    with _client(tmp_path) as client:
+        resp = client.post("/api/scans", json={"target": "nope", "plugin": "network", "options": {}})
+        job_id = resp.json()["job_id"]
+        with client.websocket_connect(f"/api/ws/scans/{job_id}") as ws:
+            message = ws.receive_json()
+        assert message["type"] == "error"
 
-    resp = client.post("/api/scans", json={"target": "nope", "plugin": "network", "options": {}})
-    job_id = resp.json()["job_id"]
-    with client.websocket_connect(f"/api/ws/scans/{job_id}") as ws:
-        message = ws.receive_json()
-    assert message["type"] == "error"
-
-    violations = client.get("/api/audit").json()
-    assert len(violations) == 1
-    assert violations[0]["target"] == "nope"
-    assert violations[0]["plugin"] == "network"
+        violations = client.get("/api/audit").json()
+        assert len(violations) == 1
+        assert violations[0]["target"] == "nope"
+        assert violations[0]["plugin"] == "network"
 
 
 def test_get_unknown_violation_returns_404(tmp_path: Path) -> None:
