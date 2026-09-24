@@ -1,9 +1,10 @@
+import threading
 from pathlib import Path
 
 import pytest
 
 from pownforge.core.models import Engagement, Target, TargetEnvironment, TargetKind, TargetType
-from pownforge.core.policy import PolicyError, ScopePolicy
+from pownforge.core.policy import PolicyError, ScopePolicy, locked_policy
 
 
 def test_add_and_resolve_target() -> None:
@@ -59,6 +60,73 @@ def test_save_and_load_roundtrip(tmp_path: Path) -> None:
     reloaded = ScopePolicy.load(config)
     resolved = reloaded.resolve("lab-web")
     assert resolved.address == "http://127.0.0.1:8080"
+
+
+def test_save_is_atomic_and_leaves_original_file_on_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = tmp_path / "targets.yaml"
+    original = ScopePolicy(targets={})
+    original.add_target(Target(name="lab-web", kind=TargetKind.URL, address="http://127.0.0.1:8080"))
+    original.save(config)
+    original_content = config.read_text()
+
+    policy = ScopePolicy.load(config)
+    policy.add_target(Target(name="lab-extra", kind=TargetKind.HOST, address="127.0.0.1"))
+
+    def _boom(*args: object, **kwargs: object) -> None:
+        raise OSError("disk full (simulated)")
+
+    monkeypatch.setattr("os.fsync", _boom)
+
+    with pytest.raises(OSError):
+        policy.save(config)
+
+    assert config.read_text() == original_content
+    assert list(tmp_path.glob(".*.tmp")) == []
+
+
+def test_locked_policy_saves_the_mutation_on_success(tmp_path: Path) -> None:
+    config = tmp_path / "targets.yaml"
+    ScopePolicy(targets={}).save(config)
+
+    with locked_policy(config) as policy:
+        policy.add_target(Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1"))
+
+    reloaded = ScopePolicy.load(config)
+    assert reloaded.resolve("lab").address == "127.0.0.1"
+
+
+def test_locked_policy_does_not_save_when_the_body_raises(tmp_path: Path) -> None:
+    config = tmp_path / "targets.yaml"
+    ScopePolicy(targets={}).save(config)
+
+    with pytest.raises(PolicyError):
+        with locked_policy(config) as policy:
+            policy.add_target(Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1"))
+            raise PolicyError("boom")
+
+    reloaded = ScopePolicy.load(config)
+    with pytest.raises(PolicyError):
+        reloaded.resolve("lab")
+
+
+def test_locked_policy_serializes_concurrent_writers_without_losing_either(tmp_path: Path) -> None:
+    config = tmp_path / "targets.yaml"
+    ScopePolicy(targets={}).save(config)
+
+    def add(name: str) -> None:
+        with locked_policy(config) as policy:
+            policy.add_target(Target(name=name, kind=TargetKind.HOST, address="127.0.0.1"))
+
+    threads = [threading.Thread(target=add, args=(f"lab-{i}",)) for i in range(10)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    reloaded = ScopePolicy.load(config)
+    assert {t.name for t in reloaded.list_targets()} == {f"lab-{i}" for i in range(10)}
 
 
 def test_target_defaults_to_local_lab_and_no_type() -> None:

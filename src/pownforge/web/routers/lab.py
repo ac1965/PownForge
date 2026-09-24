@@ -5,10 +5,11 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from pownforge.application import targets as target_service
 from pownforge.core.lab import LabError, LabHost, LabManager, resolve_lab_target_address
 from pownforge.core.models import Target, TargetKind
-from pownforge.core.policy import PolicyError, ScopePolicy
-from pownforge.web.deps import get_config_path, get_lab_manager, get_policy
+from pownforge.core.policy import PolicyError
+from pownforge.web.deps import get_config_path, get_lab_manager
 
 router = APIRouter(tags=["lab"])
 
@@ -42,7 +43,6 @@ def list_lab_hosts(manager: LabManager = Depends(get_lab_manager)) -> list[LabHo
 def add_lab_host(
     body: LabHostCreate,
     manager: LabManager = Depends(get_lab_manager),
-    policy: ScopePolicy = Depends(get_policy),
     config: Path = Depends(get_config_path),
 ) -> LabHostCreated:
     try:
@@ -66,10 +66,9 @@ def add_lab_host(
         notes="lab container on the isolated docker lab network",
     )
     try:
-        policy.add_target(target)
+        target = target_service.register_target(config, target)
     except PolicyError as exc:
         return LabHostCreated(host=host, registration_warning=str(exc))
-    policy.save(config)
     return LabHostCreated(host=host, target=target)
 
 
@@ -78,7 +77,6 @@ def remove_lab_host(
     name: str,
     purge: bool = False,
     manager: LabManager = Depends(get_lab_manager),
-    policy: ScopePolicy = Depends(get_policy),
     config: Path = Depends(get_config_path),
 ) -> None:
     try:
@@ -89,7 +87,6 @@ def remove_lab_host(
     if not purge:
         return
     try:
-        policy.remove_target(name)
+        target_service.remove_target(config, name)
     except PolicyError:
         return
-    policy.save(config)

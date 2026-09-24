@@ -78,14 +78,25 @@ make test
 
 ## ディレクトリ構成の概要
 
-- `src/pownforge/cli.py`: Typerエントリポイント
+- `src/pownforge/cli/`: Typerエントリポイント（パッケージ。`from pownforge.cli import app`が
+  維持される唯一の公開名。`_shared.py`にTyperサブアプリ・composition root委譲・共有importを集約し、
+  コマンドグループ別ファイル（`target.py`/`scan.py`/`lab.py`等）が`from pownforge.cli._shared
+  import *`で受け取る。各ファイルはTyperコマンドの登録のみを行い、業務ロジックは
+  `application/`（Application Service）または`core/`に置く）
+- `src/pownforge/application/`: Application Service層。CLIともWebとも独立した、Typer/FastAPI非依存の
+  ユースケース関数（例: `targets.py`のtarget登録/削除/除外）。ドメイン例外のみを送出し、
+  CLI/Webがそれぞれexit code/HTTP statusへ変換する
+- `src/pownforge/application/context.py`: composition root。`ScopePolicy`/`EvidenceStore`/
+  `AuditStore`等をconfig/workdirパスから組み立てる処理を1箇所に集約し、
+  `cli/_shared.py`と`web/deps.py`の両方がここへ委譲する
 - `src/pownforge/core/`: モデル（`models/`パッケージ。`from pownforge.core.models import X`は
   維持されるFacade）・スコープポリシー・実行エンジン（`process.py`のProcessExecutor）・
   プラグインレジストリ・ラボネットワーク管理（`lab.py`）・複数run経路の名前付き永続化
   （`attack_session.py`）・攻撃経路のモデル化と承認フロー（`operation/`パッケージ。
   `from pownforge.core.operation import X`は維持されるFacade。Phase 2設計）・
   検証プリミティブフレームワーク（`primitives/`パッケージ。具体プリミティブ実装は
-  トップレベルの`src/pownforge/primitives/`で別物）
+  トップレベルの`src/pownforge/primitives/`で別物）・複数Storeで共有する排他ロックヘルパー
+  （`file_lock.py`の`flock_path()`。`core/operation/store.py`のロックもこれに委譲）
 - `src/pownforge/plugins/`: 個別ツール（nmap, ffuf, nuclei, trivy(kubernetes/container), sqlmap 等）の
   プラグイン実装。`_trivy.py`は`KubernetesPlugin`/`ContainerPlugin`共通のtrivy JSON抽出ロジック
 - `src/pownforge/core/finding_utils.py`: LLM応答/プラグインの`_findings`規約から

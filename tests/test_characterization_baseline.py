@@ -135,6 +135,24 @@ def test_core_policy_facade_imports() -> None:
     from pownforge.core.policy import PolicyError, SafetyError, ScopePolicy  # noqa: F401
 
 
+def test_cli_facade_imports_and_registers_every_command() -> None:
+    """refactor §18 step 3: cli.py was split into the pownforge.cli
+    package (one file per command group). `pownforge.cli:app` is the
+    pyproject.toml entry point and the only name tests/other code should
+    ever import from this package -- this pins both the import path and
+    that the split didn't silently drop a command."""
+    from pownforge.cli import app  # noqa: F401
+    from typer.main import get_command
+
+    def count_leaf_commands(command) -> int:
+        sub = getattr(command, "commands", None)
+        if not sub:
+            return 1
+        return sum(count_leaf_commands(c) for c in sub.values())
+
+    assert count_leaf_commands(get_command(app)) == 72
+
+
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------

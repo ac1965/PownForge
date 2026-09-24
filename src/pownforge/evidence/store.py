@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import shutil
+import tempfile
 from pathlib import Path
 
 from pownforge.core.atomic_write import atomic_write_text
@@ -43,7 +45,17 @@ class EvidenceStore:
         dest_dir = self._runs_dir / "artifacts" / run_id
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest = dest_dir / source.name
-        shutil.copy2(source, dest)
+        fd, tmp_name = tempfile.mkstemp(dir=dest_dir, prefix=f".{source.name}.", suffix=".tmp")
+        os.close(fd)
+        try:
+            shutil.copy2(source, tmp_name)
+            os.replace(tmp_name, dest)
+        except BaseException:
+            try:
+                os.unlink(tmp_name)
+            except FileNotFoundError:
+                pass
+            raise
         return Artifact(
             type="manual-artifact",
             description=description or source.name,

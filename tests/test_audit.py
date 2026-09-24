@@ -40,3 +40,21 @@ def test_load_unknown_id_raises(tmp_path: Path) -> None:
     store = AuditStore(tmp_path / "violations")
     with pytest.raises(FileNotFoundError):
         store.load("no-such-id")
+
+
+def test_record_is_atomic_and_leaves_no_partial_file_on_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    violations_dir = tmp_path / "violations"
+    store = AuditStore(violations_dir)
+
+    def _boom(*args: object, **kwargs: object) -> None:
+        raise OSError("disk full (simulated)")
+
+    monkeypatch.setattr("os.fsync", _boom)
+
+    with pytest.raises(OSError):
+        store.record(target="lab-web", plugin="network", reason="not authorized")
+
+    assert store.list() == []
+    assert list(violations_dir.glob(".*.tmp")) == []

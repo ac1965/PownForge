@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import fcntl
-import os
-import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Iterator
 
 from pownforge.core.atomic_write import atomic_write_text
+from pownforge.core.file_lock import flock_path
 from pownforge.core.operation.model import AttackOperation, OperationError
 
 
@@ -34,29 +32,23 @@ class AttackOperationStore:
     def lock(self, name: str) -> Iterator[None]:
         """Exclusive, cross-process lock over a load-mutate-save sequence
         for operation NAME, via fcntl.flock on a sibling `.<name>.lock`
-        file (same approach as ConcurrencyGuard in core/concurrency.py).
+        file (core/file_lock.py; refactor §6.5 extracted this into a
+        shared helper also used by ScopePolicy and AttackSessionStore).
         Every module-level mutator (add_node, add_action, ...) and
         `update()` hold this for their whole load+save; a bare `save()`
         call outside one of those is the caller's own responsibility."""
-        lock_path = self._lock_path(name)
-        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
-        deadline = time.monotonic() + self._LOCK_TIMEOUT_SECONDS
         try:
-            while True:
-                try:
-                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    break
-                except BlockingIOError:
-                    if time.monotonic() >= deadline:
-                        raise OperationError(
-                            f"could not acquire the update lock for attack operation "
-                            f"'{name}' within {self._LOCK_TIMEOUT_SECONDS}s"
-                        )
-                    time.sleep(self._LOCK_POLL_INTERVAL_SECONDS)
-            yield
-        finally:
-            fcntl.flock(fd, fcntl.LOCK_UN)
-            os.close(fd)
+            with flock_path(
+                self._lock_path(name),
+                timeout_seconds=self._LOCK_TIMEOUT_SECONDS,
+                poll_interval_seconds=self._LOCK_POLL_INTERVAL_SECONDS,
+            ):
+                yield
+        except TimeoutError as exc:
+            raise OperationError(
+                f"could not acquire the update lock for attack operation "
+                f"'{name}' within {self._LOCK_TIMEOUT_SECONDS}s"
+            ) from exc
 
     def update(
         self, name: str, mutate: Callable[[AttackOperation], AttackOperation | None]

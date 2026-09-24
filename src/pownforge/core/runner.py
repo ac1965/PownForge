@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any, Callable
 
 from pownforge.core.concurrency import ConcurrencyError, ConcurrencyGuard
 from pownforge.core.finding_utils import coerce_finding
-from pownforge.core.models import Evidence, ExecutionRequest, Finding, RunRecord, Target
+from pownforge.core.models import Evidence, ExecutionRequest, ExecutionResult, Finding, RunRecord, Target
 from pownforge.core.policy import PolicyError, ScopePolicy
-from pownforge.core.process import ProcessExecutor
+from pownforge.core.process import ProcessExecutor, execution_result_from_process
 from pownforge.core.registry import PluginRegistry
 from pownforge.core.secrets import mask_command
 from pownforge.evidence.audit import AuditStore
@@ -27,13 +26,15 @@ class RunnerError(RuntimeError):
     RunnerError don't need to learn a second exception type."""
 
 
-def _tool_version(plugin: Plugin) -> str | None:
+def _tool_version(plugin: Plugin, process_executor: ProcessExecutor) -> str | None:
     version_command = plugin.version_command()
     if version_command is None:
         return None
     try:
-        result = subprocess.run(version_command, capture_output=True, text=True, timeout=5)
-    except (OSError, subprocess.TimeoutExpired):
+        result = process_executor.run(version_command, timeout=5)
+    except OSError:
+        return None
+    if result.timed_out:
         return None
     return plugin.parse_version_output(result.stdout, result.stderr)
 
@@ -100,7 +101,7 @@ class ScanRunner:
             )
 
         plugin.validate_options(options)
-        tool_version = _tool_version(plugin)
+        tool_version = _tool_version(plugin, self._process_executor)
 
         excluded_hosts: list[dict[str, str]] = []
         if plugin.host_list_option:
@@ -117,15 +118,18 @@ class ScanRunner:
             command = plugin.build_command(target, options, execution)
 
             process_result = self._process_executor.run(command, timeout=self._timeout, on_stdout_line=on_line)
-            if process_result.timed_out:
-                raise RunnerError(f"plugin '{plugin_name}' timed out after {self._timeout}s")
+            execution_result = execution_result_from_process(process_result)
 
-            started_at = process_result.started_at
-            finished_at = process_result.finished_at
-            stdout_text = process_result.stdout
-            stderr_text = process_result.stderr
+            if execution_result.timed_out:
+                record = self._save_timeout_record(
+                    target_name, plugin_name, command, execution_result, tool_version
+                )
+                raise RunnerError(
+                    f"plugin '{plugin_name}' timed out after {self._timeout}s "
+                    f"(evidence saved as run '{record.run_id}')"
+                )
 
-            output = plugin.normalize(target, stdout_text, stderr_text, execution)
+            output = plugin.normalize(target, execution_result.stdout, execution_result.stderr, execution)
         # Convention: a plugin may pop-able-ly include an "_findings" key of
         # loosely-typed dicts (its own tool-native matches, not LLM output)
         # in the normalized output. ScanRunner turns those into real Finding
@@ -144,11 +148,11 @@ class ScanRunner:
             # Masked for storage/display only -- `command` (unmasked) is
             # what actually ran above, via subprocess.Popen.
             command=mask_command(command),
-            started_at=started_at,
-            finished_at=finished_at,
-            returncode=process_result.exit_code,
-            stdout_sha256=sha256_text(stdout_text),
-            stderr_sha256=sha256_text(stderr_text),
+            started_at=execution_result.started_at,
+            finished_at=execution_result.finished_at,
+            returncode=execution_result.exit_code,
+            stdout_sha256=sha256_text(execution_result.stdout),
+            stderr_sha256=sha256_text(execution_result.stderr),
             tool_version=tool_version,
         )
         record = RunRecord(
@@ -157,6 +161,48 @@ class ScanRunner:
             evidence=evidence,
             output=output,
             findings=findings,
+        )
+        self._store.save(record)
+        return record
+
+    def _save_timeout_record(
+        self,
+        target_name: str,
+        plugin_name: str,
+        command: list[str],
+        execution_result: ExecutionResult,
+        tool_version: str | None,
+    ) -> RunRecord:
+        """Persist a RunRecord for a timed-out run instead of discarding the
+        evidence that the process DID run (refactor §16, a deliberate
+        behavior change confirmed with the user -- PownForge previously
+        raised RunnerError on timeout without ever calling
+        EvidenceStore.save(), so the fact a scan ran was lost). `output`
+        follows the same raw_stdout/raw_stderr convention every plugin's
+        normalize() uses (see EvidenceStore.verify()), plus a `_timed_out`
+        marker; `output` is a free-form dict, so this needs no schema
+        change to Evidence/RunRecord. plugin.normalize() is deliberately
+        not called here: it's written for complete tool output, and a
+        killed process's partial stdout/stderr isn't a contract it
+        promises to handle."""
+        evidence = Evidence(
+            command=mask_command(command),
+            started_at=execution_result.started_at,
+            finished_at=execution_result.finished_at,
+            returncode=execution_result.exit_code,
+            stdout_sha256=sha256_text(execution_result.stdout),
+            stderr_sha256=sha256_text(execution_result.stderr),
+            tool_version=tool_version,
+        )
+        record = RunRecord(
+            target=target_name,
+            plugin=plugin_name,
+            evidence=evidence,
+            output={
+                "raw_stdout": execution_result.stdout,
+                "raw_stderr": execution_result.stderr,
+                "_timed_out": True,
+            },
         )
         self._store.save(record)
         return record

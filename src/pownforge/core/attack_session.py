@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 
+from pownforge.core.atomic_write import atomic_write_text
+from pownforge.core.file_lock import flock_path
 from pownforge.core.identifiers import IdentifierError, validate_identifier
 from pownforge.core.models import AttackSession, AttackSessionStage
 from pownforge.evidence.store import EvidenceStore
@@ -24,9 +28,24 @@ class AttackSessionStore:
         self._sessions_dir = sessions_dir
         self._sessions_dir.mkdir(parents=True, exist_ok=True)
 
+    @contextmanager
+    def lock(self, name: str) -> Iterator[None]:
+        """Exclusive, cross-process lock over a load-mutate-save sequence
+        for session NAME (core/file_lock.py; same helper as
+        AttackOperationStore.lock() and core.policy.locked_policy;
+        refactor §6.5). `add_stage()` holds this for its whole
+        load+append+save."""
+        try:
+            with flock_path(self._sessions_dir / f".{name}.lock"):
+                yield
+        except TimeoutError as exc:
+            raise AttackSessionError(
+                f"could not acquire the update lock for attack session '{name}': {exc}"
+            ) from exc
+
     def save(self, session: AttackSession) -> Path:
         path = self._sessions_dir / f"{session.name}.json"
-        path.write_text(session.model_dump_json(indent=2))
+        atomic_write_text(path, session.model_dump_json(indent=2))
         return path
 
     def load(self, name: str) -> AttackSession:
@@ -74,11 +93,12 @@ def add_stage(
     """Append RUN_ID (with an optional human-written LABEL) as the next
     stage of session NAME. RUN_ID must already exist in EVIDENCE -- this
     never creates a run, it only references one that already happened."""
-    session = store.load(name)
-    try:
-        evidence.load(run_id)
-    except FileNotFoundError as exc:
-        raise AttackSessionError(str(exc)) from exc
-    session.stages.append(AttackSessionStage(run_id=run_id, label=label))
-    store.save(session)
-    return session
+    with store.lock(name):
+        session = store.load(name)
+        try:
+            evidence.load(run_id)
+        except FileNotFoundError as exc:
+            raise AttackSessionError(str(exc)) from exc
+        session.stages.append(AttackSessionStage(run_id=run_id, label=label))
+        store.save(session)
+        return session

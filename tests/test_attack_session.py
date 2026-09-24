@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 import pytest
@@ -70,6 +71,47 @@ def test_add_stage_appends_in_order(tmp_path: Path) -> None:
 
     reloaded = store.load("op-1")
     assert len(reloaded.stages) == 2
+
+
+def test_save_is_atomic_and_leaves_no_partial_file_on_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sessions_dir = tmp_path / "sessions"
+    store = AttackSessionStore(sessions_dir)
+    session = create_attack_session(store, "op-1", description="test op")
+    session.description = "updated"
+
+    def _boom(*args: object, **kwargs: object) -> None:
+        raise OSError("disk full (simulated)")
+
+    monkeypatch.setattr("os.fsync", _boom)
+
+    with pytest.raises(OSError):
+        store.save(session)
+
+    reloaded = store.load("op-1")
+    assert reloaded.description == "test op"
+    assert list(sessions_dir.glob(".*.tmp")) == []
+
+
+def test_add_stage_serializes_concurrent_writers_without_losing_any_stage(tmp_path: Path) -> None:
+    store = AttackSessionStore(tmp_path / "sessions")
+    evidence = EvidenceStore(tmp_path / "runs")
+    create_attack_session(store, "op-1")
+    runs = [_seed_run(evidence, plugin=f"plugin-{i}") for i in range(10)]
+
+    threads = [
+        threading.Thread(target=add_stage, args=(store, evidence, "op-1", run.run_id))
+        for run in runs
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    final = store.load("op-1")
+    assert len(final.stages) == 10, "a concurrent add_stage was lost"
+    assert {s.run_id for s in final.stages} == {run.run_id for run in runs}
 
 
 def test_add_stage_rejects_unknown_run_id(tmp_path: Path) -> None:

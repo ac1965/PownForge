@@ -11,9 +11,10 @@ from pownforge.core.lab import (
     LabError,
     kind_kubeconfig_path,
 )
+from pownforge.application import targets as target_service
 from pownforge.core.models import Target, TargetKind, TargetType
-from pownforge.core.policy import PolicyError, ScopePolicy
-from pownforge.web.deps import get_config_path, get_kind_manager, get_kubeconfig_dir, get_policy
+from pownforge.core.policy import PolicyError
+from pownforge.web.deps import get_config_path, get_kind_manager, get_kubeconfig_dir
 
 # kind cluster names are simple slugs (no slashes), so they travel as path
 # segments here (unlike Vulhub scenario ids).
@@ -52,7 +53,6 @@ def create_kind_cluster(
     body: KindCreateRequest,
     manager: KindClusterManager = Depends(get_kind_manager),
     kubeconfig_dir: Path = Depends(get_kubeconfig_dir),
-    policy: ScopePolicy = Depends(get_policy),
     config: Path = Depends(get_config_path),
 ) -> KindCreated:
     kubeconfig = kind_kubeconfig_path(kubeconfig_dir, body.name)
@@ -74,10 +74,9 @@ def create_kind_cluster(
         notes=f"kind cluster created via web API; KUBECONFIG={kubeconfig}",
     )
     try:
-        policy.add_target(target)
+        target = target_service.register_target(config, target)
     except PolicyError as exc:
         return KindCreated(cluster=info, kubeconfig_path=str(kubeconfig), registration_warning=str(exc))
-    policy.save(config)
     return KindCreated(cluster=info, kubeconfig_path=str(kubeconfig), registered_target=target)
 
 
@@ -87,7 +86,6 @@ def delete_kind_cluster(
     purge: bool = False,
     manager: KindClusterManager = Depends(get_kind_manager),
     kubeconfig_dir: Path = Depends(get_kubeconfig_dir),
-    policy: ScopePolicy = Depends(get_policy),
     config: Path = Depends(get_config_path),
 ) -> None:
     try:
@@ -101,7 +99,6 @@ def delete_kind_cluster(
     if not purge:
         return
     try:
-        policy.remove_target(name)
+        target_service.remove_target(config, name)
     except PolicyError:
         return
-    policy.save(config)

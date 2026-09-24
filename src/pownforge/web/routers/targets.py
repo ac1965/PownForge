@@ -5,7 +5,8 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from pownforge.core.models import Target, TargetKind, TargetPathError, resolve_path_target_address
+from pownforge.application import targets as target_service
+from pownforge.core.models import Target, TargetPathError
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.web.deps import get_config_path, get_policy
 
@@ -24,59 +25,48 @@ def list_targets(policy: ScopePolicy = Depends(get_policy)) -> list[Target]:
 @router.post("/targets", response_model=Target, status_code=201)
 def add_target(
     target: Target,
-    policy: ScopePolicy = Depends(get_policy),
     config: Path = Depends(get_config_path),
 ) -> Target:
-    if target.kind == TargetKind.PATH:
-        try:
-            target = target.model_copy(update={"address": resolve_path_target_address(target.address)})
-        except TargetPathError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
     try:
-        policy.add_target(target)
+        target = target_service.register_target(config, target)
+    except TargetPathError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except PolicyError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    policy.save(config)
     return target
 
 
 @router.delete("/targets/{name}", status_code=204)
 def remove_target(
     name: str,
-    policy: ScopePolicy = Depends(get_policy),
     config: Path = Depends(get_config_path),
 ) -> None:
     try:
-        policy.remove_target(name)
+        target_service.remove_target(config, name)
     except PolicyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    policy.save(config)
 
 
 @router.post("/targets/{name}/exclude", response_model=Target)
 def exclude_target(
     name: str,
     body: ExcludeTargetRequest,
-    policy: ScopePolicy = Depends(get_policy),
     config: Path = Depends(get_config_path),
 ) -> Target:
     try:
-        target = policy.exclude_target(name, body.reason)
+        target = target_service.exclude_target(config, name, body.reason)
     except PolicyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    policy.save(config)
     return target
 
 
 @router.post("/targets/{name}/include", response_model=Target)
 def include_target(
     name: str,
-    policy: ScopePolicy = Depends(get_policy),
     config: Path = Depends(get_config_path),
 ) -> Target:
     try:
-        target = policy.include_target(name)
+        target = target_service.include_target(config, name)
     except PolicyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    policy.save(config)
     return target
