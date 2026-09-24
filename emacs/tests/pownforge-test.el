@@ -310,6 +310,118 @@ signal wrong-type-argument instead of annotating the buffer."
        (pownforge-attack-session-report "op-1"))
      (should (equal opened-path "/tmp/fake-pownforge-attack-session-op-1.md")))))
 
+;;; Attack operations (graph of nodes/edges/candidate actions + approval)
+
+(ert-deftest pownforge-test-parse-operation-list ()
+  (let ((ops (pownforge-parse-operation-list
+              "op-1\t2 nodes\t1 actions\trecon test\n")))
+    (should (= (length ops) 1))
+    (should (equal (plist-get (car ops) :name) "op-1"))
+    (should (equal (plist-get (car ops) :nodes) "2 nodes"))
+    (should (equal (plist-get (car ops) :actions) "1 actions"))
+    (should (equal (plist-get (car ops) :objective) "recon test"))))
+
+(ert-deftest pownforge-test-parse-operation-list-empty ()
+  (should (equal (pownforge-parse-operation-list
+                   "no attack operations recorded yet; use `pownforge operation create`\n")
+                 nil)))
+
+(ert-deftest pownforge-test-operation-list-entries-runs-fake-cli ()
+  (pownforge-test-with-fake-cli
+   (let ((entries (pownforge--operation-list-entries)))
+     (should (= (length entries) 1))
+     (should (equal (car (car entries)) "op-1")))))
+
+(ert-deftest pownforge-test-operation-show-renders-detail ()
+  (pownforge-test-with-fake-cli
+   (pownforge-operation-show "op-1")
+   (with-current-buffer "*pownforge-operation: op-1*"
+     (unwind-protect
+         (progn
+           (should (string-match-p "nodes=2 edges=1 actions=1 approvals=1" (buffer-string)))
+           (should (string-match-p "edge lab-web -> lab-db" (buffer-string))))
+       (kill-buffer)))))
+
+(ert-deftest pownforge-test-operation-create-calls-cli-with-options ()
+  (pownforge-test-with-fake-cli
+   (let (calls)
+     (cl-letf (((symbol-function 'pownforge--run)
+                (lambda (args _accepts) (push args calls) "created attack operation 'op-2'")))
+       (pownforge-operation-create "op-2" "recon test" "eng-1"))
+     (should (equal (car calls)
+                     '("operation" "create" "op-2"
+                       "--objective" "recon test" "--engagement" "eng-1"))))))
+
+(ert-deftest pownforge-test-operation-create-omits-blank-options ()
+  (pownforge-test-with-fake-cli
+   (let (calls)
+     (cl-letf (((symbol-function 'pownforge--run)
+                (lambda (args _accepts) (push args calls) "created attack operation 'op-3'")))
+       (pownforge-operation-create "op-3" "" ""))
+     (should (equal (car calls) '("operation" "create" "op-3"))))))
+
+(ert-deftest pownforge-test-operation-add-node-calls-cli ()
+  (pownforge-test-with-fake-cli
+   (let (calls)
+     (cl-letf (((symbol-function 'pownforge--run)
+                (lambda (args _accepts) (push args calls) "added node 'n1' (lab-web)")))
+       (pownforge-operation-add-node "op-1" "n1" "lab-web" "entry point"))
+     (should (equal (car calls)
+                     '("operation" "add-node" "op-1" "n1" "--target" "lab-web"
+                       "--label" "entry point"))))))
+
+(ert-deftest pownforge-test-operation-add-edge-calls-cli ()
+  (pownforge-test-with-fake-cli
+   (let (calls)
+     (cl-letf (((symbol-function 'pownforge--run)
+                (lambda (args _accepts) (push args calls) "added edge 'lab-web' -> 'lab-db'")))
+       (pownforge-operation-add-edge "op-1" "lab-web" "lab-db" "network-pivot"))
+     (should (equal (car calls)
+                     '("operation" "add-edge" "op-1" "--source" "lab-web"
+                       "--destination" "lab-db" "--capabilities" "network-pivot"))))))
+
+(ert-deftest pownforge-test-operation-add-action-calls-cli ()
+  (pownforge-test-with-fake-cli
+   (let (calls)
+     (cl-letf (((symbol-function 'pownforge--run)
+                (lambda (args _accepts) (push args calls) "added action 'a1'")))
+       (pownforge-operation-add-action "op-1" "a1" "recon scan" "lab-web" "recon" "scan" "network"))
+     (should (equal (car calls)
+                     '("operation" "add-action" "op-1" "a1" "recon scan"
+                       "--target" "lab-web" "--phase" "recon" "--kind" "scan"
+                       "--plugin" "network"))))))
+
+(ert-deftest pownforge-test-operation-add-action-manual-omits-plugin ()
+  (pownforge-test-with-fake-cli
+   (let (calls)
+     (cl-letf (((symbol-function 'pownforge--run)
+                (lambda (args _accepts) (push args calls) "added action 'a2'")))
+       (pownforge-operation-add-action "op-1" "a2" "manual foothold" "lab-web"
+                                        "initial-access" "manual" ""))
+     (should (equal (car calls)
+                     '("operation" "add-action" "op-1" "a2" "manual foothold"
+                       "--target" "lab-web" "--phase" "initial-access" "--kind" "manual"))))))
+
+(ert-deftest pownforge-test-operation-approve-calls-cli ()
+  (pownforge-test-with-fake-cli
+   (let (calls)
+     (cl-letf (((symbol-function 'pownforge--run)
+                (lambda (args _accepts) (push args calls) "approved action 'a1'")))
+       (pownforge-operation-approve "op-1" "a1" "operator" "looks fine"))
+     (should (equal (car calls)
+                     '("operation" "approve" "op-1" "a1"
+                       "--approved-by" "operator" "--note" "looks fine"))))))
+
+(ert-deftest pownforge-test-operation-execute-calls-cli ()
+  (pownforge-test-with-fake-cli
+   (let (calls)
+     (cl-letf (((symbol-function 'pownforge--run)
+                (lambda (args _accepts) (push args calls) "completed action 'a1' (run=exec001)")))
+       (pownforge-operation-execute "op-1" "a1" "" "uid=0(root)" "manual-exploit"))
+     (should (equal (car calls)
+                     '("operation" "execute" "op-1" "a1"
+                       "--output" "uid=0(root)" "--tool" "manual-exploit"))))))
+
 ;;; Walkthrough (multi-run narrative)
 
 (ert-deftest pownforge-test-walkthrough-generate-with-explicit-run-ids ()

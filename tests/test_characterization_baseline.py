@@ -150,7 +150,7 @@ def test_cli_facade_imports_and_registers_every_command() -> None:
             return 1
         return sum(count_leaf_commands(c) for c in sub.values())
 
-    assert count_leaf_commands(get_command(app)) == 72
+    assert count_leaf_commands(get_command(app)) == 73
 
 
 # ---------------------------------------------------------------------------

@@ -2,7 +2,8 @@
 small cross-cutting helpers for the pownforge.cli package (refactor §18
 step 3: cli.py split into one file per command group, kept behavior- and
 output-identical -- `pownforge.cli:app`, the pyproject.toml entry point,
-still resolves to the same Typer app with the same 72 commands).
+still resolves to the same Typer app; see
+tests/test_characterization_baseline.py for the current command count).
 
 Every `cli/<group>.py` module does `from pownforge.cli._shared import *`
 to get everything it needs (Typer, the domain imports, the per-group

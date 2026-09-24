@@ -382,9 +382,12 @@ pownforge analyze <run-id>
 | `pownforge attack-session show <name>` | AttackSessionのステージを順に表示 |
 | `pownforge attack-session report <name> [--format markdown\|html\|pdf]` | AttackSessionを経路レポートとして`<workdir>/reports/`に出力(詳細は[§13](#13-証跡とレポート))。`pdf`はKubernetes攻撃チェーンのHTML専用ダッシュボードを含まない(reportlab生成のため) |
 | `pownforge operation create <name> [--objective <text>] [--engagement <name>]` | 空のAttackOperationを作成(何も実行しない) |
+| `pownforge operation list` | AttackOperationの一覧 |
+| `pownforge operation add-node <name> <node-id> --target <target> [--label <text>]` | 登録済みtargetをグラフのnodeとして追加(記述のみ、認可を拡張しない) |
+| `pownforge operation add-edge <name> --source <target> --destination <target> [--capabilities <csv>]` | 既に追加済みのnode(target名)どうしをedgeで接続(記述のみ、実行・pivot権限を与えない) |
 | `pownforge operation add-action <name> <action-id> <action-name> --target <target> --phase <phase> [--kind scan\|manual\|pivot] [--plugin <name>]` | Actionを追加。`--kind scan`(既定)は`--plugin`必須、`manual`/`pivot`は`--plugin`を指定できない |
 | `pownforge operation approve <name> <action-id> --approved-by <operator> [--note <text>]` | Actionに人間の承認を記録 |
-| `pownforge operation execute <name> <action-id>` | 承認済み`scan`種別のActionのみ、既存の`ScanRunner`経由で実行(`manual`/`pivot`は常に拒否、詳細は[§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)) |
+| `pownforge operation execute <name> <action-id> [--command <text>] [--output <text>] [--tool <name>] [--tool-version <text>] [--returncode <n>]` | 承認済みActionを実行。`scan`は既存`ScanRunner`経由、`manual`/`pivot`は`--output`必須の記録専用(PownForge自身は何も実行しない。詳細は[§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)) |
 | `pownforge operation show <name>` | AttackOperationのnodes/edges/actions/approvalsを表示 |
 | `pownforge primitive list` | 利用可能な検証プリミティブと受け付ける`--option`を一覧表示(詳細は[§15](#15-検証プリミティブフレームワークphase-2設計骨格)) |
 | `pownforge primitive run <id> --target <name> [--level detection\|validation\|execution] [--option k=v ...] [--cve <id>]` | 検証プリミティブを対象に実行し`PrimitiveRunRecord`を保存。スコープ+SafetyPolicyを先に強制(拒否は`AuditStore`に記録)。`--cve`でCVEタグ付与。exploitは実行しない |
@@ -1997,8 +2000,9 @@ stage追加・レポート表示([§13](#13-証跡とレポート)の
 承認・実行(Operationページ、[§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)
 の`/api/operations`系REST APIを呼ぶ)、Analyze実行、finding検証、evidence検証、
 複数runをまたぐウォークスルー生成、AI既定モデル・出力言語の設定
-(Settings)までひととおり操作できます。Emacs連携は`AttackOperation`に対しては
-引き続き未対応です。
+(Settings)までひととおり操作できます。`AttackOperation`はEmacs連携
+([§10](#10-emacs連携)の`pownforge-operation-*`コマンド)からも同様に
+操作できます。
 
 ![Run detail画面(findings表示)](images/web-rundetail.png)
 
@@ -2167,7 +2171,8 @@ Emacs Lispラッパーです。スコープ検証・プラグイン実行・証�
   :commands (pownforge-target-list pownforge-scan pownforge-result-list
              pownforge-audit-list pownforge-findings-to-org
              pownforge-primitive-list pownforge-primitive-run
-             pownforge-result-import pownforge-result-tag))
+             pownforge-result-import pownforge-result-tag
+             pownforge-attack-session-list pownforge-operation-list))
 ```
 
 ### コマンド一覧
@@ -2185,6 +2190,14 @@ Emacs Lispラッパーです。スコープ検証・プラグイン実行・証�
 | `pownforge-attack-session-create` | 空のAttackSessionを作成(何も実行しない) |
 | `pownforge-attack-session-add-stage` | 既存run-idを次のstageとして追加(run-idは`completing-read`で`result list`から選択) |
 | `pownforge-attack-session-report` | 経路レポートを生成しファイルを開く |
+| `pownforge-operation-list` | AttackOperationを`tabulated-list-mode`で表示。`RET`で詳細、`c`で`-create`、`n`/`e`/`a`で`-add-node`/`-add-edge`/`-add-action`、`p`で`-approve`、`x`で`-execute`へ([§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)) |
+| `pownforge-operation-show` | AttackOperationのnodes/edges/actions/approvalsを表示 |
+| `pownforge-operation-create` | 空のAttackOperationを作成(何も実行しない) |
+| `pownforge-operation-add-node` | 登録済みtargetをグラフのnodeとして追加(記述のみ) |
+| `pownforge-operation-add-edge` | 追加済みnode(target名)どうしをedgeで接続(記述のみ、実行・pivot権限を与えない) |
+| `pownforge-operation-add-action` | 候補Actionを追加(`--kind scan`の場合`plugin list`からプラグインを選択)。何も実行しない |
+| `pownforge-operation-approve` | Actionに人間の承認を記録。承認前は`-execute`できない |
+| `pownforge-operation-execute` | 承認済みActionを実行。`scan`は既存`ScanRunner`経由、`manual`/`pivot`はPownForgeが実際に何かを実行することはなく、人間が既に実行した結果(output/tool)を記録するのみ(`pownforge-result-import`と同じ思想) |
 | `pownforge-result-list` | 過去の実行一覧。`RET`で詳細、`o`でその実行のfindingsをOrgとして挿入 |
 | `pownforge-result-show` | 実行の詳細を表示。findingsはseverity降順。行上で`r`を押すと`pownforge result review`でステータス変更 |
 | `pownforge-primitive-list` | 利用可能な検証プリミティブを`tabulated-list-mode`で表示([§15](#15-検証プリミティブフレームワークphase-2設計骨格)) |
@@ -2987,10 +3000,19 @@ Serviceを介さず`core.operation`のドメイン関数を直接呼ぶ。これ
 承認・実行フローを迂回できないようにしている(新規Actionは常に
 `status=planned`/`run_id=null`から始まる)。
 
-### 既知の未実装項目
+### Emacs連携
 
-Web UIの専用画面(React、`webui/src/pages/Operations.tsx`)は実装済みです。
-Emacsからの操作のみ未対応です。
+`emacs/pownforge.el`の`pownforge-operation-*`コマンド群(list/show/create/
+add-node/add-edge/add-action/approve/execute、[§10](#10-emacs連携)参照)は
+CLIの`operation`サブコマンドをそのままサブプロセスとして呼ぶだけで、
+Web APIと同様スコープ検証・承認フロー・実行制約をEmacs側で一切
+再実装していません。CLIに元々無かった一覧コマンド(`pownforge operation
+list`)は、この対応の一環として`attack-session list`と同じ形で追加しました。
+
+### 実装状況
+
+Web UIの専用画面(React、`webui/src/pages/Operations.tsx`)、Emacs連携
+(`pownforge-operation-*`、[§10](#10-emacs連携)参照)とも実装済みです。
 
 **実機検証**: `operation create --engagement` → `add-node`(2件) →
 `add-edge` → `add-action --kind manual`/`--kind pivot` → `approve` →
@@ -3435,7 +3457,7 @@ Orchestrator」へ段階的に移行するための内部構造リファクタ�
 | **P2** | `application/scans.py`(scan実行のApplication Service化)、`ExecutionRequest`への`action_id`/`approval_id`紐付け、`Action.requires`/`provides`による前提条件評価(既存`Capability`は転用せず)、`OperationRunner`のActionExecutor化(kind分岐のprivateメソッド分割)、`AttackNode.state`のActionExecutor経由遷移配線 | ✅ 完了 |
 | **P3(指示書§17名称整理)** | `ai/ollama.py::OllamaAdapter`→`LLMAdapter`への改名(実体が`llm` CLI経由の汎用ルーターであることを反映) | ✅ 完了 |
 | **P3(指示書§19 Store Protocol化)** | Application Serviceが具体Storeクラスに依存して困る、という具体的な兆候が無いため見送り。テストスイート全体(約700件)を調査し、Storeクラスの代替実装(フェイク/モック)を必要とした箇所が無いことを確認済み | 見送り(トリガー条件未充足) |
-| **P3(指示書§15 Web/API統合)** | `web/routers/operations.py`(`/api/operations`系)を追加し、`core.operation`のドメイン関数を直接呼ぶ薄いラッパーとしてAttackOperationのlist/get/create/add-node/add-edge/add-action/approve/executeをREST APIとして提供(2026-09-24、ユーザー依頼により着手)。続けて`webui/src/pages/Operations.tsx`を追加し、REST APIを呼ぶOperation画面(node/edge/action追加、承認、実行)を実装、`App.tsx`のナビゲーションに登録(2026-09-24)。Emacs連携は引き続き未実装 | ✅ 完了(Emacs連携除く) |
+| **P3(指示書§15 Web/API統合)** | `web/routers/operations.py`(`/api/operations`系)を追加し、`core.operation`のドメイン関数を直接呼ぶ薄いラッパーとしてAttackOperationのlist/get/create/add-node/add-edge/add-action/approve/executeをREST APIとして提供(2026-09-24、ユーザー依頼により着手)。続けて`webui/src/pages/Operations.tsx`を追加し、REST APIを呼ぶOperation画面(node/edge/action追加、承認、実行)を実装、`App.tsx`のナビゲーションに登録(2026-09-24)。さらにCLIに欠けていた`pownforge operation list`を追加した上で、`emacs/pownforge.el`に`pownforge-operation-*`(list/show/create/add-node/add-edge/add-action/approve/execute)を追加しEmacs連携も完了(2026-09-24) | ✅ 完了 |
 
 **副次的な発見と対応(リファクタリング範囲外)**: `tests/web/test_audit_routes.py`の
 間欠的にハングするテストを発見・修正した。原因は`TestClient(app)`を

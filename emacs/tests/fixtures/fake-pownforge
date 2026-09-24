@@ -104,6 +104,36 @@ TXT
   "attack-session report")
     echo "wrote /tmp/fake-pownforge-attack-session-$3.md"
     ;;
+  "operation list")
+    printf 'op-1\t2 nodes\t1 actions\trecon test\n'
+    ;;
+  "operation show")
+    cat <<TXT
+op-1: recon test
+nodes=2 edges=1 actions=1 approvals=1
+  node n1	target=lab-web	state=known
+  edge lab-web -> lab-db	reachable	[network-pivot]
+  action a1	recon	scan	lab-web	completed
+TXT
+    ;;
+  "operation create")
+    echo "created attack operation '$3'"
+    ;;
+  "operation add-node")
+    echo "added node '$4' ($6)"
+    ;;
+  "operation add-edge")
+    echo "added edge '$5' -> '$7'"
+    ;;
+  "operation add-action")
+    echo "added action '$4'"
+    ;;
+  "operation approve")
+    echo "approved action '$4'"
+    ;;
+  "operation execute")
+    echo "completed action '$4' (run=exec001)"
+    ;;
   "primitive list")
     printf 'http.oob-interaction\t[oob-interaction]\tmax_level=validation\tOOB HTTP interaction check\n'
     printf '    --option path (required): Absolute path containing {callback}\n'
