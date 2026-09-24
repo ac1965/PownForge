@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pownforge.core.atomic_write import atomic_write_text
 from pownforge.core.models import PolicyViolation
 
 
@@ -19,7 +20,7 @@ class AuditStore:
     def record(self, target: str, plugin: str, reason: str) -> PolicyViolation:
         violation = PolicyViolation(target=target, plugin=plugin, reason=reason)
         path = self._violations_dir / f"{violation.violation_id}.json"
-        path.write_text(violation.model_dump_json(indent=2))
+        atomic_write_text(path, violation.model_dump_json(indent=2))
         return violation
 
     def load(self, violation_id: str) -> PolicyViolation:

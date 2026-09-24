@@ -50,6 +50,32 @@ def test_runner_executes_and_persists(tmp_path: Path) -> None:
     assert reloaded.run_id == record.run_id
 
 
+class SlowPlugin(EchoPlugin):
+    name = "slow"
+
+    def build_command(self, target: Target, options: dict[str, Any], execution: PluginExecution) -> list[str]:
+        return ["sleep", "5"]
+
+
+def test_runner_saves_evidence_and_raises_on_timeout(tmp_path: Path) -> None:
+    policy = ScopePolicy(targets={})
+    policy.add_target(Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1"))
+    registry = PluginRegistry()
+    registry.register(SlowPlugin())
+    store = EvidenceStore(tmp_path / "runs")
+    runner = ScanRunner(policy=policy, registry=registry, store=store, timeout=1)
+
+    with pytest.raises(RunnerError, match="timed out"):
+        runner.run("lab", "slow", {})
+
+    records = store.list()
+    assert len(records) == 1, "a timed-out run must still be persisted as evidence (refactor §16)"
+    record = records[0]
+    assert record.evidence.returncode != 0
+    assert record.output["_timed_out"] is True
+    assert record.output["raw_stdout"] == ""
+
+
 class VersionedEchoPlugin(EchoPlugin):
     name = "versioned-echo"
 

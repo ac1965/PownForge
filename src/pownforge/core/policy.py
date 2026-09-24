@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 
 import yaml
 
+from pownforge.core.atomic_write import atomic_write_text
+from pownforge.core.file_lock import flock_path
 from pownforge.core.identifiers import IdentifierError, validate_identifier
 from pownforge.core.models import (
     AllowedAction,
@@ -70,8 +74,7 @@ class ScopePolicy:
             },
             "safety": self._safety.model_dump(mode="json"),
         }
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
+        atomic_write_text(path, yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
 
     @property
     def safety(self) -> SafetyPolicy:
@@ -241,3 +244,25 @@ class ScopePolicy:
                     f"(members: {', '.join(engagement.targets)})"
                 )
         return self.resolve(source), self.resolve(dest)
+
+
+@contextmanager
+def locked_policy(path: Path) -> Iterator[ScopePolicy]:
+    """Load, lock, and save PATH (targets.yaml) as one guarded
+    load-mutate-save sequence, via a sibling `.<name>.lock` file (same
+    helper AttackOperationStore.lock() uses; refactor §6.5). CLI and Web
+    can both write this file, so a bare load()...save() pair -- the
+    pattern every mutating CLI command and Web route used before this --
+    can silently drop a concurrent writer's change.
+
+    Saves only if the body completes without raising, mirroring the
+    existing try/except-then-save shape at every call site: a PolicyError
+    from e.g. add_target() must not persist a half-applied mutation."""
+    lock_path = path.parent / f".{path.name}.lock"
+    try:
+        with flock_path(lock_path):
+            policy = ScopePolicy.load(path)
+            yield policy
+            policy.save(path)
+    except TimeoutError as exc:
+        raise PolicyError(f"could not acquire the update lock for '{path}': {exc}") from exc

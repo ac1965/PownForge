@@ -51,3 +51,22 @@ def test_list_is_newest_first(tmp_path: Path) -> None:
     listed = store.list()
     assert {r.run_id for r in listed} == {a.run_id, b.run_id}
     assert listed[0].created_at >= listed[1].created_at
+
+
+def test_save_is_atomic_and_leaves_no_partial_file_on_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runs_dir = tmp_path / "primitive_runs"
+    store = PrimitiveRunStore(runs_dir)
+    record = _record()
+
+    def _boom(*args: object, **kwargs: object) -> None:
+        raise OSError("disk full (simulated)")
+
+    monkeypatch.setattr("os.fsync", _boom)
+
+    with pytest.raises(OSError):
+        store.save(record)
+
+    assert not (runs_dir / f"{record.run_id}.json").exists()
+    assert list(runs_dir.glob(".*.tmp")) == []
