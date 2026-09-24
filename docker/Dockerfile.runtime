@@ -95,11 +95,36 @@ RUN set -eux; \
     cd /; \
     rm -rf /tmp/kube-bench-src /tmp/kube-bench-src.tar.gz "$(go env GOCACHE)" "$(go env GOMODCACHE)"
 
+# gitleaks (the `secrets` plugin): official multi-arch release binary, same
+# reasoning as trivy/kubectl above (dpkg's amd64/arm64 naming maps to
+# gitleaks' own x64/arm64 asset naming).
+ARG GITLEAKS_VERSION=8.30.1
+RUN ARCH="$(dpkg --print-architecture)" \
+    && case "$ARCH" in \
+         amd64) GITLEAKS_ARCH=x64 ;; \
+         arm64) GITLEAKS_ARCH=arm64 ;; \
+         *) echo "unsupported architecture: $ARCH" >&2; exit 1 ;; \
+       esac \
+    && curl -sSL -o /tmp/gitleaks.tar.gz \
+      "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_${GITLEAKS_ARCH}.tar.gz" \
+    && tar -C /usr/local/bin -xzf /tmp/gitleaks.tar.gz gitleaks \
+    && rm /tmp/gitleaks.tar.gz
+
 WORKDIR /app
 COPY pyproject.toml README.md /app/
 COPY src /app/src
 
-RUN pip install --break-system-packages '.[pdf]'
+# semgrep (the `sast` plugin): a proper pip package, unlike the Go tools
+# above. Installed alongside pownforge itself rather than via `go install`.
+RUN pip install --break-system-packages '.[pdf]' semgrep
+# semgrep checks for a newer release over the network by default, even for
+# `--version` alone -- on pownforge-lab (--internal, no route to the
+# internet by design) this doesn't fail fast, it hangs until the OS-level
+# connect timeout, adding well over a minute to every single scan (measured
+# directly: `semgrep --version` took >30s here, vs ~1s with this variable
+# set). This is exactly the "diagnostic-target以外への通信" this plugin's
+# spec requires disabled by default -- see docs/handbook.md §6.
+ENV SEMGREP_ENABLE_VERSION_CHECK=0
 
 ENTRYPOINT ["pownforge"]
 CMD ["--help"]

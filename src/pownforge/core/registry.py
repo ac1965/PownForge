@@ -14,6 +14,8 @@ from pownforge.plugins.kubernetes_audit import KubernetesAuditPlugin
 from pownforge.plugins.network import NetworkPlugin
 from pownforge.plugins.nuclei import NucleiPlugin
 from pownforge.plugins.recon import ReconPlugin
+from pownforge.plugins.sast import SastPlugin
+from pownforge.plugins.secrets import SecretsPlugin
 from pownforge.plugins.sqlmap import SqlmapPlugin
 from pownforge.plugins.vulncheck import VulncheckPlugin
 from pownforge.plugins.web import WebPlugin
@@ -86,5 +88,7 @@ def default_registry() -> PluginRegistry:
     registry.register(ApiPlugin())
     registry.register(IdentityPlugin())
     registry.register(HttpxProbePlugin())
+    registry.register(SecretsPlugin())
+    registry.register(SastPlugin())
     registry.load_entry_points()
     return registry

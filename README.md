@@ -118,9 +118,12 @@ make test-all     # pytest + webuiビルド + Emacs ERT(npm/Emacsが入ってい
   `vulncheck`（nmapの`vuln`+`safe`分類スクリプトに限定した許可リスト方式で、
   Heartbleed/EternalBlue等の既知CVEを単一対象に対して検証。`exploit`/`intrusive`系
   スクリプトは常に拒否）/
-  `sqlmap`（SQLインジェクション検出・抽出。OS/ファイル操作系オプションは常に拒否、
-  詳細は[docs/handbook.md §6](docs/handbook.md#6-プラグイン)）。各ツールの出力は構造化データに正規化し、
-  nuclei/kubernetes/container/sqlmapは検出結果をfinding（`source: "tool"`）としても記録
+  `sqlmap`（SQLインジェクション検出・抽出。OS/ファイル操作系オプションは常に拒否）/
+  `secrets`（gitleaksによるハードコードされたシークレット検出。値自体は一切保存・記録しない）/
+  `sast`（semgrepによる静的解析。`--config auto`は使わず同梱の固定ローカルルールセットのみ使用）。
+  `secrets`/`sast`は新設の`Target.kind=path`（ローカルディレクトリ）専用、
+  詳細は[docs/handbook.md §6](docs/handbook.md#6-プラグイン)。各ツールの出力は構造化データに正規化し、
+  nuclei/kubernetes/container/sqlmap/secrets/sastは検出結果をfinding（`source: "tool"`）としても記録
 - 隔離Dockerネットワーク上への攻撃対象ホストの動的追加（`pownforge lab`）
 - Web API + ライブ進捗WebSocket（`pownforge web serve`、optional extra `[web]`）+ React製の閲覧用SPA（`webui/`）
 - 実行証跡（コマンド・タイムスタンプ・SHA-256ハッシュ）の保存
@@ -176,6 +179,8 @@ Phase 2では、既存の `ScanRunner → Plugin → EvidenceStore` を維持し
 | `container`（trivy image） | `alpine:3.10` | 実在のCVE（CVE-2021-36159）の検出を確認 |
 | `sqlmap` | 自作の意図的に脆弱なFlaskアプリ | boolean-based blind/error-based/UNION queryの検出とDBMS判定を確認 |
 | `vulncheck`（nmap NSE） | ローカルTLSサーバー、Metasploitable2 | 許可リスト15本全てを実際のnmapで実行。**hostrule系スクリプト（smb-vuln-ms17-010等）の結果取りこぼしバグを発見・修正**（[vulncheck.py](src/pownforge/plugins/vulncheck.py)） |
+| `secrets`（gitleaks） | ダミーのStripe形式トークンを含む自作フィクスチャ | 実検出→finding化を確認。値自体が証跡・レポート・findingのいずれにも含まれないことを`grep`で確認。`docker compose build`した実行時イメージでも同じ結果を確認 |
+| `sast`（semgrep） | SQL文字列連結を含む自作フィクスチャ | 同梱の固定ローカルルールセットでの実検出→finding化を確認。**`semgrep --version`が`--internal`ラボネットワーク上でハング（外部への更新確認通信が原因）することを発見・`SEMGREP_ENABLE_VERSION_CHECK=0`で修正**（[Dockerfile.runtime](docker/Dockerfile.runtime)） |
 | `pownforge result import`/`add-finding`（手動証跡取り込み） | Metasploitable2 | 実スキャン→手動exploit記録→findingの追加→`evidence verify`→ウォークスルー生成までの一気通貫を確認 |
 | `Engagement`（横展開の記録） | 実nmapスキャン+手動pivot記録 | Engagement外の対象への記録が拒否されること、正規メンバー間のpivot記録とウォークスルーへの反映を確認 |
 | `pownforge lab`（攻撃対象ホストの動的追加） | `tleemcjr/metasploitable2` | **常駐しないラボイメージ向けの`docker run -i`修正**（[lab.py](src/pownforge/core/lab.py)）を実機検証で発見・修正 |

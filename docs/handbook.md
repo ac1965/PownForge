@@ -328,7 +328,7 @@ pownforge analyze <run-id>
 | --- | --- |
 | `pownforge init` | 作業ディレクトリ(`.pownforge/`)と空のスコープファイルを作成 |
 | `pownforge target list` | 登録済み対象の一覧 |
-| `pownforge target add <name> --address <addr> [--kind host\|url] [--type network\|web\|api\|kubernetes\|container] [--environment local-lab\|staging\|production] [--allowed-plugins a,b] [--notes <text>] [--max-concurrent <n>]` | 対象を登録。`type`は分類用の任意項目(スキャン許可判定には使わない)。`--environment production`は`--notes`(認可/契約の参照)が必須、無いと登録は拒否される。`--max-concurrent`省略時は無制限(詳細は[§12](#12-target-modelとスコープ制御)) |
+| `pownforge target add <name> --address <addr> [--kind host\|url\|path] [--type network\|web\|api\|kubernetes\|container\|source-code] [--environment local-lab\|staging\|production] [--allowed-plugins a,b] [--notes <text>] [--max-concurrent <n>]` | 対象を登録。`type`は分類用の任意項目(スキャン許可判定には使わない)。`--kind path`(`secrets`/`sast`向け)は`--address`をシンボリックリンク解決済みの絶対パスへ自動変換して保存する([§6のsecrets](#6-プラグイン)参照)。`--environment production`は`--notes`(認可/契約の参照)が必須、無いと登録は拒否される。`--max-concurrent`省略時は無制限(詳細は[§12](#12-target-modelとスコープ制御)) |
 | `pownforge target remove <name>` | 対象の登録を解除。in-place編集(address/allowed_plugins等の変更)は無く、変更したい場合は一度`remove`してから`add`し直す |
 | `pownforge target exclude <name> [--reason <text>]` | 対象を削除せず一時的にスキャン対象外にする(全プラグインを拒否、詳細は[§12](#12-target-modelとスコープ制御)) |
 | `pownforge target include <name>` | 対象の除外を解除 |
@@ -984,6 +984,89 @@ pownforge scan run http-title --target <登録済みのurl対象>
 こと、`allowed_plugins`外のプラグインが拒否され監査ログに記録される
 ことを確認した。Web UIのNew Scan画面で選択したプラグインのオプション
 一覧が表示されることもブラウザで確認した。
+
+### secrets(`gitleaks`)
+
+リポジトリ内のAPIキー・パスワード・トークンの混入を検出します。
+`Target.kind`は新設の`path`(ローカルディレクトリ)専用で、
+`Target.address`は`target add --kind path`実行時に自動でシンボリックリンク
+解決済みの絶対パスへ変換されます(`core.models.resolve_path_target_address()`)。
+
+```bash
+pownforge target add my-repo --address ./src --kind path \
+  --allowed-plugins secrets,sast
+pownforge scan run secrets --target my-repo
+```
+
+**シークレットの値は一切保存・記録しない**: gitleaksの`--redact`
+(既定100%)を常に指定し、JSONレポート自体の`Secret`/`Match`フィールドも
+`REDACTED`に置換されることを実機で確認済み。加えてPownForge側の
+`normalize()`は、redact済みであっても`Secret`/`Match`キーそのものを
+出力に含めない(防御的多重化)。記録するのは`RuleID`/`Description`/
+`File`/`StartLine`/`EndLine`/`Commit`/`Fingerprint`(ハッシュ)のみ。
+
+`--option`のキー: `history`(既定`false`。`true`でgitの過去コミットも
+走査、既定はgitleaksの`--no-git`相当で作業ツリーのみ)。
+
+重大度は固定で`high`(gitleaksは検出ごとの重大度を返さないため、
+「ハードコードされたシークレットが見つかった」という事実に対する
+固定の写像)。重複排除キーは`Fingerprint`(gitleaks自身が計算する
+`file:rule:line`形式のハッシュ)。
+
+**パス検証**: `target add`時に絶対パス化・シンボリックリンク解決済みの
+値を`Target.address`へ保存する。`build_command()`実行時に
+`plugins/_source_path.py::resolve_registered_directory()`が再度解決し、
+登録時と異なる実パスに変わっていた場合(登録後にディレクトリが
+別の場所へのシンボリックリンクへ差し替えられた等)は拒否する。
+
+**実機検証**: 2026-09-24、Homebrewで`gitleaks`(v8.30.1)を導入し、
+ダミーのStripe形式トークン(`sk_live_...`、実在の認証情報ではない)を
+含むフィクスチャに対して実行、findingとして検出されること、
+証跡・レポート・findingのいずれにも値そのものが含まれないこと
+(`grep`で確認)、登録ディレクトリの外を指すシンボリックリンクへの
+差し替えが拒否されることを確認した。`docker compose build`した
+実行時イメージ(gitleaksをリリースバイナリで同梱)でも同じ結果を確認。
+
+### sast(`semgrep`)
+
+静的解析による既知の脆弱なコードパターン検出です。`secrets`と同じく
+`kind=path`専用。
+
+```bash
+pownforge scan run sast --target my-repo
+```
+
+**`--config auto`は使わない**: Semgrep Registryからルールを取得し、
+プロジェクトURLでログインする可能性があるため。既定では
+`plugins/_sast_rules/python.yaml`に同梱した固定のローカルルールセット
+(Python向け、SQL文字列連結・シェルインジェクション・`eval`/`exec`・
+TLS検証無効化の4パターン。網羅的なセットではなく最小限の出発点)を使う。
+`--option rules=<ローカルパス>`で差し替え可能だが、`auto`/`p/`/`r/`
+プレフィックスやURLは実行前に拒否する(レジストリ参照・外部取得の
+再導入を防ぐため)。`--metrics=off`を常に指定し、`--no-autofix`で
+ファイル書き換えを禁止する(書き換え系オプションはそもそも
+`options_schema`未宣言のため、指定しても実行前に拒否される)。
+
+重大度写像: semgrepの`ERROR`→`high`、`WARNING`→`medium`、`INFO`→`info`。
+未知の値は`info`にフォールバックする。重複排除キーは
+`(check_id, path, line)`。
+
+**既知の問題と対策**: semgrepは`--version`だけでも既定でバージョン
+確認のため外部通信を試みる。`pownforge-lab`ネットワークは`--internal`
+(意図的に外部到達不可)のため、これが失敗ではなくOSレベルの接続
+タイムアウトまで**ハングする**ことを実機で確認した(`semgrep --version`
+だけで30秒超)。`docker/Dockerfile.runtime`で`SEMGREP_ENABLE_VERSION_CHECK=0`
+を設定して無効化し、同条件で2秒程度に短縮されることを確認済み。
+ホスト実行(Dockerを使わない場合)でsemgrepを使う際は、同じ環境変数を
+呼び出し元のシェルで設定することを推奨する。
+
+**実機検証**: 2026-09-24、Homebrewで`semgrep`(v1.176.0)を導入し、
+SQL文字列連結を含むダミーのフィクスチャファイルに対して実行、
+同梱ルールセットで検出されること、`--option rules=auto`等の
+レジストリ参照が実行前に拒否されることを確認した。
+`docker compose build`した実行時イメージ(semgrepをpipで同梱)でも
+同じ検出結果を確認し、上記のバージョン確認ハングとその対策も
+実行時イメージ内で再現・検証した。
 
 ## 7. ラボネットワーク
 

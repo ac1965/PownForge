@@ -1,0 +1,48 @@
+# Minimal, offline, hand-written Semgrep ruleset for the `sast` plugin's
+# default (see plugins/sast.py). Deliberately small: this is a starting
+# point covering a handful of well-known, low-false-positive Python
+# patterns, not a comprehensive ruleset. `--config auto` is never used (it
+# fetches rules from the Semgrep Registry and logs in with the project URL),
+# so this file -- or one an operator supplies via --option rules=<path> --
+# is the only source of rules this plugin ever uses.
+rules:
+  - id: python-sql-string-concat
+    languages: [python]
+    severity: ERROR
+    message: SQL query built via string concatenation or an f-string; use parameterized queries instead.
+    metadata:
+      category: injection
+    patterns:
+      - pattern-either:
+          - pattern: $CURSOR.execute($A + $B)
+          - pattern: $CURSOR.execute(f"...")
+
+  - id: python-shell-injection
+    languages: [python]
+    severity: ERROR
+    message: Shell command executed with shell=True, or built via string concatenation passed to os.system.
+    metadata:
+      category: injection
+    patterns:
+      - pattern-either:
+          - pattern: subprocess.$FUNC(..., shell=True, ...)
+          - pattern: os.system($A + $B)
+
+  - id: python-eval-exec-use
+    languages: [python]
+    severity: WARNING
+    message: Use of eval()/exec() on a value that may be attacker-influenced.
+    metadata:
+      category: injection
+    patterns:
+      - pattern-either:
+          - pattern: eval(...)
+          - pattern: exec(...)
+
+  - id: python-requests-tls-verify-disabled
+    languages: [python]
+    severity: WARNING
+    message: TLS certificate verification disabled (requests ..., verify=False).
+    metadata:
+      category: crypto
+    pattern: requests.$METHOD(..., verify=False, ...)
