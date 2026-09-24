@@ -38,7 +38,7 @@ def walkthrough_generate(
     """
     store = _store(workdir)
     app_settings = load_settings(settings)
-    adapter = OllamaAdapter(model=model or app_settings.model)
+    adapter = LLMAdapter(model=model or app_settings.model)
     engagement_targets: list[str] | None = None
     if engagement:
         try:

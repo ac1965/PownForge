@@ -8,7 +8,7 @@ pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient
 
-from pownforge.ai.ollama import OllamaAdapter
+from pownforge.ai.ollama import LLMAdapter
 from pownforge.core.settings import load_settings
 from pownforge.web.app import create_app
 
@@ -72,7 +72,7 @@ def test_walkthrough_uses_saved_settings_as_default_model_and_language(
         seen["prompt"] = prompt
         return "narrative"
 
-    monkeypatch.setattr(OllamaAdapter, "analyze", fake_analyze)
+    monkeypatch.setattr(LLMAdapter, "analyze", fake_analyze)
 
     resp = client.post("/api/walkthroughs", json={"run_ids": [record.run_id]})
     assert resp.status_code == 200

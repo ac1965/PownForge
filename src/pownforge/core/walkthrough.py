@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 
-from pownforge.ai.ollama import OllamaAdapter, OllamaError
+from pownforge.ai.ollama import LLMAdapter, LLMError
 from pownforge.core.models import RunRecord, Suggestion
 from pownforge.core.settings import Language, language_instruction
 from pownforge.evidence.store import EvidenceStore
@@ -144,7 +144,7 @@ def _parse_response(text: str) -> tuple[str, list[Suggestion]]:
 
 def generate_walkthrough(
     store: EvidenceStore,
-    adapter: OllamaAdapter,
+    adapter: LLMAdapter,
     run_ids: list[str] | None,
     target: str | None,
     language: Language = Language.JA,
@@ -162,7 +162,7 @@ def generate_walkthrough(
     prompt = _PROMPT_TEMPLATE.format(steps=steps, language_instruction=language_instruction(language))
     try:
         response = adapter.analyze(prompt)
-    except OllamaError as exc:
+    except LLMError as exc:
         raise WalkthroughError(str(exc)) from exc
     narrative, suggestions = _parse_response(response)
     return Walkthrough(records=records, narrative=narrative, suggestions=suggestions)

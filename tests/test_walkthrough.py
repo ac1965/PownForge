@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from pownforge.ai.ollama import OllamaAdapter, OllamaError
+from pownforge.ai.ollama import LLMAdapter, LLMError
 from pownforge.core.models import Evidence, Finding, KillChainPhase, RunRecord
 from pownforge.core.settings import Language
 from pownforge.core.walkthrough import WalkthroughError, generate_walkthrough, select_runs
@@ -113,8 +113,8 @@ def test_generate_walkthrough_does_not_modify_any_run(tmp_path: Path, monkeypatc
         seen_prompt["prompt"] = prompt
         return "First a network scan found an open port, then nuclei ran but found nothing."
 
-    monkeypatch.setattr(OllamaAdapter, "analyze", fake_analyze)
-    adapter = OllamaAdapter()
+    monkeypatch.setattr(LLMAdapter, "analyze", fake_analyze)
+    adapter = LLMAdapter()
 
     walkthrough = generate_walkthrough(store, adapter, [a.run_id, b.run_id], None)
 
@@ -149,9 +149,9 @@ def test_generate_walkthrough_parses_narrative_and_suggestions_json(
             ],
         }
     )
-    monkeypatch.setattr(OllamaAdapter, "analyze", lambda self, prompt: response)
+    monkeypatch.setattr(LLMAdapter, "analyze", lambda self, prompt: response)
 
-    walkthrough = generate_walkthrough(store, OllamaAdapter(), [a.run_id], None)
+    walkthrough = generate_walkthrough(store, LLMAdapter(), [a.run_id], None)
 
     assert walkthrough.narrative == "We fuzzed the app and found an exposed id parameter."
     assert len(walkthrough.suggestions) == 2
@@ -172,9 +172,9 @@ def test_generate_walkthrough_skips_suggestions_without_a_title(
             "suggestions": [{"title": "", "rationale": "no title, should be dropped"}, "not-a-dict"],
         }
     )
-    monkeypatch.setattr(OllamaAdapter, "analyze", lambda self, prompt: response)
+    monkeypatch.setattr(LLMAdapter, "analyze", lambda self, prompt: response)
 
-    walkthrough = generate_walkthrough(store, OllamaAdapter(), [a.run_id], None)
+    walkthrough = generate_walkthrough(store, LLMAdapter(), [a.run_id], None)
     assert walkthrough.suggestions == []
 
 
@@ -185,10 +185,10 @@ def test_generate_walkthrough_falls_back_to_plain_text_when_not_json(
     a = _make_record(store, "lab", "web", "2026-01-01T00:00:00Z")
 
     monkeypatch.setattr(
-        OllamaAdapter, "analyze", lambda self, prompt: "the model just ignored the JSON instructions"
+        LLMAdapter, "analyze", lambda self, prompt: "the model just ignored the JSON instructions"
     )
 
-    walkthrough = generate_walkthrough(store, OllamaAdapter(), [a.run_id], None)
+    walkthrough = generate_walkthrough(store, LLMAdapter(), [a.run_id], None)
     assert walkthrough.narrative == "the model just ignored the JSON instructions"
     assert walkthrough.suggestions == []
 
@@ -205,8 +205,8 @@ def test_generate_walkthrough_defaults_to_japanese_instruction(
         seen_prompt["prompt"] = prompt
         return "narrative"
 
-    monkeypatch.setattr(OllamaAdapter, "analyze", fake_analyze)
-    generate_walkthrough(store, OllamaAdapter(), [a.run_id], None)
+    monkeypatch.setattr(LLMAdapter, "analyze", fake_analyze)
+    generate_walkthrough(store, LLMAdapter(), [a.run_id], None)
     assert "Japanese" in seen_prompt["prompt"]
 
 
@@ -222,8 +222,8 @@ def test_generate_walkthrough_honors_explicit_english_language(
         seen_prompt["prompt"] = prompt
         return "narrative"
 
-    monkeypatch.setattr(OllamaAdapter, "analyze", fake_analyze)
-    generate_walkthrough(store, OllamaAdapter(), [a.run_id], None, language=Language.EN)
+    monkeypatch.setattr(LLMAdapter, "analyze", fake_analyze)
+    generate_walkthrough(store, LLMAdapter(), [a.run_id], None, language=Language.EN)
     assert "entirely in English" in seen_prompt["prompt"]
     assert "Japanese" not in seen_prompt["prompt"]
 
@@ -241,8 +241,8 @@ def test_generate_walkthrough_describes_pivot_steps_in_the_prompt(
         seen_prompt["prompt"] = prompt
         return "narrative"
 
-    monkeypatch.setattr(OllamaAdapter, "analyze", fake_analyze)
-    generate_walkthrough(store, OllamaAdapter(), None, None, targets=["host-a", "host-b"])
+    monkeypatch.setattr(LLMAdapter, "analyze", fake_analyze)
+    generate_walkthrough(store, LLMAdapter(), None, None, targets=["host-a", "host-b"])
     assert "reached via target=host-a, engagement=eng1" in seen_prompt["prompt"]
 
 
@@ -260,18 +260,18 @@ def test_generate_walkthrough_describes_kill_chain_phase_in_the_prompt(
         seen_prompt["prompt"] = prompt
         return "narrative"
 
-    monkeypatch.setattr(OllamaAdapter, "analyze", fake_analyze)
-    generate_walkthrough(store, OllamaAdapter(), None, "host-a")
+    monkeypatch.setattr(LLMAdapter, "analyze", fake_analyze)
+    generate_walkthrough(store, LLMAdapter(), None, "host-a")
     assert "[phase=exploit]" in seen_prompt["prompt"]
 
 
-def test_generate_walkthrough_wraps_ollama_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_generate_walkthrough_wraps_llm_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     store = EvidenceStore(tmp_path / "runs")
     a = _make_record(store, "lab", "network", "2026-01-01T00:00:00Z")
 
     def fake_analyze(self, prompt: str) -> str:
-        raise OllamaError("llm router not found")
+        raise LLMError("llm router not found")
 
-    monkeypatch.setattr(OllamaAdapter, "analyze", fake_analyze)
+    monkeypatch.setattr(LLMAdapter, "analyze", fake_analyze)
     with pytest.raises(WalkthroughError):
-        generate_walkthrough(store, OllamaAdapter(), [a.run_id], None)
+        generate_walkthrough(store, LLMAdapter(), [a.run_id], None)

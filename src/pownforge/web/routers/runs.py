@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel
 
-from pownforge.ai.ollama import OllamaAdapter
+from pownforge.ai.ollama import LLMAdapter
 from pownforge.core.analysis import AnalysisError, run_analysis
 from pownforge.core.findings import FindingNotFoundError, review_finding
 from pownforge.core.manual_evidence import import_manual_run
@@ -141,7 +141,7 @@ def analyze_run(
     store: EvidenceStore = Depends(get_store),
     settings: AppSettings = Depends(get_app_settings),
 ) -> RunRecord:
-    adapter = OllamaAdapter(model=model or settings.model)
+    adapter = LLMAdapter(model=model or settings.model)
     try:
         record, _ = run_analysis(store, run_id, adapter, language=language or settings.language)
     except AnalysisError as exc:

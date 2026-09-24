@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from pownforge.ai.ollama import OllamaAdapter, OllamaError
+from pownforge.ai.ollama import LLMAdapter, LLMError
 from pownforge.core.analysis import AnalysisError, run_analysis
 from pownforge.core.models import Evidence, RunRecord
 from pownforge.core.settings import Language
@@ -36,7 +36,7 @@ class FakeAdapter:
 
 class FailingAdapter:
     def analyze(self, prompt: str) -> str:
-        raise OllamaError("llm router not found")
+        raise LLMError("llm router not found")
 
 
 def test_run_analysis_persists_summary_and_findings(tmp_path: Path) -> None:

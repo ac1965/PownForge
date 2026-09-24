@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pownforge.ai.ollama import AnalysisResult, OllamaAdapter, OllamaError, parse_analysis_response
+from pownforge.ai.ollama import AnalysisResult, LLMAdapter, LLMError, parse_analysis_response
 from pownforge.core.models import RunRecord
 from pownforge.core.settings import Language, language_instruction
 from pownforge.evidence.store import EvidenceStore
@@ -49,7 +49,7 @@ class AnalysisError(RuntimeError):
 def run_analysis(
     store: EvidenceStore,
     run_id: str,
-    adapter: OllamaAdapter,
+    adapter: LLMAdapter,
     language: Language = Language.JA,
 ) -> tuple[RunRecord, AnalysisResult]:
     """Ask the local LLM to summarize/classify a run, then persist the result.
@@ -71,7 +71,7 @@ def run_analysis(
     )
     try:
         response = adapter.analyze(prompt)
-    except OllamaError as exc:
+    except LLMError as exc:
         raise AnalysisError(str(exc)) from exc
 
     result = parse_analysis_response(response)

@@ -12,11 +12,17 @@ from pownforge.core.models import Finding
 DEFAULT_LLM_BIN = Path.home() / ".local" / "bin" / "llm"
 
 
-class OllamaError(RuntimeError):
+class LLMError(RuntimeError):
     """Raised when the local LLM router cannot be invoked."""
 
 
-class OllamaAdapter:
+class LLMAdapter:
+    """Adapter over the `llm` CLI (refactor §17 renamed this from
+    OllamaAdapter): despite this module's filename, it is a generic router
+    -- which backend actually answers (local Ollama, Claude, OpenAI, ...)
+    is purely a function of `model`/`-m`, resolved by the `llm` CLI itself
+    via its own plugins, not by anything in this class."""
+
     def __init__(self, llm_bin: Path = DEFAULT_LLM_BIN, model: str | None = None) -> None:
         self._llm_bin = llm_bin
         self._model = model
@@ -26,7 +32,7 @@ class OllamaAdapter:
 
     def analyze(self, prompt: str) -> str:
         if not self.available():
-            raise OllamaError(
+            raise LLMError(
                 f"LLM router not found at {self._llm_bin} and 'llm' is not on PATH"
             )
         binary = str(self._llm_bin) if self._llm_bin.exists() else "llm"
@@ -42,7 +48,7 @@ class OllamaAdapter:
             check=False,
         )
         if completed.returncode != 0:
-            raise OllamaError(completed.stderr.strip() or "llm invocation failed")
+            raise LLMError(completed.stderr.strip() or "llm invocation failed")
         return completed.stdout.strip()
 
 

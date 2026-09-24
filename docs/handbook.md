@@ -79,7 +79,7 @@ graph TD
         Evidence["EvidenceStore /<br/>PrimitiveRunStore"]
         Audit["AuditStore<br/>(拒否された実行試行)"]
         Reporting["reporting/<br/>report/primitive/attack-session/<br/>engagement(横断)/walkthrough"]
-        AI["ai.OllamaAdapter"]
+        AI["ai.LLMAdapter"]
     end
 
     Runner --> Policy
@@ -2248,7 +2248,7 @@ PownForgeには、AIがすでに保存された結果を扱う機能が2種類�
 ```mermaid
 flowchart LR
     A["select_runs()<br/>run_ids指定順 or --target時系列"] --> B["_describe_run()<br/>target/plugin/findingsだけ<br/>(生のstdoutは渡さない)"]
-    B --> C["OllamaAdapter.analyze(prompt)"]
+    B --> C["LLMAdapter.analyze(prompt)"]
     C --> D{"JSONとして<br/>パースできる?"}
     D -- Yes --> E["Walkthrough<br/>{narrative, suggestions}"]
     D -- No --> F["Walkthrough<br/>{narrative=全文, suggestions=[]}"]
@@ -2283,7 +2283,7 @@ Webアプリを対象にしないプラグインには付与されません
 
 「まず`network`でポート発見→`web`でエンドポイント発見→`nuclei`で脆弱性
 確認」のような一連の流れを、AIに接続ナラティブとして書かせる機能です。
-`pownforge analyze`と同じ`OllamaAdapter`を使いますが、**どのrunの
+`pownforge analyze`と同じ`LLMAdapter`を使いますが、**どのrunの
 findings/analysisも一切書き換えません**(読み取り専用)。
 
 **安全上の設計**:
@@ -2340,9 +2340,10 @@ Web UIの`Walkthrough`ページ(`/walkthrough/new`)では、runの一覧から
 
 ### モデル選択・出力言語(`pownforge config` / Web UIの`Settings`)
 
-`analyze`/`walkthrough generate`はどちらも`ai/ollama.py::OllamaAdapter`
-経由で`llm`(https://llm.datasette.io/)CLIを呼び出すだけの薄いラッパーで、
-名前に反してOllama専用ではありません。`llm`にプラグインを追加すれば
+`analyze`/`walkthrough generate`はどちらも`ai/ollama.py::LLMAdapter`
+(refactor §17でOllamaAdapterから改名。ファイルパス`ai/ollama.py`自体は
+維持)経由で`llm`(https://llm.datasette.io/)CLIを呼び出すだけの薄い
+ラッパーで、Ollama専用ではありません。`llm`にプラグインを追加すれば
 ローカルOllama以外のモデルも同じ経路(`--model`/`-m`フラグ)で使えます:
 
 ```bash
