@@ -1216,6 +1216,132 @@ Docker実行時イメージ(`--internal`ネットワーク上、外部通信不�
 `kube-bench`によるCISベンチマーク検査自体は、本セクション(§6)前段の
 既存`kube-bench`プラグイン(in-clusterジョブ方式)で既に利用可能。
 
+### httpprobe(`httpx`、複数ホスト一括トリアージ)
+
+既存の`httpx`プラグイン([前述](#6-プラグイン)、1つの登録済みURL対象の
+複数**パス**を調べる)とは異なり、`httpprobe`は**複数のホスト**(典型的には
+`recon`が発見したサブドメイン群)の生存確認・技術スタック確認を一括で
+行う、ホスト単位のトリアージです。`web`/`nuclei`/`sqlmap`のどれを
+どのホストへ向けるか判断するための前段ステップです。
+
+**スコープ検証の設計**: `recon`が見つけたサブドメインは、それだけでは
+「許可された対象」ではありません(§3.2)。`hosts`オプションは生の
+ホスト名ではなく、**登録済みのTarget名**をカンマ区切りで受け取ります。
+各名前は`ScanRunner`が主対象と全く同じ`ScopePolicy.authorize()`を通して
+個別に認可し、認可された分だけがアドレスへ置き換えられてプラグインへ
+渡されます(この仕組みは`Plugin.host_list_option`という汎用の
+最小限フックとして`plugins/base.py`/`core/runner.py`に実装しました。
+`httpprobe`以外の既存プラグインはこの属性を宣言しないため無関係・
+無影響です)。**拒否された名前は`_findings`ではなく`excluded_hosts`に
+記録され、通信は一切行われません**(黙って除外しない)。拒否は既存の
+`AuditStore`にも記録されます(主対象の拒否と同じ経路)。
+
+```bash
+pownforge target add corp-domain --address corp.example.com --kind host \
+  --allowed-plugins httpprobe
+pownforge target add sub-a --address https://a.corp.example.com --kind url \
+  --allowed-plugins httpprobe
+pownforge target add sub-b --address https://b.corp.example.com --kind url \
+  --allowed-plugins httpprobe
+pownforge scan run httpprobe --target corp-domain --option hosts=sub-a,sub-b
+```
+
+`--option`のキー: `hosts`(必須、登録済みTarget名のカンマ区切り)、
+`rate_limit`(既定10req/s。httpx自体の既定150req/sより意図的に保守的、
+複数の独立したTargetへ同時アクセスするため)、`timeout`(既定10秒)。
+リダイレクトは追わない(`-follow-redirects`を渡さない、既存`httpx`
+プラグインと同じ)。findingは生成しない(生存確認・技術スタック確認は
+確定した脆弱性ではないため、既存`httpx`と同じ方針)。
+
+**実機検証**: 実在の登録済み2対象(`https://example.com`、
+`https://example.org`)+意図的に許可外・未登録のTarget名を混在させて
+実行し、許可された2対象のみ実際にプローブされ(ステータス/タイトル/
+Webサーバー/技術スタックを取得)、残り2件は通信されずに
+`excluded_hosts`と`AuditStore`の両方へ記録されることを確認した。
+
+### tls(`testssl.sh`)
+
+TLS/SSLの設定・証明書・弱い暗号スイート・既知のTLS脆弱性を検査します。
+`Target.kind=host`、`address`は`host`または`host:port`
+(ポート省略時は`--option port`、既定443)。
+
+```bash
+pownforge target add lab-tls --address lab-web:8443 --kind host \
+  --allowed-plugins tls
+pownforge scan run tls --target lab-tls
+```
+
+既定は`-p -S -f`(プロトコル・証明書/サーバー既定設定・PFS)の組み合わせで、
+実機で2秒程度。testssl.sh自身の既定(`-E`/`-g`以外の全項目、個別の
+暗号スイート総当たりを含む)は同条件で60秒を超えたため、
+「最小限の出発点」の既定値としては採用しなかった。
+
+重大度写像: testssl.sh独自の`CRITICAL`/`HIGH`/`MEDIUM`/`LOW`/`WARN`を
+`critical`/`high`/`medium`/`low`/`info`へ写像。`OK`/`INFO`/`DEBUG`は
+finding化しない(問題なしの結果、または純粋な情報)。
+
+**実機検証**: `example.com`に対して実際のtestssl.sh(v3.2.4)で実行し、
+TLS1/TLS1.1の非推奨プロトコル提供(LOW)、証明書のkeyUsage不整合(HIGH)、
+証明書の有効期限接近(MEDIUM)等、実在の検出結果を確認した。ホスト`.venv`・
+Docker実行時イメージの両方で確認した(Dockerランタイムイメージには
+`hexdump`/`ps`/`dig`(`bsdmainutils`/`procps`/`dnsutils`)がtestssl.sh
+実行に必須であることを実機検証で発見し、追加した)。
+
+### zapbaseline(OWASP ZAP baseline scan)
+
+パッシブ中心のWebアプリケーション診断です。**アクティブスキャン・
+フルスキャン(攻撃的なリクエストを送信する機能)は一切実行しません**
+`zap-baseline.py`は`zap-full-scan.py`/`zap-api-scan.py`とは
+アーキテクチャ上別のスクリプトで、アクティブスキャンを有効化する
+オプション自体が存在しないため、渡しうるフラグが無く、構造的に
+安全です。
+
+**なぜDocker経由か**: ZAP公式の配布アーカイブ(zaproxy.org)には
+`zap-baseline.py`もPython APIバインディング(`zapv2`)も含まれておらず、
+これらはZAP公式のDockerイメージのビルド過程でのみ組み立てられます
+(実機調査で確認)。これを自前で再現する(JRE同梱・ZAP本体・
+Pythonバインディング・ZAP内部の起動ラッパースクリプトの用意)代わりに、
+ZAPチームが構築・テスト・公開している公式イメージ
+(`ghcr.io/zaproxy/zaproxy:stable`)をそのまま利用します。
+`core/lab.py`の`LabManager`が既にDockerを直接呼び出している前例と
+同じパターンで、`required_tool`は`zap`ではなく`docker`です。
+
+```bash
+pownforge target add lab-web-zap --address http://lab-web:8080 --kind url \
+  --allowed-plugins zapbaseline
+pownforge scan run zapbaseline --target lab-web-zap
+```
+
+`--option`のキー: `network`(ZAPコンテナを接続するDockerネットワーク、
+既定`pownforge-lab`。ラボ対象のコンテナ名解決に必要。空文字で既定の
+Dockerブリッジネットワークを使う。公開URLを対象にする場合はこちらを
+使う想定だが、実機検証は`pownforge-lab`上のラボ対象のみで実施)、
+`spider_minutes`(`zap-baseline.py -m`、既定1分)。
+
+**既知の制約**: このプラグイン自身が`docker run <image>`を実行するため、
+PownForgeの実行元にDockerアクセスが必要(`pownforge lab add`と同じ
+前提、ホスト`.venv`経由なら制約なし)。`docker compose run pownforge`
+(PownForge自身がDockerコンテナ内で動く実行時イメージ)経由では、
+そのコンテナ自身にDockerソケットへのアクセスを与えない限り動作しない
+(`container`/`sbom`/`imagevuln`が公開レジストリイメージを対象にする
+際と同じ制約、[§6のsbom](#6-プラグイン)参照)。このプロジェクトでは
+Dockerソケットアクセスの付与は行っていない。
+
+**書き込み権限の実装上の注意**: ZAP公式イメージは組み込みの`zap`
+ユーザーで実行され、`pownforge`を実行したユーザーとuidが一致しない。
+マウントした一時ディレクトリ(既定0700)へ書き込めないため、
+`build_command()`内でこの1回限りの一時ディレクトリを0777へ変更している
+(実機検証で、ホストuidに合わせてコンテナを起動する代替策は、ZAP自身の
+`$HOME`設定領域への書き込みに失敗して動作しないことを確認済み)。
+
+重大度写像: ZAPの`riskcode`(0〜3)を`info`/`low`/`medium`/`high`へ写像。
+
+**実機検証**: 既存のOWASP Juice Shopコンテナ(`pownforge-lab`ネットワーク
+上)に対して`ghcr.io/zaproxy/zaproxy:stable`経由で実際のZAP baseline
+scanを実行し、`pownforge`のCLIを通して4件の実在するパッシブ検出
+(CSPヘッダー欠如、Cross-Domain Misconfiguration、タイムスタンプ漏洩、
+モダンWebアプリ検出)がfinding化されることを確認した。
+
 ## 7. ラボネットワーク
 
 `pownforge lab`サブコマンドは、意図的に脆弱なコンテナイメージを

@@ -6,6 +6,7 @@ from typing import Iterable
 from pownforge.plugins.api import ApiPlugin
 from pownforge.plugins.base import Plugin
 from pownforge.plugins.container import ContainerPlugin
+from pownforge.plugins.httpprobe import HttpProbePlugin
 from pownforge.plugins.httpx_probe import HttpxProbePlugin
 from pownforge.plugins.iac import IacPlugin
 from pownforge.plugins.identity import IdentityPlugin
@@ -20,8 +21,10 @@ from pownforge.plugins.sast import SastPlugin
 from pownforge.plugins.sbom import SbomPlugin
 from pownforge.plugins.secrets import SecretsPlugin
 from pownforge.plugins.sqlmap import SqlmapPlugin
+from pownforge.plugins.tls import TlsPlugin
 from pownforge.plugins.vulncheck import VulncheckPlugin
 from pownforge.plugins.web import WebPlugin
+from pownforge.plugins.zapbaseline import ZapBaselinePlugin
 
 
 class RegistryError(RuntimeError):
@@ -91,10 +94,13 @@ def default_registry() -> PluginRegistry:
     registry.register(ApiPlugin())
     registry.register(IdentityPlugin())
     registry.register(HttpxProbePlugin())
+    registry.register(HttpProbePlugin())
     registry.register(SecretsPlugin())
     registry.register(SastPlugin())
     registry.register(SbomPlugin())
     registry.register(ImagevulnPlugin())
     registry.register(IacPlugin())
+    registry.register(TlsPlugin())
+    registry.register(ZapBaselinePlugin())
     registry.load_entry_points()
     return registry

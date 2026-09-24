@@ -102,6 +102,10 @@ class ScanRunner:
         plugin.validate_options(options)
         tool_version = _tool_version(plugin)
 
+        excluded_hosts: list[dict[str, str]] = []
+        if plugin.host_list_option:
+            options, excluded_hosts = self._resolve_host_list_option(plugin_name, plugin.host_list_option, options)
+
         # A fresh scratch directory per run -- see PluginExecution
         # (plugins/base.py). Two concurrent runs of this same shared Plugin
         # instance (PluginRegistry keeps one per name) each get their own
@@ -109,6 +113,7 @@ class ScanRunner:
         # never collides with another run's.
         with tempfile.TemporaryDirectory(prefix=f"pownforge-{plugin_name}-") as workdir:
             execution = PluginExecution(Path(workdir))
+            execution.data["excluded_hosts"] = excluded_hosts
             command = plugin.build_command(target, options, execution)
 
             process_result = self._process_executor.run(command, timeout=self._timeout, on_stdout_line=on_line)
@@ -155,3 +160,29 @@ class ScanRunner:
         )
         self._store.save(record)
         return record
+
+    def _resolve_host_list_option(
+        self, plugin_name: str, option_key: str, options: dict[str, Any]
+    ) -> tuple[dict[str, Any], list[dict[str, str]]]:
+        """Authorize every name in options[option_key] (a comma-separated
+        list of already-registered Target names -- see
+        Plugin.host_list_option) the same way the primary target already
+        was: ScopePolicy.authorize(), audited on denial. Returns a new
+        options dict with the option replaced by the comma-separated
+        *addresses* of only the names that passed, plus the list of
+        excluded names+reasons (never silently dropped -- see
+        plugin-additions §7.1 "範囲外のホストは、除外して記録する")."""
+        raw_names = [n.strip() for n in str(options.get(option_key, "")).split(",") if n.strip()]
+        accepted_addresses: list[str] = []
+        excluded: list[dict[str, str]] = []
+        for name in raw_names:
+            try:
+                secondary_target = self._policy.authorize(name, plugin_name)
+            except PolicyError as exc:
+                excluded.append({"name": name, "reason": str(exc)})
+                if self._audit is not None:
+                    self._audit.record(target=name, plugin=plugin_name, reason=str(exc))
+                continue
+            accepted_addresses.append(secondary_target.address)
+        resolved_options = {**options, option_key: ",".join(accepted_addresses)}
+        return resolved_options, excluded

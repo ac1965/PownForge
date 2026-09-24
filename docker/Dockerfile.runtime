@@ -12,6 +12,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     nmap \
     curl \
     tar \
+    git \
+    bsdmainutils \
+    procps \
+    dnsutils \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -133,6 +137,21 @@ RUN ARCH="$(dpkg --print-architecture)" \
 # so this baked-in DB is the only one it will ever use inside this image;
 # rebuild the image to refresh it.
 RUN GRYPE_CHECK_FOR_APP_UPDATE=false grype db update
+
+# testssl.sh (the `tls` plugin): a plain shell script, not a compiled
+# release binary -- installed via a shallow clone of the pinned release
+# tag, the project's own documented install method. Uses Debian's bundled
+# openssl rather than testssl.sh's own vendored one (not built from source
+# here), which is sufficient for the protocol/cert/cipher checks this
+# plugin runs (see docs/handbook.md §6).
+# bsdmainutils/procps/dnsutils (installed above, at the top with the other
+# apt packages) provide `hexdump`/`ps`/`dig`, all of which testssl.sh
+# refuses to start without (confirmed by trial: it fails fast, naming
+# exactly which binary is missing, one at a time).
+ARG TESTSSL_VERSION=3.2.4
+RUN git clone --branch "v${TESTSSL_VERSION}" --depth 1 \
+      https://github.com/testssl/testssl.sh.git /opt/testssl.sh \
+    && ln -s /opt/testssl.sh/testssl.sh /usr/local/bin/testssl.sh
 
 WORKDIR /app
 COPY pyproject.toml README.md /app/

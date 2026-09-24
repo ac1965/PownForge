@@ -89,6 +89,24 @@ class Plugin(ABC):
     """True for a plugin that passes undeclared keys through to its tool
     (sqlmap), so validate_options() only checks the declared ones."""
 
+    host_list_option: ClassVar[str | None] = None
+    """Declares which options_schema key (if any) holds a comma-separated
+    list of ADDITIONAL, already-registered Target names -- not raw
+    hostnames/URLs -- that this plugin scans alongside its primary target
+    (e.g. httpprobe's `hosts`, for triaging recon's output: a discovered
+    subdomain is not itself authorized scope, so each candidate must be its
+    own registered Target). None (default, every plugin except httpprobe)
+    means no such option exists.
+
+    When set, ScanRunner authorizes every name in this option via the same
+    ScopePolicy.authorize() call the primary target already goes through
+    (same audit-on-denial behavior), before build_command() runs, and
+    replaces the option's value with the comma-separated *addresses* of
+    only the names that passed -- a rejected name is excluded, recorded
+    (never silently dropped), and never reaches the plugin. This is the one
+    place a Plugin's options can name additional scope at all; plugins
+    otherwise have no path to ScopePolicy (see core/runner.py)."""
+
     source: str = "builtin"
     """Set by the registry to the distribution name of an external plugin."""
 

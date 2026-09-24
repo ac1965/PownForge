@@ -125,10 +125,16 @@ make test-all     # pytest + webuiビルド + Emacs ERT(npm/Emacsが入ってい
   `imagevuln`（grypeによるコンテナイメージ脆弱性検出。trivyとは別の脆弱性DBで突き合わせ。
   DB更新は`grype db update`による明示的な別手順とし、スキャン中の暗黙の取得は行わない）/
   `iac`（checkovによる適用前のKubernetes/Terraform/Dockerfile設定ミス検査。
-  `--skip-download`/`--skip-results-upload`でクラウド連携を無効化、オフライン専用）。
+  `--skip-download`/`--skip-results-upload`でクラウド連携を無効化、オフライン専用）/
+  `httpprobe`（httpxによる複数ホストの生存確認・技術スタック一括トリアージ。
+  `recon`結果を入力にする際、各ホストを登録済みTarget名として個別にスコープ検証、
+  範囲外は通信せず除外・記録する）/
+  `tls`（testssl.shによるTLS設定・証明書・暗号スイートの検査）/
+  `zapbaseline`（OWASP ZAP baseline scanによるパッシブWeb診断。ZAP公式Dockerイメージ経由、
+  アクティブ/フルスキャンは構造上実行不可能）。
   `secrets`/`sast`/`iac`は新設の`Target.kind=path`（ローカルディレクトリ）専用、
   詳細は[docs/handbook.md §6](docs/handbook.md#6-プラグイン)。各ツールの出力は構造化データに正規化し、
-  nuclei/kubernetes/container/sqlmap/secrets/sast/imagevuln/iacは検出結果をfinding（`source: "tool"`）としても記録
+  nuclei/kubernetes/container/sqlmap/secrets/sast/imagevuln/iac/tls/zapbaselineは検出結果をfinding（`source: "tool"`）としても記録
 - 隔離Dockerネットワーク上への攻撃対象ホストの動的追加（`pownforge lab`）
 - Web API + ライブ進捗WebSocket（`pownforge web serve`、optional extra `[web]`）+ React製の閲覧用SPA（`webui/`）
 - 実行証跡（コマンド・タイムスタンプ・SHA-256ハッシュ）の保存
@@ -189,6 +195,9 @@ Phase 2では、既存の `ScanRunner → Plugin → EvidenceStore` を維持し
 | `sbom`（syft） | `alpine:3.10` | 実パッケージ75件（library/os/file内訳含む）のCycloneDX SBOM取得を確認 |
 | `imagevuln`（grype） | `alpine:3.10` | `container`と同じ実在のCVE（CVE-2021-36159、severity: critical）を別DBで検出することを確認。DB取得日時の証跡記録、`--internal`ネットワーク上での同梱DB参照を確認。**`syft`/`grype`にも同種のバージョン確認ハングを発見・`SYFT_CHECK_FOR_APP_UPDATE=false`/`GRYPE_CHECK_FOR_APP_UPDATE=false`で修正** |
 | `iac`（checkov） | `privileged: true`を含む自作Podマニフェスト | `CKV_K8S_16`の実検出→finding化を確認。ホスト`.venv`・Docker実行時イメージ（`--internal`ネットワーク上）の両方で確認 |
+| `httpprobe`（httpx、複数ホスト一括） | `example.com`/`example.org`（登録済み）+許可外・未登録Target名 | 許可された2対象のみ実プローブされ、残り2件は通信せず`excluded_hosts`とAuditStoreの両方に記録されることを確認 |
+| `tls`（testssl.sh） | `example.com` | TLS1/TLS1.1非推奨プロトコル提供（LOW）、証明書keyUsage不整合（HIGH）等、実在の検出を確認 |
+| `zapbaseline`（OWASP ZAP baseline） | OWASP Juice Shop | ZAP公式Dockerイメージ経由で実際のパッシブスキャンを実行、CSPヘッダー欠如等4件の実検出→finding化をCLI経由で確認 |
 | `pownforge result import`/`add-finding`（手動証跡取り込み） | Metasploitable2 | 実スキャン→手動exploit記録→findingの追加→`evidence verify`→ウォークスルー生成までの一気通貫を確認 |
 | `Engagement`（横展開の記録） | 実nmapスキャン+手動pivot記録 | Engagement外の対象への記録が拒否されること、正規メンバー間のpivot記録とウォークスルーへの反映を確認 |
 | `pownforge lab`（攻撃対象ホストの動的追加） | `tleemcjr/metasploitable2` | **常駐しないラボイメージ向けの`docker run -i`修正**（[lab.py](src/pownforge/core/lab.py)）を実機検証で発見・修正 |
