@@ -6,6 +6,7 @@ from typing import Callable, Iterator
 
 from pownforge.core.atomic_write import atomic_write_text
 from pownforge.core.file_lock import flock_path
+from pownforge.core.identifiers import IdentifierError, resolve_contained_path
 from pownforge.core.operation.model import AttackOperation, OperationError
 
 
@@ -25,8 +26,17 @@ class AttackOperationStore:
         self._dir = operations_dir
         self._dir.mkdir(parents=True, exist_ok=True)
 
+    def _path(self, filename: str) -> Path:
+        """Build self._dir / filename, guarded against it resolving
+        outside self._dir (refactor §7 -- NAME may not have gone through
+        validate_identifier(), e.g. on a load/update path)."""
+        try:
+            return resolve_contained_path(self._dir, filename, kind="attack operation")
+        except IdentifierError as exc:
+            raise OperationError(str(exc)) from exc
+
     def _lock_path(self, name: str) -> Path:
-        return self._dir / f".{name}.lock"
+        return self._path(f".{name}.lock")
 
     @contextmanager
     def lock(self, name: str) -> Iterator[None]:
@@ -65,12 +75,12 @@ class AttackOperationStore:
             return operation
 
     def save(self, operation: AttackOperation) -> Path:
-        path = self._dir / f"{operation.name}.json"
+        path = self._path(f"{operation.name}.json")
         atomic_write_text(path, operation.model_dump_json(indent=2))
         return path
 
     def load(self, name: str) -> AttackOperation:
-        path = self._dir / f"{name}.json"
+        path = self._path(f"{name}.json")
         if not path.exists():
             raise OperationError(f"no attack operation named '{name}'")
         return AttackOperation.model_validate_json(path.read_text())

@@ -17,6 +17,7 @@ the character set the path-join step trusts blindly.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 MAX_LENGTH = 100
 
@@ -48,3 +49,25 @@ def validate_identifier(name: str, *, kind: str = "identifier") -> str:
             "and start/end with a letter or digit"
         )
     return name
+
+
+def resolve_contained_path(base_dir: Path, filename: str, *, kind: str = "identifier") -> Path:
+    """Build base_dir / filename and verify the result stays inside
+    base_dir once resolved (symlinks and `..` included).
+
+    validate_identifier() above only guards a *new* name at creation time;
+    a Store's load()/save()/lock() take a name that may predate that
+    policy (or, on a load/update path -- `operation show <name>`,
+    `attack-session show <name>`, ... -- never passes through
+    validate_identifier() at all, since those paths deliberately stay
+    unvalidated for backward compatibility, see this module's docstring).
+    Refactor §7: rather than restrict which characters a name may contain
+    (which would make some legitimate existing name unloadable), this
+    checks the *resolved path* stays inside BASE_DIR -- catching a
+    name like "../../etc/passwd" without touching what characters are
+    otherwise allowed."""
+    base = base_dir.resolve()
+    candidate = (base_dir / filename).resolve()
+    if not candidate.is_relative_to(base):
+        raise IdentifierError(f"{kind} name resolves outside its store directory")
+    return candidate

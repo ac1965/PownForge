@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from pownforge.core.attack_session import AttackSessionError, AttackSessionStore, create_attack_session
-from pownforge.core.identifiers import IdentifierError, validate_identifier
+from pownforge.core.identifiers import IdentifierError, resolve_contained_path, validate_identifier
 from pownforge.core.lab import LabError, LabManager
 from pownforge.core.models import Engagement, Target, TargetKind
 from pownforge.core.operation import AttackOperationStore, OperationError, create_operation
@@ -103,3 +103,55 @@ def test_operation_store_still_loads_a_record_written_before_the_policy_existed(
     store = AttackOperationStore(operations_dir)
     loaded = store.load(legacy_name)
     assert loaded.name == legacy_name
+
+
+# ---------------------------------------------------------------------------
+# refactor §7: a load/update path never calls validate_identifier() (see
+# above), so an unvalidated NAME reaching Store.load()/save()/lock() is
+# guarded instead by resolve_contained_path()'s "resolved path stays
+# inside the store directory" check -- catching path traversal without
+# restricting which characters a legitimate existing name may contain.
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_contained_path_accepts_a_name_inside_the_base_dir(tmp_path: Path) -> None:
+    resolved = resolve_contained_path(tmp_path, "op1.json", kind="test")
+    assert resolved == (tmp_path / "op1.json").resolve()
+
+
+def test_resolve_contained_path_rejects_traversal_outside_the_base_dir(tmp_path: Path) -> None:
+    with pytest.raises(IdentifierError):
+        resolve_contained_path(tmp_path, "../../../../etc/passwd", kind="test")
+
+
+def test_operation_store_load_rejects_a_traversal_name_never_validated_at_creation(
+    tmp_path: Path,
+) -> None:
+    """This name would never reach validate_identifier() at all -- it's
+    passed straight to load(), the same way `pownforge operation show
+    <name>` does with a raw CLI argument."""
+    store = AttackOperationStore(tmp_path / "operations")
+    with pytest.raises(OperationError):
+        store.load("../../../../etc/passwd")
+
+
+def test_operation_store_lock_rejects_a_traversal_name(tmp_path: Path) -> None:
+    store = AttackOperationStore(tmp_path / "operations")
+    with pytest.raises(OperationError):
+        with store.lock("../../../../etc/passwd"):
+            pass
+
+
+def test_attack_session_store_load_rejects_a_traversal_name_never_validated_at_creation(
+    tmp_path: Path,
+) -> None:
+    store = AttackSessionStore(tmp_path / "sessions")
+    with pytest.raises(AttackSessionError):
+        store.load("../../../../etc/passwd")
+
+
+def test_attack_session_store_lock_rejects_a_traversal_name(tmp_path: Path) -> None:
+    store = AttackSessionStore(tmp_path / "sessions")
+    with pytest.raises(AttackSessionError):
+        with store.lock("../../../../etc/passwd"):
+            pass
