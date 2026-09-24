@@ -134,7 +134,7 @@ make test-all     # pytest + webuiビルド + Emacs ERT(npm/Emacsが入ってい
   アクティブ/フルスキャンは構造上実行不可能）。
   `secrets`/`sast`/`iac`は新設の`Target.kind=path`（ローカルディレクトリ）専用、
   詳細は[docs/handbook.md §6](docs/handbook.md#6-プラグイン)。各ツールの出力は構造化データに正規化し、
-  nuclei/kubernetes/container/sqlmap/secrets/sast/imagevuln/iac/tls/zapbaselineは検出結果をfinding（`source: "tool"`）としても記録
+  nuclei/kubernetes/container/vulncheck/sqlmap/secrets/sast/imagevuln/iac/tls/zapbaselineは検出結果をfinding（`source: "tool"`）としても記録
 - 隔離Dockerネットワーク上への攻撃対象ホストの動的追加（`pownforge lab`）
 - Web API + ライブ進捗WebSocket（`pownforge web serve`、optional extra `[web]`）+ React製の閲覧用SPA（`webui/`）
 - 実行証跡（コマンド・タイムスタンプ・SHA-256ハッシュ）の保存

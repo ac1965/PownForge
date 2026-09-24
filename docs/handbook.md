@@ -92,8 +92,8 @@ graph TD
     PrimRunner -- "拒否を記録" --> Audit
     Orchestrator -- "各ステップでScanRunner.run()を呼ぶだけ" --> Runner
     Operation -- "承認済みscan Actionのみ委譲" --> Runner
-    Registry --> Plugins["plugins/<br/>recon・network・web・nuclei・<br/>kubernetes(+audit/bench)・container・<br/>sqlmap・vulncheck・api・identity"]
-    Plugins -- "build_command" --> ExtTools["外部ツール<br/>subfinder/nmap/ffuf/nuclei/<br/>trivy/kubectl/kube-bench/sqlmap/curl"]
+    Registry --> Plugins["plugins/<br/>recon・network・web・nuclei・<br/>kubernetes(+audit/bench)・container・<br/>sqlmap・vulncheck・api・identity・httpx・<br/>secrets・sast・sbom・imagevuln・iac・<br/>httpprobe・tls・zapbaseline"]
+    Plugins -- "build_command" --> ExtTools["外部ツール<br/>subfinder/nmap/ffuf/nuclei/<br/>trivy/kubectl/kube-bench/sqlmap/curl/httpx/<br/>gitleaks/semgrep/syft/grype/checkov/<br/>testssl.sh/docker(zap)"]
     Runner -- "subprocess実行" --> ExtTools
     Primitives -- "制御アクション+コールバック観測<br/>(in-process、exploitなし)" --> LabNet["ラボ内リスナー"]
     Evidence --> Reporting
@@ -328,7 +328,7 @@ pownforge analyze <run-id>
 | --- | --- |
 | `pownforge init` | 作業ディレクトリ(`.pownforge/`)と空のスコープファイルを作成 |
 | `pownforge target list` | 登録済み対象の一覧 |
-| `pownforge target add <name> --address <addr> [--kind host\|url\|path] [--type network\|web\|api\|kubernetes\|container\|source-code] [--environment local-lab\|staging\|production] [--allowed-plugins a,b] [--notes <text>] [--max-concurrent <n>]` | 対象を登録。`type`は分類用の任意項目(スキャン許可判定には使わない)。`--kind path`(`secrets`/`sast`向け)は`--address`をシンボリックリンク解決済みの絶対パスへ自動変換して保存する([§6のsecrets](#6-プラグイン)参照)。`--environment production`は`--notes`(認可/契約の参照)が必須、無いと登録は拒否される。`--max-concurrent`省略時は無制限(詳細は[§12](#12-target-modelとスコープ制御)) |
+| `pownforge target add <name> --address <addr> [--kind host\|url\|path] [--type network\|web\|api\|kubernetes\|container\|source-code] [--environment local-lab\|staging\|production] [--allowed-plugins a,b] [--notes <text>] [--max-concurrent <n>]` | 対象を登録。`type`は分類用の任意項目(スキャン許可判定には使わない)。`--kind path`(`secrets`/`sast`/`iac`向け)は`--address`をシンボリックリンク解決済みの絶対パスへ自動変換して保存する([§6のsecrets](#6-プラグイン)参照)。`--environment production`は`--notes`(認可/契約の参照)が必須、無いと登録は拒否される。`--max-concurrent`省略時は無制限(詳細は[§12](#12-target-modelとスコープ制御)) |
 | `pownforge target remove <name>` | 対象の登録を解除。in-place編集(address/allowed_plugins等の変更)は無く、変更したい場合は一度`remove`してから`add`し直す |
 | `pownforge target exclude <name> [--reason <text>]` | 対象を削除せず一時的にスキャン対象外にする(全プラグインを拒否、詳細は[§12](#12-target-modelとスコープ制御)) |
 | `pownforge target include <name>` | 対象の除外を解除 |
