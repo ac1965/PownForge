@@ -2856,6 +2856,67 @@ stage追加→Markdown/HTMLレポート表示までブラウザから一気通�
 ファイル」構成、保存先は`<workdir>/operations/<name>.json`)がこれらを
 永続化します。
 
+### `requires`/`provides`：Actionどうしの依存関係(refactor §13)
+
+`Action`には`requires`/`provides`という、自由記述のタグ(文字列)の
+リストがあります(`core/operation/model.py`)。`Action.provides`は
+そのActionが`ActionStatus.COMPLETED`になった時点で「利用可能になる」
+タグの集合、`Action.requires`はそのActionを実行する前に、同じ
+`AttackOperation`内の**完了済み**Actionのいずれかが`provides`している
+必要があるタグの集合です。`OperationRunner.execute()`が実行直前に
+`find_unmet_requirements()`で評価し、未充足のタグが1つでもあれば
+`OperationError`を送出して**実行しません**。このとき`Action.status`は
+`approved`のまま変化しません(`completed`にもならず、既存の
+`rejected`(=`ScopePolicy`による認可拒否)とも意味を混ぜません) —
+前提となるActionを`execute`すれば`provides`が揃い、同じ
+`operation execute`コマンドを再実行するだけで先へ進めます。
+
+「承認済みであること」(`Approval`)と「前提が充足していること」
+(`requires`/`provides`)は独立したゲートです。承認は前提充足の
+代わりにはなりません。
+
+この`requires`/`provides`は、既存の`Capability`(`core/models/primitive.py`。
+`Action.capabilities`/`AttackEdge.capabilities`が使う、`read-only`/
+`state-changing`/`credential-related`/`network-pivot`/`persistence`の
+enum)とは**別の語彙**です。混同しやすいので対応表を示します。
+
+| | `Capability`(既存) | `requires`/`provides`(refactor §13で新設) |
+| --- | --- | --- |
+| 表す対象 | そのActionまたはEdge自体の**効果の分類** | Action間の**依存関係**(何を必要とし、何を後続へ提供するか) |
+| 値の形 | 固定のenum(`read-only`等5種) | 自由記述の文字列タグ(例: `"credential"`、`"admin-session-on-10.0.0.5"`) |
+| 使う場所 | `SafetyPolicy`(実行可否のenvelope判定)、検証プリミティブのdescriptor | `OperationRunner.execute()`の前提評価のみ |
+| 例 | `capabilities=[credential-related]` (「このActionは認証情報を扱う」) | `provides=["credential"]` → 後続Actionが`requires=["credential"]`で参照 |
+
+CLIから`requires`/`provides`を指定するオプションは現時点では無く
+(`operation add-action`が`Action`の他フィールドと同様、Python/Web層から
+組み立てることを前提とした最小限のCLI引数のみを公開しているため)、
+`add_action()`にモデルを直接渡す経路(将来のWeb UI、テスト等)で設定
+します。
+
+### `AttackNode.state`の遷移(refactor §12)
+
+`AttackNode.state`(`AttackNodeState`: `known`/`candidate`/`planned`/
+`approved`/`running`/`succeeded`/`failed`/`skipped`)は、**`operation
+execute`(=`OperationRunner.execute()`、そのActionExecutor)を通した
+ときだけ**変化します。`operation add-node`/`add-action`/`approve`は
+一切`state`に触れません — ノードは`execute`で実際に何かが実行される
+まで、既定値の`known`のままです。
+
+Actionの`target`と一致する`AttackNode`(1つのtargetに複数のnodeが
+登録されていても構わず、その場合は全て一緒に動きます)が、Action実行
+の結果に応じて`succeeded`(成功)または`failed`(失敗 — `ScopePolicy`
+拒否・`RunnerError`いずれも)に更新されます。複数のActionが同じnodeを
+対象にしていても、`planned`/`approved`のまま止まっているActionの状態が
+nodeへ反映されることはありません — nodeの`state`が反映するのは常に
+「直近に**実際に実行された**Actionの結果」だけです。`execute()`は
+同期的に完了まで実行されるため、途中経過として永続化された`running`
+状態を第三者が観測できる瞬間は無く、このリファクタリングでは
+`running`/`candidate`/`planned`/`skipped`は引き続き未使用のまま
+残しています。
+
+既存の`AttackOperation`のJSON(全ノードが`known`)はスキーマ変更なしに
+そのまま読めます。
+
 ### CLI
 
 ```bash
@@ -2871,7 +2932,8 @@ pownforge operation execute op1 a1
 pownforge operation show op1
 ```
 
-**実行できるのは承認済み(`approve`済み)のActionのみです。**
+**実行できるのは承認済み(`approve`済み)かつ前提(`requires`)が充足した
+Actionのみです。**(前提については上記「`requires`/`provides`」を参照)
 `OperationRunner.execute()`はActionの`kind`によって次のいずれかの経路で
 処理します(`status`が`approved`でなければ、どちらの経路も`approved`済み
 であることの検証で`OperationError`になる点は共通)。

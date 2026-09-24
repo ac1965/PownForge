@@ -65,6 +65,26 @@ class ScanRunner:
         options: dict[str, Any],
         on_line: OnLine | None = None,
     ) -> RunRecord:
+        """Run PLUGIN_NAME against TARGET_NAME with OPTIONS -- the common
+        case of "just run this plugin" outside any AttackOperation, which
+        builds a bare ExecutionRequest (no action_id/approval_id) itself.
+        A convenience wrapper around run_request(); see there for the
+        general case."""
+        request = ExecutionRequest(target=target_name, plugin=plugin_name, options=options)
+        return self.run_request(request, on_line)
+
+    def run_request(
+        self,
+        request: ExecutionRequest,
+        on_line: OnLine | None = None,
+    ) -> RunRecord:
+        """Execute a fully-built ExecutionRequest, including one that
+        carries action_id/approval_id because it represents an
+        AttackOperation Action (core/operation/runner.py; refactor §18/P2
+        §9) -- OperationRunner.execute() is the only caller that populates
+        those two fields today."""
+        target_name = request.target
+        plugin_name = request.plugin
         try:
             target: Target = self._policy.authorize(target_name, plugin_name)
         except PolicyError as exc:
@@ -72,7 +92,6 @@ class ScanRunner:
                 self._audit.record(target=target_name, plugin=plugin_name, reason=str(exc))
             raise
 
-        request = ExecutionRequest(target=target_name, plugin=plugin_name, options=options)
         if self._concurrency is None:
             return self._run_locked(target, request, on_line)
         try:

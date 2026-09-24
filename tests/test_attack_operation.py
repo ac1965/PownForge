@@ -10,6 +10,7 @@ from pownforge.core.operation import (
     Action,
     ActionKind,
     ActionStatus,
+    AttackNodeState,
     AttackPhase,
     AttackOperationStore,
     Capability,
@@ -133,6 +134,138 @@ def test_execute_scan_action_runs_via_scanrunner(tmp_path: Path) -> None:
     action = next(a for a in updated.actions if a.id == "a1")
     assert action.status == ActionStatus.COMPLETED
     assert action.run_id is not None
+
+
+def test_execute_success_moves_the_matching_node_to_succeeded(tmp_path: Path) -> None:
+    store = AttackOperationStore(tmp_path / "operations")
+    create_operation(store, "op")
+    policy = _policy()
+    add_node(store, policy, "op", "n-a", "a")
+    add_action(
+        store, policy, "op",
+        Action(id="a1", name="x", phase=AttackPhase.RECON, kind=ActionKind.SCAN, target="a", plugin="network"),
+    )
+    approve_action(store, "op", "a1", "operator")
+    operation = store.load("op")
+    # add_action/approve_action never touch node state (refactor §12):
+    # only an executed Action does.
+    assert operation.nodes[0].state == AttackNodeState.KNOWN
+
+    updated = _runner(tmp_path, policy).execute(operation, "a1")
+
+    assert updated.nodes[0].state == AttackNodeState.SUCCEEDED
+
+
+def test_execute_failure_moves_every_node_sharing_the_target_to_failed(tmp_path: Path) -> None:
+    store = AttackOperationStore(tmp_path / "operations")
+    create_operation(store, "op")
+    # A policy that authorizes target "a" for scans in general (add_action
+    # only checks the target is registered) but disallows the "network"
+    # plugin specifically against it, so ScanRunner.authorize() raises
+    # PolicyError once execute() actually runs it.
+    policy = ScopePolicy(
+        targets={"a": Target(name="a", kind=TargetKind.HOST, address="127.0.0.1", allowed_plugins=["other-plugin"])}
+    )
+    # Two nodes registered against the same target -- both must move
+    # together (refactor §12: node/action correspondence is by target,
+    # and nothing prevents more than one node per target).
+    add_node(store, policy, "op", "n-a1", "a", label="first view")
+    add_node(store, policy, "op", "n-a2", "a", label="second view")
+    add_action(
+        store, policy, "op",
+        Action(id="a1", name="x", phase=AttackPhase.RECON, kind=ActionKind.SCAN, target="a", plugin="network"),
+    )
+    approve_action(store, "op", "a1", "operator")
+    operation = store.load("op")
+
+    with pytest.raises(OperationError):
+        _runner(tmp_path, policy).execute(operation, "a1")
+
+    assert [n.state for n in operation.nodes] == [AttackNodeState.FAILED, AttackNodeState.FAILED]
+    action = next(a for a in operation.actions if a.id == "a1")
+    assert action.status == ActionStatus.REJECTED
+
+
+def test_execute_rejects_action_with_unmet_requires(tmp_path: Path) -> None:
+    store = AttackOperationStore(tmp_path / "operations")
+    create_operation(store, "op")
+    add_action(
+        store, _policy(), "op",
+        Action(
+            id="a1", name="x", phase=AttackPhase.RECON, kind=ActionKind.SCAN, target="a", plugin="network",
+            requires=["credential"],
+        ),
+    )
+    approve_action(store, "op", "a1", "operator")
+    operation = store.load("op")
+
+    with pytest.raises(OperationError, match="requires"):
+        _runner(tmp_path, _policy()).execute(operation, "a1")
+
+    # Unmet requires is a distinct gate from approval/policy: the action
+    # stays APPROVED, never COMPLETED and never REJECTED (refactor §13).
+    action = next(a for a in operation.actions if a.id == "a1")
+    assert action.status == ActionStatus.APPROVED
+
+
+def test_execute_succeeds_once_a_prior_action_provides_the_required_tag(tmp_path: Path) -> None:
+    store = AttackOperationStore(tmp_path / "operations")
+    create_operation(store, "op")
+    add_action(
+        store, _policy(), "op",
+        Action(
+            id="a0", name="get cred", phase=AttackPhase.CREDENTIAL_ACCESS, kind=ActionKind.SCAN,
+            target="a", plugin="network", provides=["credential"],
+        ),
+    )
+    add_action(
+        store, _policy(), "op",
+        Action(
+            id="a1", name="use cred", phase=AttackPhase.LATERAL_MOVEMENT, kind=ActionKind.SCAN,
+            target="a", plugin="network", requires=["credential"],
+        ),
+    )
+    approve_action(store, "op", "a0", "operator")
+    approve_action(store, "op", "a1", "operator")
+    operation = store.load("op")
+
+    runner = _runner(tmp_path, _policy())
+    operation = runner.execute(operation, "a0")
+    operation = runner.execute(operation, "a1")
+
+    assert next(a for a in operation.actions if a.id == "a1").status == ActionStatus.COMPLETED
+
+
+def test_execute_scan_action_links_the_approval_into_the_execution_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from pownforge.core.models import ExecutionRequest
+    from pownforge.core.runner import ScanRunner
+
+    store = AttackOperationStore(tmp_path / "operations")
+    create_operation(store, "op")
+    add_action(
+        store, _policy(), "op",
+        Action(id="a1", name="x", phase=AttackPhase.RECON, kind=ActionKind.SCAN, target="a", plugin="network"),
+    )
+    approve_action(store, "op", "a1", "operator")
+    operation = store.load("op")
+    approval_id = operation.approvals[0].id
+
+    captured: list[ExecutionRequest] = []
+    original = ScanRunner.run_request
+
+    def spy(self, request, on_line=None):
+        captured.append(request)
+        return original(self, request, on_line)
+
+    monkeypatch.setattr(ScanRunner, "run_request", spy)
+
+    _runner(tmp_path, _policy()).execute(operation, "a1")
+
+    assert len(captured) == 1
+    assert captured[0].action_id == "a1"
+    assert captured[0].approval_id == approval_id
 
 
 def test_execute_manual_action_requires_output(tmp_path: Path) -> None:
