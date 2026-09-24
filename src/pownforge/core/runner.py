@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import subprocess
-import threading
-from datetime import datetime, timezone
 from typing import Any, Callable
 
 from pownforge.core.concurrency import ConcurrencyError, ConcurrencyGuard
 from pownforge.core.finding_utils import coerce_finding
-from pownforge.core.models import Evidence, Finding, RunRecord, Target
+from pownforge.core.models import Evidence, ExecutionRequest, Finding, RunRecord, Target
 from pownforge.core.policy import PolicyError, ScopePolicy
+from pownforge.core.process import ProcessExecutor
 from pownforge.core.registry import PluginRegistry
 from pownforge.core.secrets import mask_command
 from pownforge.evidence.audit import AuditStore
@@ -24,14 +23,6 @@ class RunnerError(RuntimeError):
     original ConcurrencyError, see core/concurrency.py) when a target's
     max_concurrent limit is already reached -- callers that already catch
     RunnerError don't need to learn a second exception type."""
-
-
-def _drain(stream, sink: list[str], on_line: OnLine | None) -> None:
-    for line in iter(stream.readline, ""):
-        sink.append(line)
-        if on_line is not None:
-            on_line(line.rstrip("\n"))
-    stream.close()
 
 
 def _tool_version(plugin: Plugin) -> str | None:
@@ -54,6 +45,7 @@ class ScanRunner:
         audit: AuditStore | None = None,
         timeout: int = 300,
         concurrency: ConcurrencyGuard | None = None,
+        process_executor: ProcessExecutor | None = None,
     ) -> None:
         self._policy = policy
         self._registry = registry
@@ -61,6 +53,7 @@ class ScanRunner:
         self._audit = audit
         self._timeout = timeout
         self._concurrency = concurrency
+        self._process_executor = process_executor or ProcessExecutor()
 
     def run(
         self,
@@ -76,11 +69,12 @@ class ScanRunner:
                 self._audit.record(target=target_name, plugin=plugin_name, reason=str(exc))
             raise
 
+        request = ExecutionRequest(target=target_name, plugin=plugin_name, options=options)
         if self._concurrency is None:
-            return self._run_locked(target, plugin_name, options, on_line)
+            return self._run_locked(target, request, on_line)
         try:
             with self._concurrency.acquire(target_name, target.max_concurrent):
-                return self._run_locked(target, plugin_name, options, on_line)
+                return self._run_locked(target, request, on_line)
         except ConcurrencyError as exc:
             if self._audit is not None:
                 self._audit.record(target=target_name, plugin=plugin_name, reason=str(exc))
@@ -89,11 +83,12 @@ class ScanRunner:
     def _run_locked(
         self,
         target: Target,
-        plugin_name: str,
-        options: dict[str, Any],
+        request: ExecutionRequest,
         on_line: OnLine | None,
     ) -> RunRecord:
         target_name = target.name
+        plugin_name = request.plugin
+        options = request.options
         plugin = self._registry.get(plugin_name)
         if not plugin.check():
             raise RunnerError(
@@ -106,36 +101,15 @@ class ScanRunner:
         tool_version = _tool_version(plugin)
 
         command = plugin.build_command(target, options)
-        started_at = datetime.now(timezone.utc)
 
-        proc = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-        )
-        stdout_lines: list[str] = []
-        stderr_lines: list[str] = []
-        t_out = threading.Thread(target=_drain, args=(proc.stdout, stdout_lines, on_line))
-        t_err = threading.Thread(target=_drain, args=(proc.stderr, stderr_lines, None))
-        t_out.start()
-        t_err.start()
-
-        try:
-            proc.wait(timeout=self._timeout)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
-            t_out.join()
-            t_err.join()
+        process_result = self._process_executor.run(command, timeout=self._timeout, on_stdout_line=on_line)
+        if process_result.timed_out:
             raise RunnerError(f"plugin '{plugin_name}' timed out after {self._timeout}s")
-        t_out.join()
-        t_err.join()
-        finished_at = datetime.now(timezone.utc)
 
-        stdout_text = "".join(stdout_lines)
-        stderr_text = "".join(stderr_lines)
+        started_at = process_result.started_at
+        finished_at = process_result.finished_at
+        stdout_text = process_result.stdout
+        stderr_text = process_result.stderr
 
         output = plugin.normalize(target, stdout_text, stderr_text)
         # Convention: a plugin may pop-able-ly include an "_findings" key of
@@ -158,7 +132,7 @@ class ScanRunner:
             command=mask_command(command),
             started_at=started_at,
             finished_at=finished_at,
-            returncode=proc.returncode,
+            returncode=process_result.exit_code,
             stdout_sha256=sha256_text(stdout_text),
             stderr_sha256=sha256_text(stderr_text),
             tool_version=tool_version,
