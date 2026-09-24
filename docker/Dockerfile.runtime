@@ -38,11 +38,8 @@ RUN go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest \
     && install -m755 /root/go/bin/nuclei /usr/local/bin/nuclei
 RUN go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest \
     && install -m755 /root/go/bin/subfinder /usr/local/bin/subfinder
-# projectdiscovery httpx (the `httpx` plugin). Built from source here so the
-# image gets the projectdiscovery binary, not the unrelated Python `httpx`
-# library's CLI shim that shares the name.
-RUN go install github.com/projectdiscovery/httpx/cmd/httpx@latest \
-    && install -m755 /root/go/bin/httpx /usr/local/bin/httpx
+# projectdiscovery httpx build moved below (after `pip install`) -- see the
+# comment there for why.
 # nuclei has no templates on its own and refuses to scan without any.
 # The pownforge-lab network is --internal (no internet at scan time by
 # design), so fetch the official templates now, at build time, while this
@@ -161,6 +158,20 @@ COPY src /app/src
 # packages, unlike the Go tools above. Installed alongside pownforge itself
 # rather than via `go install`.
 RUN pip install --break-system-packages '.[pdf]' semgrep checkov
+
+# projectdiscovery httpx (the `httpx`/`httpprobe` plugins): built from
+# source, same as ffuf/nuclei/subfinder above, but installed *after* `pip
+# install` rather than alongside the other Go tools. pownforge's own
+# `httpx>=0.27` dependency (the unrelated Python HTTP client library) ships
+# a console-script also named `httpx`; pip installs it to this same
+# /usr/local/bin, so whichever of the two is installed *last* wins the
+# name. Installing the real (Go) tool here, after pip, is what makes
+# `httpx`/`httpprobe` actually invoke the projectdiscovery binary instead
+# of silently running the Python library's CLI shim (confirmed by real
+# scan: the shim rejects every httpx-specific flag with "No such option").
+RUN go install github.com/projectdiscovery/httpx/cmd/httpx@latest \
+    && install -m755 /root/go/bin/httpx /usr/local/bin/httpx
+
 # semgrep/syft/grype all check for a newer release over the network by
 # default, even for a bare `--version`/`version` -- on pownforge-lab
 # (--internal, no route to the internet by design) this doesn't fail fast,

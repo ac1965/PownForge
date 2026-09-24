@@ -795,9 +795,21 @@ pownforge scan httpx --target lab-web --option paths=/,/admin,/api/health
 
 **ツール名の衝突に注意**: projectdiscovery httpxはバイナリ名が`httpx`で、
 Pythonの`httpx`ライブラリが入れるCLIシムと名前が衝突する。このプラグインは
-**projectdiscoveryのバイナリ**を前提とするため、PATH上でそちらが先に
-来るようにする(Dockerランタイムイメージは`go install`で正しい方を導入
-済み)。
+**projectdiscoveryのバイナリ**を前提とするため、`/usr/local/bin/httpx`に
+最後に上書きインストールされた方が実際に使われる。
+
+**実機検証で発見したバグ**: Dockerランタイムイメージで、`go install`
+(projectdiscoveryのバイナリ)の**後に**`pip install '.[pdf]' ...`
+(pownforge自身の依存`httpx>=0.27`ライブラリを含む)を実行していたため、
+pipが入れるPython版のCLIシムが同じパスを上書きし、`httpx`/`httpprobe`
+両プラグインがコンテナ内で**常にPython版のシムを実行**していた
+(`httpx -version`等のフラグを全て拒否するため、実行すれば即座に失敗する
+はずが、`httpprobe`の実機検証で偶然この状態のまま試すまで気づかれなかった)。
+`docker/Dockerfile.runtime`でprojectdiscovery httpxの`go install`を
+`pip install`の**後**に移動し、常に最後にインストールされる方
+(projectdiscoveryのバイナリ)が勝つように修正した。ホスト`.venv`側は
+この収集順序と無関係(`go install`/Homebrew等、別のディレクトリに
+インストールされるため影響を受けない)。
 
 ### identity(`curl`、OIDC/OAuth discovery文書)
 
@@ -1258,6 +1270,11 @@ pownforge scan run httpprobe --target corp-domain --option hosts=sub-a,sub-b
 実行し、許可された2対象のみ実際にプローブされ(ステータス/タイトル/
 Webサーバー/技術スタックを取得)、残り2件は通信されずに
 `excluded_hosts`と`AuditStore`の両方へ記録されることを確認した。
+Dockerランタイムイメージでも(`pownforge-vulnerable-lab`のjuice-shop/
+flask-sqliを対象に)同じ許可/拒否の組み合わせを確認する過程で、
+前述の[§6 httpx](#6-プラグイン)に記載したバイナリ衝突バグ
+(`pip install`がprojectdiscovery httpxを上書きし、`httpprobe`/`httpx`
+両方がコンテナ内で常に失敗していた)を発見・修正した。
 
 ### tls(`testssl.sh`)
 
