@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import json
 import subprocess
+import tempfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
+
+import yaml
 
 from pownforge.core.identifiers import IdentifierError, validate_identifier
 from pownforge.core.models import TargetKind
@@ -275,6 +278,88 @@ class LabProvider(ABC):
     def cleanup(self, scenario_id: str) -> None: ...
 
 
+def _force_localhost_port(entry: Any) -> Any:
+    """Rewrite one `ports:` list entry (Compose short or long syntax) so
+    its host side is explicitly 127.0.0.1, regardless of what it already
+    said (including an explicit "0.0.0.0"). Used only by
+    VulhubProvider._localhost_only_up_command() -- see its docstring.
+
+    Short syntax ("HOST:CONTAINER", optionally "/tcp"|"/udp" suffixed) has
+    exactly one colon when no host IP is already present; that's the only
+    case rewritten to prepend "127.0.0.1:". A bare container-only port
+    (e.g. "80", no colon at all -- Compose then picks a random host port)
+    is left as-is: Vulhub itself doesn't use this form (checked across
+    the scenarios this feature was verified against), and there's no host
+    port here yet to bind to a specific interface. An entry that already
+    has 2+ colons (an existing host-ip:host-port:container-port) has its
+    host-ip segment replaced. The long (mapping) syntax gets/overwrites a
+    `host_ip` key the same way."""
+    if isinstance(entry, str):
+        if entry.count(":") == 1:
+            return f"127.0.0.1:{entry}"
+        parts = entry.split(":")
+        if len(parts) >= 3:
+            return "127.0.0.1:" + ":".join(parts[1:])
+        return entry
+    if isinstance(entry, dict):
+        entry = dict(entry)
+        entry["host_ip"] = "127.0.0.1"
+        return entry
+    return entry
+
+
+def _extract_declared_host_port(entry: Any) -> int | None:
+    """The fixed host port a single `ports:` entry declares, or None if it
+    doesn't declare one (a bare container-only port like "80", or a value
+    yaml.safe_load can't parse as a plain int, e.g. `"${PORT}:80"` env-var
+    interpolation -- Compose resolves that at runtime, not here). Used only
+    by _declared_port_order() below."""
+    if isinstance(entry, str):
+        spec = entry.split("/", 1)[0]  # drop an optional "/tcp"|"/udp" suffix
+        parts = spec.split(":")
+        if len(parts) < 2:
+            return None
+        try:
+            return int(parts[-2])
+        except ValueError:
+            return None
+    if isinstance(entry, dict):
+        published = entry.get("published")
+        if published is None:
+            return None
+        try:
+            return int(published)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _declared_port_order(compose_file: Path) -> list[int]:
+    """Host ports in the order COMPOSE_FILE's own `services:` declare them
+    (service iteration order, then each service's `ports:` list order).
+
+    `docker compose ps --format json`'s own row/Publisher order does not
+    reliably match this -- confirmed via real-machine testing against
+    Vulhub's log4j/CVE-2021-44228, whose file lists 8983 (the Solr admin
+    port the scenario's own PoC targets) before 5005 (a JDWP debug port),
+    but `ps` reported 5005 first. `lab_provider start --register`
+    (cli/lab_provider.py) blindly registers `published_ports[0]` as the
+    scan target, so that ordering mismatch silently registered the wrong
+    port. VulhubProvider._reorder_by_compose_declaration() uses this list
+    to put `status()`'s published_ports back in the file's own order."""
+    try:
+        data = yaml.safe_load(compose_file.read_text()) or {}
+    except (yaml.YAMLError, OSError):
+        return []
+    order: list[int] = []
+    for service in (data.get("services") or {}).values():
+        for entry in service.get("ports") or []:
+            port = _extract_declared_host_port(entry)
+            if port is not None:
+                order.append(port)
+    return order
+
+
 class VulhubProvider(LabProvider):
     """LabProvider over a local Vulhub checkout (github.com/vulhub/vulhub).
     Each scenario is a directory containing a docker-compose file; the
@@ -369,15 +454,79 @@ class VulhubProvider(LabProvider):
         return running, ports
 
     def status(self, scenario_id: str) -> LabScenario:
-        path = str(self._compose_file(scenario_id).parent)
+        compose_file = self._compose_file(scenario_id)
         running, ports = self._parse_ports(scenario_id)
-        return LabScenario(id=scenario_id, path=path, running=running, published_ports=ports)
+        ports = self._reorder_by_compose_declaration(compose_file, ports)
+        return LabScenario(id=scenario_id, path=str(compose_file.parent), running=running, published_ports=ports)
+
+    @staticmethod
+    def _reorder_by_compose_declaration(compose_file: Path, ports: list[PublishedPort]) -> list[PublishedPort]:
+        """Put PORTS (as `docker compose ps` returned them) back into the
+        order COMPOSE_FILE's own `ports:` declarations use, so
+        `published_ports[0]` -- what `lab_provider start --register` and
+        `pownforge lab provider start --register` treat as "the" port --
+        is deterministic and matches the scenario author's intent instead
+        of `docker compose ps`'s own row order. A port not found in the
+        declared order (an unparseable entry, e.g. env-var interpolated)
+        keeps its original relative position, appended after every
+        matched port -- see _declared_port_order()."""
+        order = _declared_port_order(compose_file)
+        if not order:
+            return ports
+        rank = {port: i for i, port in enumerate(order)}
+        fallback_base = len(order)
+        indexed = sorted(enumerate(ports), key=lambda pair: rank.get(pair[1].host_port, fallback_base + pair[0]))
+        return [port for _, port in indexed]
 
     def start(self, scenario_id: str) -> LabScenario:
-        result = self._compose(scenario_id, "up", "-d")
+        # Vulhub's own compose files publish ports as plain "HOST:CONTAINER"
+        # strings with no host IP (see e.g. log4j/CVE-2021-44228's
+        # "8983:8983") -- Docker then binds the host side on *every*
+        # interface, not just loopback (confirmed empirically: Docker
+        # Desktop for Mac listens on `*:<port>`, reachable from the LAN,
+        # not `127.0.0.1:<port>`). docs/handbook.md §7's "isolated lab
+        # host" precondition for running an intentionally vulnerable
+        # scenario is undermined if PownForge itself reintroduces network
+        # exposure this way, so `up` always runs against a rewritten copy
+        # of the compose file with every published port forced to
+        # 127.0.0.1 -- never against Vulhub's own file, and never mutating
+        # the checkout (the rewritten file is a throwaway temp file;
+        # `--project-directory` keeps relative volume/build paths in the
+        # compose file resolving against the real scenario directory).
+        command, tmp_compose = self._localhost_only_up_command(scenario_id)
+        try:
+            result = self._run(command)
+        finally:
+            tmp_compose.unlink(missing_ok=True)
         if result.returncode != 0:
             raise LabError(f"failed to start scenario '{scenario_id}': {result.stderr.strip()}")
         return self.status(scenario_id)
+
+    def _localhost_only_up_command(self, scenario_id: str) -> tuple[list[str], Path]:
+        """Build the `docker compose up -d` argv for SCENARIO_ID against a
+        rewritten copy of its compose file (every `ports:` entry forced to
+        bind 127.0.0.1), plus the path of that temp file so the caller can
+        remove it once the command has run. See `start()` for why."""
+        compose_file = self._compose_file(scenario_id)
+        data = yaml.safe_load(compose_file.read_text()) or {}
+        for service in (data.get("services") or {}).values():
+            ports = service.get("ports")
+            if ports:
+                service["ports"] = [_force_localhost_port(entry) for entry in ports]
+        fd, tmp_name = tempfile.mkstemp(prefix="pownforge-vulhub-", suffix=".yml")
+        tmp_path = Path(tmp_name)
+        try:
+            with open(fd, "w") as handle:
+                yaml.safe_dump(data, handle, sort_keys=False)
+        except BaseException:
+            tmp_path.unlink(missing_ok=True)
+            raise
+        command = [
+            "docker", "compose", "-f", str(tmp_path),
+            "--project-directory", str(compose_file.parent),
+            "up", "-d",
+        ]
+        return command, tmp_path
 
     def stop(self, scenario_id: str) -> None:
         result = self._compose(scenario_id, "stop")

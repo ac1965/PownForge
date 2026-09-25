@@ -1698,12 +1698,22 @@ pownforge lab provider cleanup log4j/CVE-2021-44228 --purge
   `VulhubProvider(root)`はチェックアウトを指すだけで、シナリオidは
   チェックアウト直下からの相対パス(例: `log4j/CVE-2021-44228`)。
   パストラバーサル(`../`等でチェックアウト外を指す指定)は拒否する
-- **意図的に脆弱な環境**を起動する点に注意。Vulhubのcompose fileは
-  ポートをホスト側に公開する(全インターフェースにbindするものもある)
-  ため、隔離されたラボホストでのみ実行すること。`start`はこの旨を警告
-  として表示する。`--register`は最初の公開ポートを`127.0.0.1`のurl対象
-  として`ScopePolicy.add_target()`経由でのみ登録する(スコープ検証を
-  迂回しない)
+- **意図的に脆弱な環境**を起動する点に注意。**隔離されたラボホストでのみ
+  実行すること**が前提であり、`start`はこの旨を警告として表示する。
+  その上で多層防御として、`start`は常に`up`をVulhub自身のcompose file
+  そのままでは実行しない。Vulhubのcompose fileはポートを
+  `"8983:8983"`のようにホストIP無しで公開しており、これは(Linuxは
+  もちろん)Docker Desktop for Macでも実機検証で確認した通り**全
+  インターフェース**(`*:8983`、同一LAN上の他端末からも到達可能)に
+  バインドされる。`VulhubProvider._localhost_only_up_command()`が
+  起動直前にcompose fileを読み込み、全ての`ports:`エントリを
+  `127.0.0.1:...`へ強制的に書き換えた一時ファイルに対して`up`を実行する
+  (書き換え結果はチェックアウト自体には書き込まない使い捨てファイル。
+  相対パスの解決は`--project-directory`で元のシナリオディレクトリを
+  指定して維持する)。既に`0.0.0.0:PORT:PORT`のように明示的にワイルド
+  カード指定されている場合も同様に`127.0.0.1`へ強制する。`--register`は
+  最初の公開ポートを`127.0.0.1`のurl対象として`ScopePolicy.add_target()`
+  経由でのみ登録する(スコープ検証を迂回しない)
 - `docker compose`の実行は`core/lab.py`の`VulhubProvider`に閉じ込め、
   `LabManager`/`KindClusterManager`と同じくrunnerを注入可能にしてテスト
   できるようにしている
@@ -1749,12 +1759,25 @@ pownforge lab provider cleanup log4j/CVE-2021-44228 --purge
 **到達性のポイント(コールバックが出ないときの調整)**:
 
 - `jndi.oob-lookup-probe`(および`http.oob-interaction`)のリスナーは
-  `--option bind_host=<addr>`で指定したホストアドレスにbindし、マーカーも
-  そのアドレスを指す。既定`127.0.0.1`はコンテナからは自分のループバックに
-  なり届かないため、**コンテナ側から到達できるホストアドレス**を指定する
-  (既定bridgeのgateway、Docker Desktopなら`host.docker.internal`が使える
-  こともある)。Vulhubシナリオが独自ネットワークを使う場合は、そのネット
-  ワークのgatewayを`docker network inspect <net>`で確認する
+  `--option bind_host=<addr>`で指定したホストアドレスに**そのままbind**し
+  (`socket.bind((bind_host, 0))`)、マーカーも同じアドレスを指す。既定
+  `127.0.0.1`はコンテナからは自分のループバックになり届かないため、
+  **コンテナ側から到達でき、かつPownForgeを実行しているホスト自身に実在
+  するアドレス**を指定する必要がある
+  - Linuxホストで既定bridgeネットワークを使うシナリオなら、そのgateway
+    (多くは`172.17.0.1`)がホスト自身のインターフェースなのでそのまま使える
+  - **Docker Desktop for Mac/Windowsでは事情が異なる**(実機検証で確認、
+    下記「実機検証記録」参照)。Vulhubシナリオがcompose独自ネットワークを
+    作る場合、その`docker network inspect <net>`のgatewayはDocker Desktop
+    内部のLinux VMのアドレスであり、**Mac/Windows側のホストには存在しない
+    ため`bind()`が`Can't assign requested address`で失敗する**。
+    `host.docker.internal`もコンテナ側からホストを指す名前であり、Mac側の
+    OSでは名前解決できないため`bind_host`には使えない。実際に機能したのは
+    **ホストのLAN側実IP**(`ipconfig getifaddr en0`等で確認できるアドレス、
+    例`192.168.x.x`)を`bind_host`に指定する方法で、Docker Desktopの
+    NAT経由でコンテナからそのIPへの経路が通る。試行時間の短い検証用途とは
+    いえ、この間そのIPでLAN上から到達可能な生ソケットが一時的に開くため、
+    信頼できるネットワーク上でのみ行うこと
 - 対象が実際にそのヘッダ(既定`X-Api-Version`)をログ経由でJNDI解決する
   経路でなければコールバックは出ない。シナリオのREADME/PoCで注入点
   (ヘッダ名やパラメータ)を確認し、`--option header=<name>`を合わせる。
@@ -1762,6 +1785,55 @@ pownforge lab provider cleanup log4j/CVE-2021-44228 --purge
 - 観測できるのは「外向きルックアップの試行」まで(露出指標)。実際の悪用
   可否・影響は、人間が別ツールで確認して`pownforge result import`で
   同じ証跡・レポートに取り込む(PownForge自身はexploitを実行しない)
+
+**実機検証記録(2026-09-25、Docker Desktop for Mac)**: 上記手順を
+`log4j/CVE-2021-44228`で実際に一気通貫で確認した(信頼できるプライベート
+ネットワーク上で実施)。
+
+- `git clone --depth 1`でVulhubを取得 → `lab provider list`で
+  `log4j/CVE-2021-44228`を検出 → `lab provider start --register`で起動・
+  登録、というlifecycle部分を実機確認
+- **実機検証で発見(このセッションで修正済み)**: 修正前のコードで
+  `docker compose up -d`を素のcompose fileに対して実行したところ、
+  `docker ps`で確認した実際の待受アドレスが`*:8983`(全インターフェース)
+  になっていた。macOSの`lsof`で`localhost:8983`ではなく`*:8983`で
+  LISTENしていることを確認し、「隔離ラボホストでのみ実行」という前提を
+  PownForge自身が無自覚に壊しうることが分かったため、上記
+  `_localhost_only_up_command()`を実装して`127.0.0.1`固定にした。修正後は
+  同じシナリオで`docker ps`/`lsof`とも`127.0.0.1:8983`/`localhost:8983`の
+  みで待受することを再確認済み
+- **実機検証で発見・このセッションで修正済み**: `--register`は
+  `published_ports[0]`(=`docker compose ps --format json`が返す順序の
+  先頭)を無条件に登録する(`cli/lab_provider.py`)。このシナリオの
+  compose fileは`8983`(Solr管理画面、シナリオ自身のPoCが対象とするポート)
+  を`5005`(JDWPデバッグポート)より先に書いているにもかかわらず、実際に
+  登録されたのは`5005`だった — `docker compose ps`の返す順序はcompose
+  file記載順と一致しない。複数ポートを公開するVulhubシナリオ全般に影響
+  しうる非決定的な挙動だったため、`VulhubProvider._declared_port_order()`
+  /`_reorder_by_compose_declaration()`を追加し、`status()`が返す
+  `published_ports`を常にcompose file自身の宣言順に並べ替えるよう修正した
+  (env変数展開などパースできないエントリは元の相対順のまま末尾に回す
+  フォールバック付き)。同じシナリオで再検証し、`--register`が正しく
+  `8983`を選ぶことを実機で再確認済み。回帰テストは
+  [tests/test_lab_provider.py](../tests/test_lab_provider.py)に追加した
+- 検証プリミティブ`jndi.oob-lookup-probe`は、Docker Desktopのネットワーク
+  事情により`bind_host`にデフォルトbridgeのgateway/`host.docker.internal`
+  のいずれも使えず(前項の「到達性のポイント」参照)、ホストのLAN実IPを
+  指定して実行した。このシナリオの実際の注入点はHTTPヘッダーではなく
+  `GET /solr/admin/cores?action=${jndi:...}`のクエリパラメータのため
+  (Vulhub本体のREADME参照)、ヘッダー注入のみに対応する
+  `jndi.oob-lookup-probe`では想定どおりコールバックは観測されなかった
+  (`observations`に「6秒以内にコールバック無し」を正しく記録、
+  `findings`/`claims`は0件)。プリミティブのprepare→observe→cleanupの
+  一連の流れ・リソース登録(`verified-absent`)・レポート反映(0件として
+  正しく表示)が実際に機能することは確認できた
+- `pownforge report engagement --target vulhub-log4j-solr`で、上記
+  primitive runがタイムラインに反映された横断レポートが生成されることを
+  確認した
+- 後片付け: `lab provider cleanup --purge`でコンテナ・ボリューム・
+  自動登録対象を削除、手動追加した対象も`target remove`で削除。
+  `docker ps -a`/`docker volume ls`/`docker network ls`/`lsof`のいずれでも
+  残留が無いことを確認し、ローカルのVulhubチェックアウトも削除した
 
 ## 8. Playbook: 複数プラグインの連続実行
 
@@ -3562,9 +3634,6 @@ Docker経由、アクティブスキャンのオプション自体が存在し�
   登録対象配下の複数パス一括プローブは`httpx`プラグインとして実装済み)
 - 認証情報を扱う`identity`系プラグイン(`identity`プラグインは公開
   discovery文書の取得のみで、認証情報は扱わない)
-- 実Vulhubチェックアウトでの実機スモーク(`lab provider`はfake compose runnerで
-  単体検証済み。実Vulhub環境での「start→primitive run→report engagement」の
-  実機確認は、意図的に脆弱なコンテナを起動するため隔離ラボホストで実施する想定で未実施)
 - 武器化されたexploitの自動実行(RCEペイロード配信・gadget chain・
   web/memシェル等)。**設計上の一線として実装しない**。実際の悪用工程は
   人間が別ツールで実施し`result import`で証跡化する分離を維持する
@@ -3663,7 +3732,7 @@ pivotとして)で全段階を記録し、5 stageの`AttackSession`
 | --- | --- | --- |
 | **§3(一部)** | ATT&CK技術IDタグ付け: `Finding`/`AttackNode`/`AttackEdge`/`Action`への`attack_technique_ids`フィールド追加(後方互換)、語彙のdocs/handbook.md定義([§14「ATT&CKタグ」](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計))、`vulncheck`プラグインでの初適用、CLI(`--attack-technique`)・Web API(`attack_technique_ids`)からの明示的な付与 | ✅ 完了(2026-09-25) |
 | **§3(残り)** | 重大度表現の共通severityモデルへの正規化(CVSSベース+ツール固有情報の保持)、RiskForge `RawFinding`スキーマとの対応表のドキュメント化 | 未着手 |
-| **§0-3** | 実Vulhubチェックアウトでの実機スモークテスト(隔離ラボホスト前提) | 未着手 |
+| **§0-3** | 実Vulhubチェックアウトでの実機スモークテスト(隔離ラボホスト前提)。副次的に発見した2件のバグ、(1)Vulhubのポート公開が全インターフェースにbindされる問題(`_localhost_only_up_command()`)、(2)`--register`が非決定的な順序でポートを選ぶ問題(`_reorder_by_compose_declaration()`)、いずれもその場で修正 | ✅ 完了(2026-09-25。実機検証記録は[§7「実機スモーク手順」](#7-ラボネットワーク)参照) |
 | **§1(残課題)** | Operationレポート生成(`pownforge operation report`、`reporting/operation.py`)、Operation経由scan Actionの非同期実行化(`POST .../execute-async` + `JobManager`のWSジョブキュー) | ✅ 完了(2026-09-25。現状再確認の上でユーザーに再提案し、着手の同意を得てから実施) |
 | **§2** | `result import`/`add-finding`のCLI/Web実運用フローの洗い出しとバッチ取り込み等のUX改善 | 未着手 |
 | **§4** | 配布・セットアップ(pipx検証、README「ネイティブ/Docker」2経路整理) | 未着手 |
