@@ -26,6 +26,7 @@ lab.md/web.md/emacs.md/walkthrough-report.md/walkthrough.md/roadmap.md)は
 16. [テスト](#16-テスト)
 17. [付録: 実装状況サマリー](#17-付録-実装状況サマリー)
 18. [RiskForgeとの関係(姉妹プロジェクト)](#18-riskforgeとの関係姉妹プロジェクト)
+19. [付録: 用語解説](#19-付録-用語解説)
 
 ---
 
@@ -3587,3 +3588,114 @@ RiskForge = 是正の計画・承認・実行管理・検証結果の記録
 - どちらかのPhase実装に便乗させてRiskForge連携を先行実装しない、という
   制約はRiskForge側のAGENTS.mdに明記されています。PownForge側でも同様に、
   ユーザーから明示的な依頼がない限りRiskForge向けの専用コードは追加しません
+
+## 19. 付録: 用語解説
+
+本書内で断りなく使っている固有名詞・略語を、初出セクションへのリンク
+付きでまとめます。実装の詳細はリンク先の本文を正としてください
+(本節は索引であり、定義の重複した正本ではありません)。
+
+### 19.1 コアモデル
+
+| 用語 | 説明 |
+| --- | --- |
+| `Target` | スキャン対象1件を表すモデル(`name`/`kind`/`address`/`allowed_plugins`/`environment`等)。[§12](#12-target-modelとスコープ制御)参照 |
+| `TargetKind`(`kind`) | `Target.address`の形式(`host`\|`url`)。後述の`kind`(kindクラスタ、[§7](#7-ラボネットワーク))とは無関係の別概念 |
+| `ScopePolicy` | `config/targets.yaml`を読み書きし、`authorize()`/`add_target()`/`authorize_pivot()`でスキャン実行・対象登録・横展開を許可/拒否するコアの認可コンポーネント(`core/policy.py`)。[§12](#12-target-modelとスコープ制御) |
+| `SafetyPolicy` | `ScopePolicy`の下で、範囲内の対象に対して検証プリミティブがどこまで到達してよいか(`allowed_actions`/`max_validation_level`/`execution_enabled`等)を制限するポリシー。[§15](#15-検証プリミティブフレームワークphase-2設計骨格) |
+| `Engagement` | 「対象Aから対象Bへの横展開」を記録するための、`Target`とは別の認可単位(対象名の集合)。実行権限は一切追加しない、あくまでブックキーピング層。[§12](#12-target-modelとスコープ制御) |
+| `excluded` / `max_concurrent` | `Target`が持つ、一時的な全面拒否フラグと対象単位の同時実行数上限。[§12](#12-target-modelとスコープ制御) |
+| `Finding` | 1件の検出事項(`title`/`severity`/`detail`/`source`)。`source="tool"`(プラグインの`_findings`由来)と`source="ai"`(`pownforge analyze`由来)がある。severityが不正な値の場合は`info`にフォールバックする(`core/finding_utils.py`) |
+| `RunRecord` | 1回のスキャン実行の証跡一式(コマンド・出力・findings・タイムスタンプ・`via_target`/`engagement`等)。`EvidenceStore`が保存する単位 |
+| `EvidenceStore` | 実行証跡(コマンド・タイムスタンプ・SHA-256ハッシュ)を保存し、`evidence verify`でハッシュ検証する永続化層(`evidence/store.py`)。[§13](#13-証跡とレポート) |
+| `AuditStore` | `ScopePolicy`/`SafetyPolicy`に拒否されたスキャン・プリミティブ実行の試みを記録する永続化層(`evidence/audit.py`)。この記録経路を迂回する変更はしない([AGENTS.md](../AGENTS.md)の制約) |
+| `mask_command()` | `Evidence.command`に保存する前に、`--token`/`--password`等それらしい名前のフラグの値を`***`に置換するキーワードヒューリスティック(`core/secrets.py`)。[§2](#2-全体アーキテクチャ) |
+
+### 19.2 実行基盤
+
+| 用語 | 説明 |
+| --- | --- |
+| `Plugin` | 個別の外部ツール(nmap/ffuf/nuclei等)ごとの実装単位。`build_command`/`normalize`の2メソッドのみを担当し、実際のプロセス起動はしない(`plugins/base.py`)。[§2](#2-全体アーキテクチャ) |
+| `PluginRegistry` | プラグイン名ごとに単一の`Plugin`インスタンスを保持するレジストリ。entry point経由の外部プラグイン(Plugin SDK、[§6](#6-プラグイン))もここに登録される |
+| `PluginExecution` | `ScanRunner`が実行ごとに新しい一時ディレクトリとともに生成し、`build_command`/`normalize`の両方に渡すインスタンス。中間出力パスは`self`ではなく`execution.path("name")`から得る(同一`Plugin`インスタンスへの並行実行が一時ファイルを混同しないための設計) |
+| `ScanRunner` | `ScopePolicy.authorize()`→`ConcurrencyGuard`→`Plugin.build_command()`→`ProcessExecutor.run()`→`Plugin.normalize()`→`EvidenceStore.save()`の一連の流れを統括するコア実行エンジン(`core/runner.py`) |
+| `ProcessExecutor` | 実際に`subprocess`を起動する唯一の場所の1つ(`core/process.py`)。`cli/`パッケージから直接`subprocess`を呼ばないための一本化ポイント |
+| `ConcurrencyGuard` | `<workdir>/active/<target>/`配下のロックファイルで、プロセスをまたいで対象ごとの同時実行数(`max_concurrent`)を管理するコンポーネント(`core/concurrency.py`)。[§12](#12-target-modelとスコープ制御) |
+| `Playbook` | 複数プラグインを決まった順序で連続実行する定義ファイル(`config/playbooks/*.yaml`)。実行時の分岐やAI判断は入れず、各ステップで`ScanRunner.run()`を呼ぶだけ(`orchestrator.py`)。[§8](#8-playbook-複数プラグインの連続実行) |
+| `LabManager` | 隔離Dockerネットワーク(既定`pownforge-lab`、常に`--internal`)上の検証対象コンテナを起動・削除するコンポーネント(`core/lab.py`)。`KindClusterManager`(kindクラスタ)・`VulhubProvider`(Vulhub連携)も同様の外部Lab Provider。[§7](#7-ラボネットワーク) |
+| `kind` | Docker上でKubernetesクラスタを起動するツール(kind-in-Docker)。`pownforge lab kind`が使う。`Target.kind`(上記`TargetKind`)とは無関係の別語彙。[§7](#7-ラボネットワーク) |
+
+### 19.3 攻撃経路のモデル化
+
+| 用語 | 説明 |
+| --- | --- |
+| `AttackSession` | 複数の既存`RunRecord`を、事後的に名前付きの経路として束ねる記録専用の枠組み(`core/attack_session.py`)。「実行済みのrunを物語化する」後方互換経路。[§13.4](#13-証跡とレポート) |
+| `AttackOperation` | 「これから何を・どういう順番で・誰の承認を得て実行するか」を事前に計画する、`AttackSession`とは独立したモデル(`core/operation/`、Phase 2設計)。[§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計) |
+| `AttackNode` / `AttackEdge` | `AttackOperation`内の到達済み・既知の対象(ノード)と、対象間の到達関係(エッジ)。`AttackNode.state`(`known`/`planned`/`approved`/`succeeded`/`failed`等)は`operation execute`を通したときだけ変化する |
+| `Action` | `AttackOperation`内の実行候補。`kind`は`scan`(`ScanRunner`に委譲)/`manual`/`pivot`(いずれもPownForge自身は実行せず`result import`と同じ経路で記録するのみ)の3種 |
+| `Approval` | `Action`に対する人間の承認記録。「承認済みであること」は`requires`/`provides`の前提充足の代わりにはならない(独立したゲート) |
+| `requires` / `provides` | `Action`間の依存関係を表す自由記述タグ。あるActionが`completed`になると`provides`のタグが「利用可能」になり、別のActionの`requires`を満たす。固定enumの`Capability`とは別語彙([§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)の対応表参照) |
+| `Capability` | `Action`/`AttackEdge`の効果を分類する固定enum(`read-only`/`state-changing`/`credential-related`/`network-pivot`/`persistence`)。`SafetyPolicy`や検証プリミティブのdescriptorが参照する |
+| `KillChainPhase` | Findings/Actionをサイバーキルチェーン上の段階(`recon`/`weaponization`/`delivery`等)に位置づけるenum。`--phase`オプションで指定する。[§13.3](#13-証跡とレポート) |
+
+### 19.4 検証プリミティブ・フレームワーク
+
+`AttackOperation`が経路を計画する層であるのに対し、この層は「1つの技術を
+許可されたラボ内で制御された条件で検証し、観測し、必ず元に戻す」ための
+骨格です([§15](#15-検証プリミティブフレームワークphase-2設計骨格))。
+
+| 用語 | 説明 |
+| --- | --- |
+| `ValidationPrimitive` | 1つの検証技術を表す抽象クラス(`describe`/`evaluate_preconditions`/`prepare`/`execute`/`observe`/`cleanup`)。`PrimitiveRunner`が実行を統括し、プリミティブ自身は自分を実行しない |
+| `ValidationLevel` | 到達段階を表す3値。`detection`(制御アクションなし)/`validation`(OOBコールバック観測等、コード実行なし)/`execution`(`SafetyPolicy.execution_enabled=true`のラボのみ到達可) |
+| `Precondition` / `PreconditionReport` | 真偽値ではなく`met`/`unmet`/`unknown`の3状態を返す前提条件の評価結果。`execution`段階は全前提が`met`のときだけ実行する |
+| `Observation` / `Artifact` / `Claim` / `PrimitiveEvidence` | 観測した事実(`Observation`、`provenance=observed`固定)と、そこから導いた推論(`Claim`、根拠`supported_by`必須)を型で分離する4層のエビデンス構造 |
+| `ResourceRegistry` / `ManagedResource` | `prepare()`が生成した副作用を登録し、`created → cleanup_attempted → verified_absent`まで追跡する仕組み。cleanupが未検証のまま残った`residual_resources`はエラーではなく第一級の結果として記録される |
+| `PrimitiveRunner` | `ScopePolicy`→`SafetyPolicy`の順で認可した上でプリミティブの各フェーズを呼び出す実行エンジン。`ScanRunner`とプラグインの分離と同じ設計 |
+| OOB(Out-of-Band) | 対象への直接応答ではなく、外部リスナー(DNS/HTTPコールバック等)への副次的な通信で条件成立を観測する手法。`http.oob-interaction`プリミティブが使う。[§15](#15-検証プリミティブフレームワークphase-2設計骨格) |
+| JNDI | Javaの`Java Naming and Directory Interface`。`jndi.oob-lookup-probe`プリミティブが対象とする、Log4Shell等で悪用されたルックアップ機構 |
+
+### 19.5 AI機能
+
+| 用語 | 説明 |
+| --- | --- |
+| `ai.LLMAdapter`(`ollama.py`) | `llm` CLI経由でOllama/Claude/OpenAI等どのモデルでも使える分析アダプタ。スキャン対象やコマンドを決定する権限は持たない。[§11](#11-aiによる分析ウォークスルー提案) |
+| `pownforge analyze` | 保存済みRunRecordのfindingsをLLMに要約・分析させ、`source="ai"`の`Finding`として結果を**上書き保存**するコマンド |
+| `pownforge walkthrough generate` | 複数runをまたぐ物語調の接続ナラティブを生成する、読み取り専用のコマンド(RunRecordを書き換えない点が`analyze`と異なる) |
+| `Suggestion` | walkthroughが生成する「次に試すべきこと」の構造化提案。`Suggestion.plugin`はAIの自由記述でレジストリと突き合わせず、実行するには人間が改めて`pownforge scan`を呼ぶ必要がある |
+
+### 19.6 アーキテクチャ用語
+
+| 用語 | 説明 |
+| --- | --- |
+| composition root | `ScopePolicy`/`EvidenceStore`/`AuditStore`等をconfig/workdirパスから組み立てる処理を1箇所に集約したモジュール(`application/context.py`)。`cli/_shared.py`と`web/deps.py`の両方がここへ委譲する |
+| Application Service | CLIともWebとも独立した、Typer/FastAPI非依存のユースケース関数群(`application/`)。ドメイン例外のみを送出し、CLI/Webがそれぞれexit code/HTTP statusへ変換する |
+| Facade | 後方互換のために元のimportパス(例: `from pownforge.core.models import X`、`from pownforge.core.operation import X`)を維持しつつ、実装は別パッケージへ移した際の再エクスポート層 |
+| 薄いラッパー(thin wrapper) | Web UIのルーターやEmacs連携が満たすべき原則。スコープ検証・実行ロジックを再実装・迂回せず、`ScopePolicy`/`ScanRunner`/`LabManager`/`EvidenceStore`等を呼ぶだけに留める([AGENTS.md](../AGENTS.md)) |
+
+### 19.7 外部ツール・略語
+
+| 用語 | 説明 |
+| --- | --- |
+| NSE(Nmap Scripting Engine) | nmapのスクリプト機構。`vulncheck`プラグインが特定のNSEスクリプトのみを許可リスト方式で実行する。[§6](#6-プラグイン) |
+| kube-bench | CIS Kubernetes Benchmarkに基づく設定監査ツール。`kube-bench`プラグイン、およびkubernetesダッシュボードでの可視化に使う |
+| CIS Benchmark | Center for Internet Securityが定めるセキュリティ設定のベストプラクティス基準。kube-benchが準拠する基準の名称 |
+| testssl.sh | TLS/SSL設定を診断する外部ツール。`tls`プラグインが呼び出す。[§6](#6-プラグイン) |
+| ZAP baseline scan | OWASP ZAPのDockerイメージによる非侵襲的なWebベースライン診断。`zapbaseline`プラグインが呼び出す |
+| SBOM(Software Bill of Materials) | ソフトウェア構成要素の目録。`sbom`プラグイン(`syft`)が生成し、`imagevuln`プラグイン(`grype`)がその脆弱性を判定する |
+| IaC(Infrastructure as Code) | Terraform/Kubernetesマニフェスト等のコードとして書かれたインフラ定義。`iac`プラグイン(`checkov`)が静的診断する |
+| SAST(Static Application Security Testing) | ソースコードを実行せずに解析する静的診断。`sast`プラグイン(`semgrep`)が対応する |
+
+### 19.8 RiskForge連携用語
+
+姉妹プロジェクト[RiskForge](https://github.com/ac1965/RiskForge)との関係で
+使う語彙です。連携自体は両プロジェクトとも未実装で、設計上の正本は
+RiskForge側の`AGENTS.md`「20A. PownForge Integration」章です。
+[§18](#18-riskforgeとの関係姉妹プロジェクト)参照。
+
+| 用語 | 説明 |
+| --- | --- |
+| RawFinding → Normalizer → Matcher → Finding | RiskForge側でPownForgeの出力を取り込む想定の変換パイプライン。PownForgeはこの変換ロジックを一切持たず、既存の`report`/`evidence`の出力をそのまま使う |
+| Remediation | RiskForge側が担う是正の計画・承認・実行管理。PownForgeはRemediationを実行しない |
+| Verification | RiskForgeが是正結果の検証としてPownForgeを再実行する想定の呼び出し。PownForgeから見れば通常の`pownforge scan`が呼ばれるだけで、専用の実行経路は持たない |
+| `content_hash` | RiskForgeがEvidenceをコピーではなく参照で引き継ぐ際に使う想定のハッシュ値。PownForge側の`evidence verify`が返すSHA-256ハッシュがこれに対応する |
