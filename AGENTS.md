@@ -16,7 +16,7 @@ Pown.js の「モジュールを独立させ、CLIから呼び出す」という
 
 [RiskForge](https://github.com/ac1965/RiskForge)は、PownForgeと対になる
 防御側(Vulnerability & Exposure Management)の姉妹プロジェクトです(別
-リポジトリ)。連携の設計制約はRiskForge側の`AGENTS.md`「20. PownForge
+リポジトリ)。連携の設計制約はRiskForge側の`AGENTS.md`「20A. PownForge
 Integration」章が正本で、PownForge側から見た要点は
 [docs/handbook.md §18](docs/handbook.md#18-riskforgeとの関係姉妹プロジェクト)
 にまとめています。連携自体は両プロジェクトとも未実装(RiskForge側の

@@ -3544,7 +3544,7 @@ RiskForge
 ```
 
 連携の設計制約はRiskForge側の`AGENTS.md`
-「20. PownForge Integration」章が正本(source of truth)です。本節は
+「20A. PownForge Integration」章が正本(source of truth)です。本節は
 PownForge側の開発者が知っておくべき要点のみをまとめ、内容を重複・
 分岐させないようにします。連携自体はRiskForge側でPhase 5
 (Integrations)として設計されており、**両プロジェクトとも未実装**です。
