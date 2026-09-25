@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, RunRecord, Target } from "../api/client";
 
 const PHASES = [
@@ -76,7 +77,8 @@ export default function ImportRun() {
       {result && (
         <p className="muted">
           run <code>{result.run_id}</code> を記録しました
-          {result.artifacts.length > 0 ? `（証跡 ${result.artifacts.length} 件）` : ""}。
+          {result.artifacts.length > 0 ? `（証跡 ${result.artifacts.length} 件）` : ""}。{" "}
+          <Link to={`/runs/${result.run_id}`}>finding を追加する →</Link>
         </p>
       )}
 

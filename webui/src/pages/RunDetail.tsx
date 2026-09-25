@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api, EvidenceVerification, Finding, FindingStatus, RunRecord, Severity } from "../api/client";
+
+const SEVERITIES: Severity[] = ["info", "low", "medium", "high", "critical"];
 
 // Mirrors reporting/markdown.py's _SEVERITY_ORDER so the web view and the
 // generated Markdown report always agree on ordering.
@@ -46,6 +48,10 @@ export default function RunDetail() {
   const [verification, setVerification] = useState<EvidenceVerification | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [newCve, setNewCve] = useState("");
+  const [findingTitle, setFindingTitle] = useState("");
+  const [findingSeverity, setFindingSeverity] = useState<Severity>("info");
+  const [findingDetail, setFindingDetail] = useState("");
+  const [addingFinding, setAddingFinding] = useState(false);
 
   useEffect(() => {
     if (!runId) return;
@@ -99,6 +105,22 @@ export default function RunDetail() {
       .then(setRecord)
       .catch((e) => setError(String(e)))
       .finally(() => setReviewingId(null));
+  };
+
+  const submitFinding = (e: FormEvent) => {
+    e.preventDefault();
+    if (!runId || !findingTitle.trim()) return;
+    setAddingFinding(true);
+    api
+      .addFinding(runId, findingTitle.trim(), findingSeverity, findingDetail)
+      .then((rec) => {
+        setRecord(rec);
+        setFindingTitle("");
+        setFindingSeverity("info");
+        setFindingDetail("");
+      })
+      .catch((e) => setError(String(e)))
+      .finally(() => setAddingFinding(false));
   };
 
   return (
@@ -210,6 +232,7 @@ export default function RunDetail() {
                 {findings.map((f) => (
                   <li key={f.finding_id} className={`severity-${f.severity}`}>
                     <span className="badge">{f.severity}</span>
+                    {f.cvss_score !== null && <span className="cvss">CVSS {f.cvss_score}</span>}
                     <span className="source">{sourceLabel(f.source)}</span>
                     <strong>{f.title}</strong> — {f.detail}
                     <div className="finding-actions">
@@ -230,6 +253,30 @@ export default function RunDetail() {
           );
         })
       )}
+
+      <form onSubmit={submitFinding} className="option-row">
+        <input
+          placeholder="finding title"
+          value={findingTitle}
+          onChange={(e) => setFindingTitle(e.target.value)}
+          required
+        />
+        <select value={findingSeverity} onChange={(e) => setFindingSeverity(e.target.value as Severity)}>
+          {SEVERITIES.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+        <input
+          placeholder="detail(任意)"
+          value={findingDetail}
+          onChange={(e) => setFindingDetail(e.target.value)}
+        />
+        <button type="submit" disabled={addingFinding || !findingTitle.trim()}>
+          {addingFinding ? "追加中..." : "finding追加(要確認)"}
+        </button>
+      </form>
 
       <h3>
         AI分析{" "}

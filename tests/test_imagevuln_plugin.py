@@ -7,7 +7,7 @@ import pytest
 
 from pownforge.core.models import Target, TargetKind
 from pownforge.plugins.base import PluginError, PluginExecution
-from pownforge.plugins.imagevuln import ImagevulnPlugin
+from pownforge.plugins.imagevuln import ImagevulnPlugin, _cvss_from_grype_vulnerability
 
 DB_STATUS = json.dumps({"built": "2026-09-24T06:31:52Z", "valid": True})
 
@@ -108,6 +108,54 @@ def test_normalize_with_no_files_yields_no_matches(tmp_path: Path) -> None:
     assert output["matches"] == []
     assert output["_findings"] == []
     assert output["db_built_at"] is None
+
+
+# CVSS list shape captured from a real `grype alpine:3.10 -o json` run
+# (grype 0.99.x, CVE-2022-2068) -- see docs/handbook.md §3.5.
+_REAL_GRYPE_CVSS = [
+    {"source": "nvd@nist.gov", "type": "Primary", "version": "3.1", "vector": "CVSS:3.1/AV:L/AC:L/PR:L/UI:R/S:U/C:H/I:H/A:H", "metrics": {"baseScore": 7.3}},
+    {"source": "nvd@nist.gov", "type": "Primary", "version": "2.0", "vector": "AV:N/AC:L/Au:N/C:C/I:C/A:C", "metrics": {"baseScore": 10}},
+    {"source": "134c704f-9b21-4f2e-91b3-4a467353bcc0", "type": "Secondary", "version": "3.1", "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", "metrics": {"baseScore": 9.8}},
+]
+
+
+def test_cvss_from_grype_vulnerability_prefers_primary_and_highest_version() -> None:
+    result = _cvss_from_grype_vulnerability({"cvss": _REAL_GRYPE_CVSS})
+    assert result == (7.3, "CVSS:3.1/AV:L/AC:L/PR:L/UI:R/S:U/C:H/I:H/A:H")
+
+
+def test_cvss_from_grype_vulnerability_returns_none_when_absent() -> None:
+    assert _cvss_from_grype_vulnerability({}) is None
+    assert _cvss_from_grype_vulnerability({"cvss": []}) is None
+
+
+def test_normalize_attaches_cvss_and_native_severity_to_findings(tmp_path: Path) -> None:
+    plugin = ImagevulnPlugin()
+    execution = _execution(tmp_path)
+    execution.path("db-status.json").write_text(DB_STATUS)
+    report = json.dumps(
+        {
+            "matches": [
+                {
+                    "vulnerability": {
+                        "id": "CVE-2022-2068",
+                        "severity": "Critical",
+                        "fix": {},
+                        "cvss": _REAL_GRYPE_CVSS,
+                    },
+                    "artifact": {"name": "openssl", "version": "3.0.3-r0", "type": "apk"},
+                }
+            ]
+        }
+    )
+    execution.path("grype.json").write_text(report)
+
+    output = plugin.normalize(_target(), "", "", execution)
+
+    finding = output["_findings"][0]
+    assert finding["native_severity"] == "Critical"
+    assert finding["cvss_score"] == 7.3
+    assert finding["cvss_vector"] == "CVSS:3.1/AV:L/AC:L/PR:L/UI:R/S:U/C:H/I:H/A:H"
 
 
 def test_version_command() -> None:

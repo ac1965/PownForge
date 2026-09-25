@@ -21,19 +21,24 @@ def coerce_finding(item: dict[str, Any], source: str) -> Finding | None:
     detail = str(item.get("detail", ""))
     raw_technique_ids = item.get("attack_technique_ids", [])
     technique_ids = [str(t) for t in raw_technique_ids] if isinstance(raw_technique_ids, list) else []
+
+    raw_cvss_score = item.get("cvss_score")
+    cvss_score = float(raw_cvss_score) if isinstance(raw_cvss_score, (int, float)) else None
+    raw_cvss_vector = item.get("cvss_vector")
+    cvss_vector = str(raw_cvss_vector) if raw_cvss_vector else None
+    raw_native_severity = item.get("native_severity")
+    native_severity = str(raw_native_severity) if raw_native_severity else None
+
+    common_fields = dict(
+        title=str(title),
+        detail=detail,
+        source=source,
+        attack_technique_ids=technique_ids,
+        cvss_score=cvss_score,
+        cvss_vector=cvss_vector,
+        native_severity=native_severity,
+    )
     try:
-        return Finding(
-            title=str(title),
-            severity=item.get("severity", "info"),
-            detail=detail,
-            source=source,
-            attack_technique_ids=technique_ids,
-        )
+        return Finding(severity=item.get("severity", "info"), **common_fields)
     except ValueError:
-        return Finding(
-            title=str(title),
-            severity=Severity.INFO,
-            detail=detail,
-            source=source,
-            attack_technique_ids=technique_ids,
-        )
+        return Finding(severity=Severity.INFO, **common_fields)

@@ -52,12 +52,18 @@ class FindingDict(TypedDict, total=False):
     required in practice; severity falls back to "info" when missing or
     invalid (core/finding_utils.py). `attack_technique_ids` is optional
     (MITRE ATT&CK technique ids, e.g. "T1190") -- omit it when no mapping is
-    known; see docs/handbook.md §14 "ATT&CKタグ" for the adopted vocabulary."""
+    known; see docs/handbook.md §14 "ATT&CKタグ" for the adopted vocabulary.
+    `cvss_score`/`cvss_vector`/`native_severity` are optional common-severity-
+    model fields (docs/handbook.md §3.5) -- omit them when the source tool
+    has no CVSS data for this entry."""
 
     title: str
     severity: str
     detail: str
     attack_technique_ids: list[str]
+    cvss_score: float
+    cvss_vector: str
+    native_severity: str
 
 
 class Plugin(ABC):

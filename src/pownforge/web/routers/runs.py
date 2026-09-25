@@ -9,9 +9,9 @@ from pydantic import BaseModel
 
 from pownforge.ai.ollama import LLMAdapter
 from pownforge.core.analysis import AnalysisError, run_analysis
-from pownforge.core.findings import FindingNotFoundError, review_finding
+from pownforge.core.findings import FindingNotFoundError, add_finding, review_finding
 from pownforge.core.manual_evidence import import_manual_run
-from pownforge.core.models import EvidenceVerification, FindingStatus, KillChainPhase, RunRecord
+from pownforge.core.models import EvidenceVerification, FindingStatus, KillChainPhase, RunRecord, Severity
 from pownforge.core.policy import PolicyError, SafetyError, ScopePolicy
 from pownforge.core.settings import AppSettings, Language
 from pownforge.evidence.audit import AuditStore
@@ -174,6 +174,29 @@ def tag_run_cves(
             if c not in record.cves:
                 record.cves.append(c)
     store.save(record)
+    return record
+
+
+class FindingCreate(BaseModel):
+    title: str
+    severity: Severity = Severity.INFO
+    detail: str = ""
+
+
+@router.post("/runs/{run_id}/findings", response_model=RunRecord, status_code=201)
+def add_run_finding(
+    run_id: str, body: FindingCreate, store: EvidenceStore = Depends(get_store)
+) -> RunRecord:
+    """Attach a human-observed Finding (source="manual") to an existing run
+    -- the web equivalent of `pownforge result add-finding`. Works on any
+    run (a manual import or a tool scan alike), not just ones just
+    imported. Starts at needs-review like every Finding regardless of
+    source; a separate PATCH .../findings/{finding_id} call still confirms
+    it (see core/findings.py::add_finding)."""
+    try:
+        record, _ = add_finding(store, run_id, body.title, body.severity, body.detail)
+    except FindingNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return record
 
 

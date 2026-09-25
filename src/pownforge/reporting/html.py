@@ -40,6 +40,7 @@ dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; wor
 .severity-low .badge { background: #3498db; }
 .severity-info .badge { background: #95a5a6; }
 .source { font-size: .75rem; opacity: .7; margin-right: .4rem; }
+.cvss { font-size: .75rem; font-weight: bold; opacity: .8; margin-right: .4rem; }
 pre { background: #f5f5f5; padding: 1rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
 """
 
@@ -50,9 +51,10 @@ def _esc(value: object) -> str:
 
 def _render_finding(finding: Finding) -> str:
     tag = _SOURCE_LABELS.get(finding.source, "manual")
+    cvss = f' <span class="cvss">CVSS {_esc(finding.cvss_score)}</span>' if finding.cvss_score is not None else ""
     return (
         f'<div class="finding severity-{finding.severity.value}">'
-        f'<span class="badge">{_esc(finding.severity.value)}</span>'
+        f'<span class="badge">{_esc(finding.severity.value)}</span>{cvss}'
         f'<span class="source">({_esc(tag)}, <code>{_esc(finding.finding_id)}</code>)</span>'
         f"<strong>{_esc(finding.title)}</strong> — {_esc(finding.detail)}"
         f"</div>"

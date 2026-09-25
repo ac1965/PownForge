@@ -21,6 +21,39 @@ _SEVERITY_BY_GRYPE_SEVERITY = {
 }
 
 
+def _cvss_from_grype_vulnerability(vuln: dict[str, Any]) -> tuple[float, str] | None:
+    """Pick one (score, vector) pair from grype's `vulnerability.cvss` list
+    -- confirmed via a real `grype alpine:3.10` scan to be a list of
+    entries from possibly multiple sources/CVSS versions for the same
+    vulnerability (e.g. NVD's own v3.1 *and* v2.0 scores, plus a second
+    "Secondary" source's v3.1 score). Prefers a "Primary"-typed entry, and
+    among those the highest CVSS version -- same rationale as trivy's nvd
+    preference in _trivy.py: pick the most authoritative, most precise
+    score rather than averaging or listing every one."""
+    entries = vuln.get("cvss")
+    if not isinstance(entries, list) or not entries:
+        return None
+
+    def sort_key(entry: dict[str, Any]) -> tuple[bool, tuple[int, ...]]:
+        is_primary = entry.get("type") == "Primary"
+        version = str(entry.get("version") or "0")
+        try:
+            version_tuple = tuple(int(part) for part in version.split("."))
+        except ValueError:
+            version_tuple = (0,)
+        return (is_primary, version_tuple)
+
+    candidates = [e for e in entries if isinstance(e, dict)]
+    if not candidates:
+        return None
+    best = max(candidates, key=sort_key)
+    score = (best.get("metrics") or {}).get("baseScore")
+    vector = best.get("vector")
+    if isinstance(score, (int, float)) and vector:
+        return float(score), str(vector)
+    return None
+
+
 class ImagevulnPlugin(Plugin):
     name = "imagevuln"
     version = "0.1.0"
@@ -98,19 +131,24 @@ class ImagevulnPlugin(Plugin):
             "matches": matches,
             "raw_stdout": raw_stdout,
             "raw_stderr": raw_stderr,
-            "_findings": [
-                {
-                    "title": f"{match['id']} in {match['package']}@{match['version']}",
-                    "severity": _SEVERITY_BY_GRYPE_SEVERITY.get(match["severity"], "info"),
-                    "detail": (
-                        f"grype (independent DB from `container`/trivy): {match['id']} affects "
-                        f"{match['package']}@{match['version']}"
-                        + (f", fixed in {match['fixed_in']}" if match["fixed_in"] else " (no fix available)")
-                    ),
-                }
-                for match in matches
-            ],
+            "_findings": [self._finding_from_match(match) for match in matches],
         }
+
+    @staticmethod
+    def _finding_from_match(match: dict[str, Any]) -> dict[str, Any]:
+        finding: dict[str, Any] = {
+            "title": f"{match['id']} in {match['package']}@{match['version']}",
+            "severity": _SEVERITY_BY_GRYPE_SEVERITY.get(match["severity"], "info"),
+            "detail": (
+                f"grype (independent DB from `container`/trivy): {match['id']} affects "
+                f"{match['package']}@{match['version']}"
+                + (f", fixed in {match['fixed_in']}" if match["fixed_in"] else " (no fix available)")
+            ),
+            "native_severity": match["severity"],
+        }
+        if cvss := match.get("cvss"):
+            finding["cvss_score"], finding["cvss_vector"] = cvss
+        return finding
 
     @staticmethod
     def _parse_db_built_at(db_status_path) -> str | None:
@@ -155,6 +193,7 @@ class ImagevulnPlugin(Plugin):
                     "version": version,
                     "type": artifact.get("type"),
                     "fixed_in": fix_versions[0] if fix_versions else None,
+                    "cvss": _cvss_from_grype_vulnerability(vuln),
                 }
             )
         return matches

@@ -22,8 +22,9 @@ _SOURCE_LABELS = {"ai": "AI推定", "tool": "ツール検出"}
 
 def _render_finding(finding: Finding) -> str:
     tag = _SOURCE_LABELS.get(finding.source, "manual")
+    cvss = f", CVSS {finding.cvss_score}" if finding.cvss_score is not None else ""
     return (
-        f"- **[{finding.severity.value}]** ({tag}, `{finding.finding_id}`) "
+        f"- **[{finding.severity.value}]** ({tag}{cvss}, `{finding.finding_id}`) "
         f"{finding.title} — {finding.detail}"
     )
 

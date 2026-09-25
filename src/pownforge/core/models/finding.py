@@ -42,11 +42,35 @@ class Finding(BaseModel):
     # existing findings (no tags) loading unchanged. See docs/handbook.md
     # §14 "ATT&CKタグ" for the adopted vocabulary and assignment criteria.
     attack_technique_ids: list[str] = Field(default_factory=list)
+    # Common severity model (refactor v3 §3): `severity` above stays the
+    # single authoritative 5-level bucket every existing consumer (reports,
+    # walkthroughs, filtering, RunRecord persistence) already sorts/groups
+    # by -- these three fields are purely additive context, never a
+    # replacement. `cvss_score`/`cvss_vector` carry a numeric CVSS base
+    # score/vector when the plugin's own tool provides one (e.g. trivy's
+    # `CVSS.nvd.V3Score`, grype's `vulnerability.cvss[].metrics.baseScore`);
+    # `native_severity` keeps the tool's own severity label exactly as it
+    # reported it, before coerce_finding() (core/finding_utils.py) mapped
+    # it onto `severity` -- e.g. grype's "Negligible" or trivy's "UNKNOWN".
+    # All three are None when the source tool has no CVSS data (config/
+    # secret findings, most non-CVE findings) or a plugin hasn't been
+    # updated to populate them; existing findings without these fields
+    # load unchanged. See docs/handbook.md §3.5 "共通severityモデル".
+    cvss_score: float | None = None
+    cvss_vector: str | None = None
+    native_severity: str | None = None
 
     @field_validator("attack_technique_ids")
     @classmethod
     def _drop_blank_technique_ids(cls, value: list[str]) -> list[str]:
         return [item.strip() for item in value if item and item.strip()]
+
+    @field_validator("cvss_score")
+    @classmethod
+    def _validate_cvss_score_range(cls, value: float | None) -> float | None:
+        if value is not None and not (0.0 <= value <= 10.0):
+            return None
+        return value
 
 
 class Suggestion(BaseModel):

@@ -667,6 +667,10 @@ pownforge scan container --target web-app-image \
 検証し、実在のCVE(`CVE-2021-36159`)がfinding(`severity: critical`)として
 記録されることを確認済み。**再検証**(別セッション)でも同じ`alpine:3.10`
 に対して同じCVEが検出されることを確認、コード上の問題は見つからなかった。
+**共通severityモデル**(`cvss_score`/`cvss_vector`/`native_severity`、
+[§18.5](#18-riskforgeとの関係姉妹プロジェクト)参照)追加後の再検証では、
+同じCVEに`cvss_score=9.1`・`cvss_vector`・`native_severity=CRITICAL`が
+正しく付与されることを確認した。
 
 ### sqlmap
 
@@ -1167,6 +1171,12 @@ severity: critical)が検出されることを確認。DBは事前に`grype db u
 `docker compose build`した実行時イメージでも、ビルド時に同梱した
 DBが`--internal`ネットワーク上でも参照可能であること(`grype db status`)
 を確認した(イメージ自体の取得はホスト`.venv`側で検証、上記の制約参照)。
+**共通severityモデル**(`cvss_score`/`cvss_vector`/`native_severity`、
+[§18.5](#18-riskforgeとの関係姉妹プロジェクト)参照)追加後の再検証では、
+`alpine:3.10`実スキャン125件全findingに`cvss_score`/`native_severity`が
+正しく付与されることを確認した(grypeは同一CVEについて複数ソース・
+複数CVSSバージョンを返すことがあり、`Primary`かつ最新バージョンを
+優先して1件選ぶロジックを実装・実機データで検証済み)。
 
 ### iac(`checkov`)
 
@@ -2137,13 +2147,18 @@ medium/青=low/灰=info)付きで、検証状態(確認済み/要確認/誤検�
 | `POST /api/operations/{name}/edges` | ノード間のedgeを追加(`capabilities`省略時は`network-pivot`) |
 | `POST /api/operations/{name}/actions` | 候補Action(scan/manual/pivot)を追加。リクエストボディに`status`/`run_id`は存在せず、常に`planned`/`null`から始まる |
 | `POST /api/operations/{name}/actions/{action_id}/approve` | Actionへの人間の承認を記録(`{approved_by, note}`) |
-| `POST /api/operations/{name}/actions/{action_id}/execute` | 承認済みActionを実行。`scan`は既存`ScanRunner`経由、`manual`/`pivot`は`{output, ...}`必須の記録専用(`pownforge operation execute`と同じ`OperationRunner`) |
+| `POST /api/operations/{name}/actions/{action_id}/execute` | 承認済みActionを実行(同期)。`scan`は既存`ScanRunner`経由、`manual`/`pivot`は`{output, ...}`必須の記録専用(`pownforge operation execute`と同じ`OperationRunner`) |
+| `POST /api/operations/{name}/actions/{action_id}/execute-async` | `scan`種別Actionをジョブとして投入(非同期、`202`)。`{"job_id": ..., "status": "pending"}`を返す。`scan`以外は`400`(同期版`.../execute`を使う) |
+| `GET /api/operations/jobs/{job_id}` | 上記ジョブの状態(`pending/running/done/error`)・`run_id`・`returncode`を返す |
+| `WS /api/ws/operations/jobs/{job_id}` | scan Actionのライブ出力を行単位でストリーミング(`/ws/scans/{job_id}`と同じ形) |
+| `GET /api/operations/{name}/report[?format=markdown\|html\|pdf]` | `AttackOperation`のグラフ・Actions・findingsをまとめたレポート(詳細は[§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)「レポート生成」節)。`pdf`はreportlab未インストール時`501`を返す |
 | `GET /api/attack-sessions/{name}/report[?format=markdown\|html\|pdf]` | 経路レポート文字列(または`format=pdf`時は`application/pdf`のバイナリ)を返す(詳細は[§13](#13-証跡とレポート)の`AttackSession`節)。`pdf`はreportlab未インストール時`501`を返す |
 | `GET /api/runs` | 実行結果の一覧 |
 | `POST /api/runs/import` | 手動exploit工程の証跡を登録(multipart。target/command/output/tool/phase/cve+成果物ファイルのアップロード)。PownForgeは`command`を実行しない。詳細は[§13](#13-証跡とレポート) |
 | `GET /api/runs/{run_id}` | 実行結果の詳細(JSON) |
 | `GET /api/runs/{run_id}/report[?format=markdown\|html\|pdf]` | レポート文字列(または`format=pdf`時は`application/pdf`のバイナリ)を返す。`pdf`はreportlab未インストール時`501`を返す |
 | `POST /api/runs/{run_id}/analyze[?model=...&language=ja\|en]` | LLMで分析・分類し、結果を永続化。省略時は`config/settings.yaml`の値を使う |
+| `POST /api/runs/{run_id}/findings` | 人間観測のfinding(`source=manual`)をrunに追加(`{title, severity, detail}`)。`pownforge result add-finding`のWeb版、`201`。既定`needs-review`は変わらない(v3 §2で追加) |
 | `PATCH /api/runs/{run_id}/findings/{finding_id}` | findingの検証状態を更新 |
 | `PATCH /api/runs/{run_id}/cves` | 既存runのCVEタグを追加/削除(`{cves, remove}`)。CVE露出マトリクスの相関キー |
 | `GET /api/runs/{run_id}/verify` | 証跡のハッシュと一致するか確認 |
@@ -2731,11 +2746,17 @@ pownforge result import --target lab-web \
   --output "$(cat session.log)" \
   --tool msfconsole --tool-version "Metasploit Framework 6.4" \
   --phase exploit \
-  --artifact session.pcap --artifact screenshot.png
-
-pownforge result add-finding <run-id> --title "Shellshock RCEでシェル取得" \
-  --severity critical --detail "CVE-2014-6271"
+  --artifact session.pcap --artifact screenshot.png \
+  --finding-title "Shellshock RCEでシェル取得" \
+  --finding-severity critical --finding-detail "CVE-2014-6271"
 ```
+
+`--finding-title`(任意)を付けると、この`result import`と同じコマンドで
+Finding(`source=manual`)も同時に記録します(`--finding-severity`/
+`--finding-detail`は`--finding-title`と組み合わせてのみ意味を持つ)。
+付けなければ従来どおりfindingを一切作らず、後から
+`pownforge result add-finding <run-id> ...`で個別に追加できます
+(リファクタリング指示書v3 §2、下記「実際の作業順序の洗い出し」参照)。
 
 **PownForge自身は`--command`を一切実行しません**。あくまで「何を実行し、
 何が出力されたか」を記録するだけで、`evidence verify`による事後のハッシュ
@@ -2762,10 +2783,51 @@ Importページ / `POST /api/runs/import`(multipart)からも同じ登録がで�
 
 `Finding.source`には元々`"manual"`(人間が記録)という値が用意されていま
 したが、それを実際に作るCLIコマンドがありませんでした。
-`pownforge result add-finding`はその欠けていた経路を埋めるもので、
-既存の`review`と同様に、既定の状態は`needs-review`です(記録した本人でも、
-明示的な`pownforge result review ... confirmed`を経ないと確認済みには
-なりません)。
+`pownforge result add-finding`(または`result import --finding-title`)は
+その欠けていた経路を埋めるもので、既存の`review`と同様に、既定の状態は
+`needs-review`です(記録した本人でも、明示的な
+`pownforge result review ... confirmed`を経ないと確認済みにはなりません
+— これは意図的な安全設計で、`result import --finding-title`で1コマンドに
+まとめた場合も変わりません。`core/findings.py::add_finding`のdocstring
+参照)。
+
+#### 実際の作業順序の洗い出し(リファクタリング指示書v3 §2)
+
+実際のペネトレーションテストの作業順序(発見→手動実施→証跡取得→記録)
+に沿ってCLI・Web UI両方を実際に操作し、手数が多い箇所を洗い出した。
+
+- **CLI**: 「exploitして→証跡をimportして→findingを追加して→confirmする」
+  という一連の流れが、`result import`→`result add-finding`→
+  `result review`の3コマンドに分かれており、2回目・3回目は前段の出力
+  から`run_id`/`finding_id`をコピペする必要があった。`--phase`/`--cve`/
+  `--artifact`は`result import`が既に1コマンドで受け付けており、この点は
+  「無い」前提で再実装しなかった(指示書の指示どおり)
+- **Web UI**: より根本的なギャップとして、`add-finding`に相当する機能が
+  Web API・UIのどちらにも一切存在しなかった(`RunDetail.tsx`は既存
+  findingsの確認/却下(`review`相当)のみで、新規finding追加のUIが無い)。
+  つまりWeb UIから手動exploitの証跡をimportしても、findingを付けるには
+  CLIに降りるしかなかった
+- 対応: (1) `result import`に任意の`--finding-title`/`--finding-severity`/
+  `--finding-detail`を追加し、importと同じコマンドでfinding追加までを
+  1回で完了できるようにした(データモデルの変更なし、既存の`Finding`
+  ステータス遷移も不変)。(2) Web API`POST /api/runs/{run_id}/findings`
+  ([web/routers/runs.py](../src/pownforge/web/routers/runs.py))を新設し、
+  `RunDetail.tsx`にfinding追加フォームを追加(scanで見つかったrunも
+  手動importのrunも、どのrunに対しても使える)。(3) `ImportRun.tsx`の
+  成功メッセージに、その場でRun detailへ遷移して続けてfindingを追加
+  できるリンクを追加した
+- `--confirm`のような「importと同時に確認済みにする」ショートカットは
+  意図的に追加していない — 「明示的なreviewを経ないと確認済みにならない」
+  という既存の安全設計(上記)を、1コマンド化によって迂回する形になる
+  ため
+
+**実機検証**: Web UIで実際にImportページから手動exploitの証跡を登録 →
+表示された「finding を追加する →」リンクでRun detailへ遷移 → finding
+追加フォームでcritical findingを記録 → 「確認済みにする」で確認済みに
+する、という一連の流れをブラウザで一気通貫確認した。CLI側も
+`result import --finding-title ...`で1コマンドから
+`needs-review`のfindingが作られ、既存の`result add-finding`/
+`result review`の2コマンド経路もそのまま動作することを確認済み。
 
 `pownforge walkthrough generate --target <name>`は`plugin`名を区別しない
 ため、`manual`のrunも他のプラグインのrunと時系列でまとめてナラティブに
@@ -3730,11 +3792,11 @@ pivotとして)で全段階を記録し、5 stageの`AttackSession`
 
 | 指示書節 | 内容 | 状況 |
 | --- | --- | --- |
-| **§3(一部)** | ATT&CK技術IDタグ付け: `Finding`/`AttackNode`/`AttackEdge`/`Action`への`attack_technique_ids`フィールド追加(後方互換)、語彙のdocs/handbook.md定義([§14「ATT&CKタグ」](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計))、`vulncheck`プラグインでの初適用、CLI(`--attack-technique`)・Web API(`attack_technique_ids`)からの明示的な付与 | ✅ 完了(2026-09-25) |
-| **§3(残り)** | 重大度表現の共通severityモデルへの正規化(CVSSベース+ツール固有情報の保持)、RiskForge `RawFinding`スキーマとの対応表のドキュメント化 | 未着手 |
+| **§3(ATT&CK)** | ATT&CK技術IDタグ付け: `Finding`/`AttackNode`/`AttackEdge`/`Action`への`attack_technique_ids`フィールド追加(後方互換)、語彙のdocs/handbook.md定義([§14「ATT&CKタグ」](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計))、`vulncheck`プラグインでの初適用、CLI(`--attack-technique`)・Web API(`attack_technique_ids`)からの明示的な付与 | ✅ 完了(2026-09-25) |
+| **§3(severity正規化)** | `Finding`への`cvss_score`/`cvss_vector`/`native_severity`追加(後方互換)、`container`/`imagevuln`(trivy/grype)への実装、レポート/Web UIへの表示、RiskForge `RawFinding`との対応関係のドキュメント化([§18.5](#18-riskforgeとの関係姉妹プロジェクト)。実際にRiskForgeリポジトリを確認した結果`RawFinding`はフィールドレベルでは未実装のため、概念レベルの対応にとどめた) | ✅ 完了(2026-09-25) |
 | **§0-3** | 実Vulhubチェックアウトでの実機スモークテスト(隔離ラボホスト前提)。副次的に発見した2件のバグ、(1)Vulhubのポート公開が全インターフェースにbindされる問題(`_localhost_only_up_command()`)、(2)`--register`が非決定的な順序でポートを選ぶ問題(`_reorder_by_compose_declaration()`)、いずれもその場で修正 | ✅ 完了(2026-09-25。実機検証記録は[§7「実機スモーク手順」](#7-ラボネットワーク)参照) |
 | **§1(残課題)** | Operationレポート生成(`pownforge operation report`、`reporting/operation.py`)、Operation経由scan Actionの非同期実行化(`POST .../execute-async` + `JobManager`のWSジョブキュー) | ✅ 完了(2026-09-25。現状再確認の上でユーザーに再提案し、着手の同意を得てから実施) |
-| **§2** | `result import`/`add-finding`のCLI/Web実運用フローの洗い出しとバッチ取り込み等のUX改善 | 未着手 |
+| **§2** | `result import`/`add-finding`のCLI/Web実運用フローの洗い出しとUX改善: CLIに`result import --finding-title/--finding-severity/--finding-detail`を追加(import+finding追加を1コマンド化)、Web APIに`POST /api/runs/{run_id}/findings`を新設(従来Web UIにはfinding追加手段が皆無だった)、`RunDetail.tsx`にfinding追加フォーム、`ImportRun.tsx`にRun detailへの導線を追加 | ✅ 完了(2026-09-25。実機検証記録は[§13「実際の作業順序の洗い出し」](#13-証跡とレポート)参照) |
 | **§4** | 配布・セットアップ(pipx検証、README「ネイティブ/Docker」2経路整理) | 未着手 |
 | **§5** | テスト戦略の補強(golden fileの蓄積) | 未着手 |
 | **§6** | Evidence証跡チェーンの改ざん検知強化(連結ハッシュ) | 未着手 |
@@ -3811,6 +3873,61 @@ RiskForge = 是正の計画・承認・実行管理・検証結果の記録
   制約はRiskForge側のAGENTS.mdに明記されています。PownForge側でも同様に、
   ユーザーから明示的な依頼がない限りRiskForge向けの専用コードは追加しません
 
+### 18.5 共通severityモデル(`Finding`拡張)とRawFindingとの対応(リファクタリング指示書v3 §3)
+
+`Finding`(`core/models/finding.py`)は、既存の5段階`severity`
+(info/low/medium/high/critical、既存の全消費者が引き続きこれでソート・
+グルーピングする唯一の権威値)はそのままに、オプショナルな3フィールドを
+追加しました(既存フィールドは無変更、default値は全て`None`で既存データ
+は変更なしに読み込める):
+
+| フィールド | 内容 | 出典の例 |
+| --- | --- | --- |
+| `cvss_score` | CVSS基本値(0.0〜10.0、範囲外は`None`に丸める) | trivyの`CVSS.<source>.V3Score`(無ければ`V2Score`)、grypeの`vulnerability.cvss[].metrics.baseScore` |
+| `cvss_vector` | CVSSベクター文字列 | 同上の`V3Vector`/`V2Vector`、`vulnerability.cvss[].vector` |
+| `native_severity` | ツール自身が報告した重大度ラベル(マッピング前の生値) | trivyの`"CRITICAL"`、grypeの`"Negligible"`等 |
+
+現時点で`container`(trivy image、`plugins/_trivy.py`の共通ロジックを
+`kubernetes`(trivy k8s)とも共有)と`imagevuln`(grype)の2プラグインに
+実装しています(**実機検証**: 実際の`trivy`/`grype`を`alpine:3.10`に対して
+実行し、`trivy`はCVE-2021-36159の`cvss_score=9.1`、`grype`は125件全ての
+findingに`cvss_score`/`native_severity`が正しく付与されることを確認済み)。
+他プラグイン(nuclei、checkov等)への横展開は、ATT&CKタグ([§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)
+「ATT&CKタグ」節)と同じ方針で「確信の持てる範囲で個別に追加する」に
+留め、本タスクでは行っていません。値は`reporting/markdown.py`/`html.py`
+のfinding表示(CVSSバッジ)、`webui`のRun detailページに反映済みです
+(PDF・AttackSession/Operationレポートへの反映は未実施)。
+
+**RiskForgeの`RawFinding`との対応について(重要な留保)**: 本節を書くに
+あたり、実際にRiskForgeリポジトリ(`/Users/ac1965/Projects/RiskForge`、
+このマシンにローカルチェックアウト済み)の`AGENTS.md`第20章・
+`internal/application/finding.go`を確認しました。その結果、
+**`RawFinding`は現時点でRiskForge側にもフィールドレベルのスキーマが
+存在しない**(Goの構造体としては未実装で、`finding.go`のコメントが
+「Scanner→RawFinding→Normalizer→Matcher→Finding」というパイプライン名を
+指すのみ)ことを確認しています。そのため、以下はフィールド単位の対応表
+ではなく、RiskForge側AGENTS.md §20A(20A.2「CVEを持たない診断結果の
+扱い」・20A.3「ConfidenceとExploit Intelligence」・20A.4「Evidenceの
+受け渡し」)が**概念として**定義している内容とPownForge側`Finding`の
+対応関係です。RiskForgeがPhase 5で`RawFinding`を実装する際は、この対応
+を出発点にしつつ改めて設計判断が必要になります。
+
+| PownForge `Finding` | RiskForge `RawFinding`(概念、§20A) | 備考 |
+| --- | --- | --- |
+| `title`/`detail` | 診断結果の内容 | そのまま引き継げる想定 |
+| `severity`(5段階) | — (Normalizerが判断材料の1つとして使う想定) | RiskForge側のseverity/risk計算方式は非公開・未設計 |
+| `cvss_score`/`cvss_vector`(本タスクで追加) | 「既知のVulnerability(CVE/CWE等)に対応付けられる」場合の根拠情報(§20A.2の分類1) | CVSSはNormalizerがVulnerabilityへの対応付けを判断する際の有力な根拠になり得るが、対応表自体はRiskForge側Normalizer実装時に確定する |
+| `native_severity`(本タスクで追加) | 「独自IDのVulnerabilityとして登録」する場合の出所情報(§20A.2の分類2) | ツール固有ラベルを保持しておくことで、CVEに紐づかない結果もsource/source_idと合わせて追跡可能にする狙い |
+| `attack_technique_ids`([§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)) | 未対応(RiskForge側にATT&CK関連の概念記述なし) | 将来共有語彙になり得るが、RiskForge側の設計判断待ち |
+| `source`(`tool`/`ai`/`manual`) | §20A.3の「手動exploitまたは攻撃シミュレーションで成立を確認」等の分類軸 | `source="manual"`はRiskForgeの`confirmed`検討対象になり得るが、`exploitation_observed`(外部観測)とは明確に別概念(§20A.3の3項目分離)であることに注意 |
+| `RunRecord.evidence`(`content_hash`相当は`stdout_sha256`等) | `Evidence.content_hash` | §20A.4の「コピーではなく参照とハッシュで引き継ぐ」方針と、PownForge既存の`evidence verify`は設計思想が一致している |
+
+**本タスクで行っていないこと(指示書v3 §3.2の制約どおり)**: RiskForge
+側のリポジトリ・ドキュメントは一切変更していません。RiskForgeとの
+連携コード(RawFinding変換ロジック、専用エクスポートAPI等)も実装して
+いません。上記の対応表はPownForge側のドキュメントとしての整理であり、
+RiskForge側で正式化されるまでは非公式な参考情報として扱ってください。
+
 ## 19. 付録: 用語解説
 
 本書内で断りなく使っている固有名詞・略語を、初出セクションへのリンク
@@ -3827,7 +3944,7 @@ RiskForge = 是正の計画・承認・実行管理・検証結果の記録
 | `SafetyPolicy` | `ScopePolicy`の下で、範囲内の対象に対して検証プリミティブがどこまで到達してよいか(`allowed_actions`/`max_validation_level`/`execution_enabled`等)を制限するポリシー。[§15](#15-検証プリミティブフレームワークphase-2設計骨格) |
 | `Engagement` | 「対象Aから対象Bへの横展開」を記録するための、`Target`とは別の認可単位(対象名の集合)。実行権限は一切追加しない、あくまでブックキーピング層。[§12](#12-target-modelとスコープ制御) |
 | `excluded` / `max_concurrent` | `Target`が持つ、一時的な全面拒否フラグと対象単位の同時実行数上限。[§12](#12-target-modelとスコープ制御) |
-| `Finding` | 1件の検出事項(`title`/`severity`/`detail`/`source`/`attack_technique_ids`)。`source="tool"`(プラグインの`_findings`由来)と`source="ai"`(`pownforge analyze`由来)がある。severityが不正な値の場合は`info`にフォールバックする(`core/finding_utils.py`)。`attack_technique_ids`はオプショナルなMITRE ATT&CK技術IDのタグ([§14「ATT&CKタグ」](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)参照) |
+| `Finding` | 1件の検出事項(`title`/`severity`/`detail`/`source`/`attack_technique_ids`/`cvss_score`/`cvss_vector`/`native_severity`)。`source="tool"`(プラグインの`_findings`由来)と`source="ai"`(`pownforge analyze`由来)がある。severityが不正な値の場合は`info`にフォールバックする(`core/finding_utils.py`)。`attack_technique_ids`はオプショナルなMITRE ATT&CK技術IDのタグ([§14「ATT&CKタグ」](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)参照)。`cvss_score`/`cvss_vector`/`native_severity`はオプショナルな共通severityモデルのフィールドで、CVSS値とツール固有の生severityラベルを保持する([§18.5](#18-riskforgeとの関係姉妹プロジェクト)参照) |
 | `RunRecord` | 1回のスキャン実行の証跡一式(コマンド・出力・findings・タイムスタンプ・`via_target`/`engagement`等)。`EvidenceStore`が保存する単位 |
 | `EvidenceStore` | 実行証跡(コマンド・タイムスタンプ・SHA-256ハッシュ)を保存し、`evidence verify`でハッシュ検証する永続化層(`evidence/store.py`)。[§13](#13-証跡とレポート) |
 | `AuditStore` | `ScopePolicy`/`SafetyPolicy`に拒否されたスキャン・プリミティブ実行の試みを記録する永続化層(`evidence/audit.py`)。この記録経路を迂回する変更はしない([AGENTS.md](../AGENTS.md)の制約) |

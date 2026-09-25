@@ -164,6 +164,13 @@ td {
   margin-right: 0.4rem;
 }
 
+.cvss {
+  font-size: 0.75rem;
+  font-weight: bold;
+  opacity: 0.8;
+  margin-right: 0.4rem;
+}
+
 pre {
   white-space: pre-wrap;
   background: #8881;

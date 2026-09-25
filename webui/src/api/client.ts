@@ -91,6 +91,9 @@ export interface Finding {
   source: string;
   status: FindingStatus;
   attack_technique_ids: string[];
+  cvss_score: number | null;
+  cvss_vector: string | null;
+  native_severity: string | null;
 }
 
 export interface RunRecord {
@@ -506,6 +509,11 @@ export const api = {
     request<RunRecord>(`/runs/${runId}/findings/${findingId}`, {
       method: "PATCH",
       body: JSON.stringify({ status }),
+    }),
+  addFinding: (runId: string, title: string, severity: Severity, detail: string) =>
+    request<RunRecord>(`/runs/${encodeURIComponent(runId)}/findings`, {
+      method: "POST",
+      body: JSON.stringify({ title, severity, detail }),
     }),
 
   listAudit: () => request<PolicyViolation[]>("/audit"),

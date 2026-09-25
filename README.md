@@ -160,7 +160,14 @@ make test-all     # pytest + webuiビルド + Emacs ERT(npm/Emacsが入ってい
   Playbookのライブ表示、findingのレビュー、Org-modeへのfindings出力
   （[docs/handbook.md §10](docs/handbook.md#10-emacs連携)）
 
-高度な結果正規化（重大度判定・脆弱性分類の自動化など）は今後のフェーズで拡張します。
+結果正規化（共通severityモデル）: `Finding`に`cvss_score`/`cvss_vector`/
+`native_severity`を追加し、`container`（trivy）/`imagevuln`（grype）が
+実際のCVSSスコア・ベクター・ツール固有の生severityラベルを付与します
+（既存の5段階`severity`はそのまま、追加フィールドは後方互換）。
+RiskForgeの`RawFinding`との対応関係は
+[docs/handbook.md §18.5](docs/handbook.md#18-riskforgeとの関係姉妹プロジェクト)
+を参照してください。他プラグインへの脆弱性分類の自動化拡張は今後の
+フェーズで検討します。
 
 ## `AttackOperation`モデル（Phase 2設計）
 
@@ -190,18 +197,18 @@ Web UIでは、scan種別Actionの`execute`はバックグラウンドジョブ�
 | `web`（ffuf） | OWASP Juice Shop | `/encryptionkeys`等の実エンドポイント検出を確認 |
 | `nuclei` | OWASP Juice Shop | `prometheus-metrics`テンプレートでの実検出→finding化を確認 |
 | `kubernetes`（trivy k8s） | `kind`ローカルクラスタ | 実クラスタの誤設定・RBAC不備136件超の検出を確認 |
-| `container`（trivy image） | `alpine:3.10` | 実在のCVE（CVE-2021-36159）の検出を確認 |
+| `container`（trivy image） | `alpine:3.10` | 実在のCVE（CVE-2021-36159）の検出を確認。共通severityモデル追加後、実際に`cvss_score=9.1`・`cvss_vector`・`native_severity=CRITICAL`がfindingに付与されることを再検証済み |
 | `sqlmap` | 自作の意図的に脆弱なFlaskアプリ | boolean-based blind/error-based/UNION queryの検出とDBMS判定を確認 |
 | `vulncheck`（nmap NSE） | ローカルTLSサーバー、Metasploitable2 | 許可リスト15本全てを実際のnmapで実行。**hostrule系スクリプト（smb-vuln-ms17-010等）の結果取りこぼしバグを発見・修正**（[vulncheck.py](src/pownforge/plugins/vulncheck.py)） |
 | `secrets`（gitleaks） | ダミーのStripe形式トークンを含む自作フィクスチャ | 実検出→finding化を確認。値自体が証跡・レポート・findingのいずれにも含まれないことを`grep`で確認。`docker compose build`した実行時イメージでも同じ結果を確認 |
 | `sast`（semgrep） | SQL文字列連結を含む自作フィクスチャ | 同梱の固定ローカルルールセットでの実検出→finding化を確認。**`semgrep --version`が`--internal`ラボネットワーク上でハング（外部への更新確認通信が原因）することを発見・`SEMGREP_ENABLE_VERSION_CHECK=0`で修正**（[Dockerfile.runtime](docker/Dockerfile.runtime)） |
 | `sbom`（syft） | `alpine:3.10` | 実パッケージ75件（library/os/file内訳含む）のCycloneDX SBOM取得を確認 |
-| `imagevuln`（grype） | `alpine:3.10` | `container`と同じ実在のCVE（CVE-2021-36159、severity: critical）を別DBで検出することを確認。DB取得日時の証跡記録、`--internal`ネットワーク上での同梱DB参照を確認。**`syft`/`grype`にも同種のバージョン確認ハングを発見・`SYFT_CHECK_FOR_APP_UPDATE=false`/`GRYPE_CHECK_FOR_APP_UPDATE=false`で修正** |
+| `imagevuln`（grype） | `alpine:3.10` | `container`と同じ実在のCVE（CVE-2021-36159、severity: critical）を別DBで検出することを確認。DB取得日時の証跡記録、`--internal`ネットワーク上での同梱DB参照を確認。**`syft`/`grype`にも同種のバージョン確認ハングを発見・`SYFT_CHECK_FOR_APP_UPDATE=false`/`GRYPE_CHECK_FOR_APP_UPDATE=false`で修正**。共通severityモデル追加後、実スキャン125件全findingに`cvss_score`/`native_severity`が付与されることを再検証済み |
 | `iac`（checkov） | `privileged: true`を含む自作Podマニフェスト | `CKV_K8S_16`の実検出→finding化を確認。ホスト`.venv`・Docker実行時イメージ（`--internal`ネットワーク上）の両方で確認 |
 | `httpprobe`（httpx、複数ホスト一括） | `example.com`/`example.org`（登録済み）+許可外・未登録Target名 | 許可された2対象のみ実プローブされ、残り2件は通信せず`excluded_hosts`とAuditStoreの両方に記録されることを確認 |
 | `tls`（testssl.sh） | `example.com` | TLS1/TLS1.1非推奨プロトコル提供（LOW）、証明書keyUsage不整合（HIGH）等、実在の検出を確認。ホスト`.venv`・Docker実行時イメージの両方で確認。**testssl.shがhexdump/ps/dig（`bsdmainutils`/`procps`/`dnsutils`）無しでは起動しないバグをDocker実行時イメージで発見・修正**（[Dockerfile.runtime](docker/Dockerfile.runtime)） |
 | `zapbaseline`（OWASP ZAP baseline） | OWASP Juice Shop | ZAP公式Dockerイメージ経由で実際のパッシブスキャンを実行、CSPヘッダー欠如等4件の実検出→finding化をCLI経由で確認 |
-| `pownforge result import`/`add-finding`（手動証跡取り込み） | Metasploitable2 | 実スキャン→手動exploit記録→findingの追加→`evidence verify`→ウォークスルー生成までの一気通貫を確認 |
+| `pownforge result import`/`add-finding`（手動証跡取り込み） | Metasploitable2 | 実スキャン→手動exploit記録→findingの追加→`evidence verify`→ウォークスルー生成までの一気通貫を確認。`result import --finding-title`で証跡記録とfinding追加を1コマンド化、Web UI（Run detailページ）にもfinding追加フォームを新設し、ブラウザのみでimport→finding追加→confirmまで完結することを確認済み（従来Web UIにはfinding追加手段が無かった） |
 | `Engagement`（横展開の記録） | 実nmapスキャン+手動pivot記録 | Engagement外の対象への記録が拒否されること、正規メンバー間のpivot記録とウォークスルーへの反映を確認 |
 | `pownforge lab`（攻撃対象ホストの動的追加） | `tleemcjr/metasploitable2` | **常駐しないラボイメージ向けの`docker run -i`修正**（[lab.py](src/pownforge/core/lab.py)）を実機検証で発見・修正 |
 | `Playbook`（複数プラグインの連続実行・条件分岐） | OWASP Juice Shop、CLI/Web UI/Emacsの3経路 | 線形実行・条件分岐(`when`)の両方を実際に確認。Web UIはブラウザでPlaybooks画面からWebSocketライブ進捗まで、EmacsはCLI経由のライブテールまで実機確認。**`process-status`をシンボルのまま`string-trim`に渡すEmacs側の潜在バグ（`pownforge-scan`にも存在）を発見・修正**（[pownforge.el](emacs/pownforge.el)） |

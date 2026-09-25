@@ -91,6 +91,43 @@ def test_review_finding_rejects_invalid_status(tmp_path: Path) -> None:
     assert resp.status_code == 422
 
 
+def test_add_finding_via_post(tmp_path: Path) -> None:
+    record = _seed_record(tmp_path)
+    client = _client(tmp_path)
+
+    resp = client.post(
+        f"/api/runs/{record.run_id}/findings",
+        json={"title": "Got a shell", "severity": "critical", "detail": "via CVE-2014-6271"},
+    )
+    assert resp.status_code == 201
+    findings = resp.json()["findings"]
+    assert len(findings) == 2  # kept the seeded tool-derived finding too
+    added = next(f for f in findings if f["title"] == "Got a shell")
+    assert added["severity"] == "critical"
+    assert added["detail"] == "via CVE-2014-6271"
+    assert added["source"] == "manual"
+    assert added["status"] == "needs-review"  # still requires a separate review call
+
+    reloaded = client.get(f"/api/runs/{record.run_id}").json()
+    assert len(reloaded["findings"]) == 2
+
+
+def test_add_finding_defaults_severity_to_info(tmp_path: Path) -> None:
+    record = _seed_record(tmp_path)
+    client = _client(tmp_path)
+
+    resp = client.post(f"/api/runs/{record.run_id}/findings", json={"title": "Odd banner"})
+    assert resp.status_code == 201
+    added = next(f for f in resp.json()["findings"] if f["title"] == "Odd banner")
+    assert added["severity"] == "info"
+
+
+def test_add_finding_on_unknown_run_returns_404(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    resp = client.post("/api/runs/does-not-exist/findings", json={"title": "x"})
+    assert resp.status_code == 404
+
+
 def test_list_and_get_run(tmp_path: Path) -> None:
     record = _seed_record(tmp_path)
     client = _client(tmp_path)

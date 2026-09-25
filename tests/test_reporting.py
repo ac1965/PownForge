@@ -49,6 +49,25 @@ def test_render_with_findings_lists_them() -> None:
     assert "### 確認済み" not in output
 
 
+def test_render_shows_cvss_score_when_present() -> None:
+    record = _record(
+        findings=[
+            Finding(
+                title="CVE-2021-36159", severity="critical", source="tool",
+                cvss_score=9.1, cvss_vector="CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:H",
+            )
+        ]
+    )
+    output = render(record)
+    assert "CVSS 9.1" in output
+
+
+def test_render_omits_cvss_when_absent() -> None:
+    record = _record(findings=[Finding(title="Config issue", severity="low", source="tool")])
+    output = render(record)
+    assert "CVSS" not in output
+
+
 def test_render_orders_findings_by_severity_desc() -> None:
     record = _record(
         findings=[

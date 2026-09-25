@@ -64,6 +64,15 @@ def result_import(
     cve: list[str] = typer.Option(
         [], "--cve", help="CVE id this step relates to, e.g. CVE-2021-44228. May repeat."
     ),
+    finding_title: Optional[str] = typer.Option(
+        None,
+        "--finding-title",
+        help="Also attach a Finding (source=manual) to this run in the same command, instead of a "
+        "separate `result add-finding` call. Like every Finding it starts at needs-review -- "
+        "`result review` still has to be run explicitly to confirm it.",
+    ),
+    finding_severity: Severity = typer.Option(Severity.INFO, "--finding-severity", help="Only used with --finding-title."),
+    finding_detail: str = typer.Option("", "--finding-detail", help="Only used with --finding-title."),
     config: Path = typer.Option(DEFAULT_CONFIG),
     workdir: Path = typer.Option(DEFAULT_WORKDIR),
 ) -> None:
@@ -99,6 +108,9 @@ def result_import(
     typer.echo(f"run {record.run_id} recorded (target={record.target}, plugin=manual)")
     for art in record.artifacts:
         typer.echo(f"  artifact: {art.description} -> {art.path} (sha256 {art.sha256})")
+    if finding_title:
+        _, finding = add_finding(store, record.run_id, finding_title, finding_severity, finding_detail)
+        typer.echo(f"finding '{finding.finding_id}' added to run '{record.run_id}' (status=needs-review)")
 
 
 @result_app.command("tag")
