@@ -432,6 +432,7 @@ pownforge analyze <run-id>
 | `pownforge audit list` | `ScopePolicy`が拒否したスキャン実行の試みを一覧表示 |
 | `pownforge audit show <violation-id>` | 拒否された試みの詳細(JSON) |
 | `pownforge evidence verify <run-id>` | 保存済みoutputからハッシュを再計算し、証跡と一致するか確認 |
+| `pownforge evidence verify-chain` | 保存済み全runのハッシュチェーンを検証(台帳の連結・各runの最新状態を確認)。単発の`verify`より広い改ざん検知(§13「証跡チェーンの改ざん検知」参照) |
 
 ### `--config`/`--workdir`の使い分け
 
@@ -467,6 +468,65 @@ pownforge analyze <run-id>
 **悪意ある改ざんに対する証明にはなりません**。また、`evidence.command`
 (マスク後のコピー)は`evidence verify`の対象ではありません(検証対象は
 実際のツール出力のハッシュのみ)。
+
+### 証跡チェーンの改ざん検知(`evidence verify-chain`、リファクタリング指示書v3 §6)
+
+上記の限界(「同じファイルを編集できる人ならハッシュも書き換えられる」)
+を緩和するため、`EvidenceStore`は単純なハッシュチェーン(マークル木では
+なく前方参照のみの連結ハッシュ。監査要件を満たすにはこれで十分と判断)を
+追加で維持しています。
+
+**仕組み**(`evidence/chain.py::EvidenceChain`): `EvidenceStore.save()`が
+呼ばれるたび(新規runの保存だけでなく、`add_finding()`/
+`review_finding()`/`result tag`のような既存runの再保存も含む)、そのrunの
+保存直後のファイル内容のSHA-256(`record_sha256`)を計算し、
+`<runs_dir>/chain.jsonl`という追記専用の台帳に1行追加します。各行
+(`ChainEntry`)は`chain_hash = sha256(prev_chain_hash + record_sha256)`を
+持ち、`prev_chain_hash`は直前のエントリの`chain_hash`(最初のエントリは
+`"0"*64`のgenesis値)です。これにより、台帳のどれか1エントリを
+チェーンを組み直さずに書き換えると、それ以降の全エントリの
+`chain_hash`が連鎖的に不整合になります。
+
+**既存フォーマットとの後方互換性**: `<run_id>.json`自体のスキーマ・
+書式は一切変更していません(`RunRecord`にフィールドは追加していない)。
+`chain.jsonl`は完全に新規・別ファイルで、この機能が導入される前に作られた
+証跡ディレクトリには単に存在しません。`verify-chain`は台帳が無い
+(または空の)状態を「改ざんの兆候」ではなく「まだチェーンが記録されて
+いない」として扱い、既存の証跡ディレクトリをそのまま読み込めます。
+
+```bash
+pownforge evidence verify-chain
+# -> chain entries checked: N
+#    chain verified: no broken links or content mismatches
+#    (または、不整合ごとに [broken_link|content_mismatch|missing_file] ... を列挙してexit 1)
+```
+
+Web UIでは`GET /api/runs/verify-chain`(RunsページBoxの「証跡チェーンを
+検証」ボタン)から同じ検証を実行できます。
+
+**検証内容は2段階**です。(1) 台帳自体が genesis から不整合なく
+連結しているか(台帳エントリの挿入・並べ替え・単独編集を検出)。
+(2) 各run_idについて、台帳上の**最新**エントリが記録した`record_sha256`
+が、そのrunの**現在の**ファイル内容と一致するか(同じrun_idに対する
+古いエントリは、`add_finding()`等による正当な再保存前の状態を表すだけで、
+現在のファイル内容と一致しなくて当然のため、不整合とは扱わない — 過去の
+スナップショット自体は保持していないため)。
+
+**限界(正直な評価)**: これは依然として暗号学的に改ざん不可能な仕組み
+ではありません。`chain.jsonl`ごと書き換え、genesisから全エントリを
+再計算できる権限を持つ攻撃者に対しては無力です。証明できるのは
+「`EvidenceStore.save()`を経由しない、部分的・無自覚な改変(台帳の
+一部だけを直そうとした、あるいはrunファイルだけ書き換えてchain.jsonlを
+直し忘れた等)を検出できる」という、実機検証で確認した限りの水準です。
+外部の信頼できるタイムスタンプ局・別システムへのハッシュのエクスポート
+等、より強い保証が必要な場合は本機能の範囲外です。
+
+**実機検証**: 実際に`pownforge scan network`→`pownforge result
+add-finding`で1つのrunを2回保存させ、`chain.jsonl`に正しく連結した
+2エントリが記録されることを確認した。その後runのJSONファイルを直接
+編集(`add_finding`/`review`を経ずにseverityを書き換え)して
+`evidence verify-chain`を実行し、`content_mismatch`として正しく検出
+されることをCLI・Web UI(Runsページ)の両方で確認した。
 
 ### `--live`
 
@@ -2195,6 +2255,7 @@ medium/青=low/灰=info)付きで、検証状態(確認済み/要確認/誤検�
 | `PATCH /api/runs/{run_id}/findings/{finding_id}` | findingの検証状態を更新 |
 | `PATCH /api/runs/{run_id}/cves` | 既存runのCVEタグを追加/削除(`{cves, remove}`)。CVE露出マトリクスの相関キー |
 | `GET /api/runs/{run_id}/verify` | 証跡のハッシュと一致するか確認 |
+| `GET /api/runs/verify-chain` | 保存済み全runのハッシュチェーンを検証。`pownforge evidence verify-chain`のWeb版([§13](#13-証跡とレポート)「証跡チェーンの改ざん検知」参照) |
 | `GET /api/primitives` | 利用可能な検証プリミティブと受け付けるoptionを一覧(詳細は[§15](#15-検証プリミティブフレームワークphase-2設計骨格)) |
 | `POST /api/primitives/run` | プリミティブを実行し`PrimitiveRunRecord`を保存。スコープ超過は`409`、SafetyPolicy超過は`403`(いずれも監査記録済み)、option不正は`422` |
 | `GET /api/primitive-runs` | 保存済みプリミティブ実行の一覧 |
@@ -3882,7 +3943,7 @@ pivotとして)で全段階を記録し、5 stageの`AttackSession`
 | **§2** | `result import`/`add-finding`のCLI/Web実運用フローの洗い出しとUX改善: CLIに`result import --finding-title/--finding-severity/--finding-detail`を追加(import+finding追加を1コマンド化)、Web APIに`POST /api/runs/{run_id}/findings`を新設(従来Web UIにはfinding追加手段が皆無だった)、`RunDetail.tsx`にfinding追加フォーム、`ImportRun.tsx`にRun detailへの導線を追加 | ✅ 完了(2026-09-25。実機検証記録は[§13「実際の作業順序の洗い出し」](#13-証跡とレポート)参照) |
 | **§4** | 配布・セットアップ: pipx実機検証(ローカル/GitHub/extra付きの3パターン)、README「ネイティブ/Docker」2経路への再構成、PyInstaller不採用の判断・理由の明記([§3「pipxでのインストール」](#3-セットアップとビルド)参照) | ✅ 完了(2026-09-25) |
 | **§5** | テスト戦略の補強: 過去の実機検証発見バグ5件を監査し再現テストの抜けが無いことを確認、golden file(`tests/golden/`)を新設し`network`/`container`/`imagevuln`の3件を実機採取([§16「golden file」](#16-テスト)参照) | ✅ 完了(2026-09-25。他プラグインへの拡張は継続タスクとして未着手のまま残す) |
-| **§6** | Evidence証跡チェーンの改ざん検知強化(連結ハッシュ) | 未着手 |
+| **§6** | Evidence証跡チェーンの改ざん検知強化: `evidence/chain.py::EvidenceChain`(前方参照の連結ハッシュ、マークル木は不採用)を`EvidenceStore.save()`に統合。`pownforge evidence verify-chain`・`GET /api/runs/verify-chain`・Runsページのボタンを新設。既存の`<run_id>.json`フォーマットは無変更([§13「証跡チェーンの改ざん検知」](#13-証跡とレポート)参照) | ✅ 完了(2026-09-25) |
 | **§7** | プラグイン結果の相関分析(Correlator) | 未着手 |
 | **§8** | ProcessExecutorのリソース上限集中管理 | 未着手 |
 | **§9** | RiskForge連携に向けた語彙・スキーマ対応表の準備(ドキュメントのみ) | 未着手(着手前にユーザー確認が必須、との指示書自身のゲートあり) |
@@ -4030,6 +4091,7 @@ RiskForge側で正式化されるまでは非公式な参考情報として扱�
 | `Finding` | 1件の検出事項(`title`/`severity`/`detail`/`source`/`attack_technique_ids`/`cvss_score`/`cvss_vector`/`native_severity`)。`source="tool"`(プラグインの`_findings`由来)と`source="ai"`(`pownforge analyze`由来)がある。severityが不正な値の場合は`info`にフォールバックする(`core/finding_utils.py`)。`attack_technique_ids`はオプショナルなMITRE ATT&CK技術IDのタグ([§14「ATT&CKタグ」](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)参照)。`cvss_score`/`cvss_vector`/`native_severity`はオプショナルな共通severityモデルのフィールドで、CVSS値とツール固有の生severityラベルを保持する([§18.5](#18-riskforgeとの関係姉妹プロジェクト)参照) |
 | `RunRecord` | 1回のスキャン実行の証跡一式(コマンド・出力・findings・タイムスタンプ・`via_target`/`engagement`等)。`EvidenceStore`が保存する単位 |
 | `EvidenceStore` | 実行証跡(コマンド・タイムスタンプ・SHA-256ハッシュ)を保存し、`evidence verify`でハッシュ検証する永続化層(`evidence/store.py`)。[§13](#13-証跡とレポート) |
+| `EvidenceChain` | `EvidenceStore.save()`のたびに`<runs_dir>/chain.jsonl`へ連結ハッシュを追記する仕組み(`evidence/chain.py`)。`evidence verify-chain`が検証する。[§13「証跡チェーンの改ざん検知」](#13-証跡とレポート) |
 | `AuditStore` | `ScopePolicy`/`SafetyPolicy`に拒否されたスキャン・プリミティブ実行の試みを記録する永続化層(`evidence/audit.py`)。この記録経路を迂回する変更はしない([AGENTS.md](../AGENTS.md)の制約) |
 | `mask_command()` | `Evidence.command`に保存する前に、`--token`/`--password`等それらしい名前のフラグの値を`***`に置換するキーワードヒューリスティック(`core/secrets.py`)。[§2](#2-全体アーキテクチャ) |
 

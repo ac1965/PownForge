@@ -112,3 +112,47 @@ class EvidenceVerification(BaseModel):
     stdout: HashCheck
     stderr: HashCheck
     ok: bool
+
+
+class ChainEntry(BaseModel):
+    """One append-only ledger row (`evidence/chain.py::EvidenceChain`,
+    `<runs_dir>/chain.jsonl`), written on every `EvidenceStore.save()` call
+    -- a new run or a re-save of an existing one (`add_finding`/
+    `review_finding`/`result tag` all load-mutate-save the same run_id).
+    `chain_hash` = sha256(prev_chain_hash + record_sha256), so altering any
+    one entry without recomputing every later one breaks the chain from
+    that point forward -- see docs/handbook.md §13 "証跡チェーンの
+    改ざん検知" for the full threat model (this raises the bar past
+    EvidenceVerification's single-file limitation above; it is still not
+    proof against an adversary willing to regenerate the whole chain)."""
+
+    seq: int
+    run_id: str
+    record_sha256: str
+    prev_chain_hash: str
+    chain_hash: str
+    appended_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ChainMismatch(BaseModel):
+    """One finding from `EvidenceChain.verify()`."""
+
+    # "broken_link": this entry's chain_hash doesn't derive from the
+    #   previous entry the way the ledger claims (the ledger itself was
+    #   edited/reordered/truncated).
+    # "content_mismatch": a run's current on-disk JSON no longer matches
+    #   the chain's last-recorded hash for it (the run file was edited
+    #   outside of EvidenceStore.save() since it was last legitimately
+    #   saved).
+    # "missing_file": the chain's last entry for a run_id has no
+    #   corresponding <run_id>.json on disk anymore.
+    kind: str
+    seq: int | None = None
+    run_id: str | None = None
+    detail: str = ""
+
+
+class ChainVerification(BaseModel):
+    ok: bool
+    entries_checked: int
+    mismatches: list[ChainMismatch] = Field(default_factory=list)

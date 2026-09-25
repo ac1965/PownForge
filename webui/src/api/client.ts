@@ -154,6 +154,19 @@ export interface EvidenceVerification {
   ok: boolean;
 }
 
+export interface ChainMismatch {
+  kind: string;
+  seq: number | null;
+  run_id: string | null;
+  detail: string;
+}
+
+export interface ChainVerification {
+  ok: boolean;
+  entries_checked: number;
+  mismatches: ChainMismatch[];
+}
+
 export interface ScanCreated {
   job_id: string;
   status: string;
@@ -519,6 +532,7 @@ export const api = {
   listAudit: () => request<PolicyViolation[]>("/audit"),
 
   verifyRun: (runId: string) => request<EvidenceVerification>(`/runs/${runId}/verify`),
+  verifyRunsChain: () => request<ChainVerification>("/runs/verify-chain"),
 
   createScan: (target: string, plugin: string, options: Record<string, string>) =>
     request<ScanCreated>("/scans", {

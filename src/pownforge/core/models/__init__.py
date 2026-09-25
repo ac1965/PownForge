@@ -9,6 +9,9 @@ from __future__ import annotations
 
 from pownforge.core.models.attack_session import AttackSession, AttackSessionStage
 from pownforge.core.models.evidence import (
+    ChainEntry,
+    ChainMismatch,
+    ChainVerification,
     Evidence,
     EvidenceVerification,
     HashCheck,
@@ -59,6 +62,9 @@ __all__ = [
     "AttackSession",
     "AttackSessionStage",
     "Capability",
+    "ChainEntry",
+    "ChainMismatch",
+    "ChainVerification",
     "Claim",
     "CleanupResult",
     "ConfidenceLevel",

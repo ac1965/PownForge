@@ -11,7 +11,14 @@ from pownforge.ai.ollama import LLMAdapter
 from pownforge.core.analysis import AnalysisError, run_analysis
 from pownforge.core.findings import FindingNotFoundError, add_finding, review_finding
 from pownforge.core.manual_evidence import import_manual_run
-from pownforge.core.models import EvidenceVerification, FindingStatus, KillChainPhase, RunRecord, Severity
+from pownforge.core.models import (
+    ChainVerification,
+    EvidenceVerification,
+    FindingStatus,
+    KillChainPhase,
+    RunRecord,
+    Severity,
+)
 from pownforge.core.policy import PolicyError, SafetyError, ScopePolicy
 from pownforge.core.settings import AppSettings, Language
 from pownforge.evidence.audit import AuditStore
@@ -94,6 +101,15 @@ async def import_run(
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return record
+
+
+@router.get("/runs/verify-chain", response_model=ChainVerification)
+def verify_runs_chain(store: EvidenceStore = Depends(get_store)) -> ChainVerification:
+    """Whole-store hash-chain check across every run this workdir's
+    EvidenceStore has ever saved (refactor v3 §6, web equivalent of
+    `pownforge evidence verify-chain`). Declared before `/runs/{run_id}`
+    so this literal path isn't swallowed by that dynamic one."""
+    return store.verify_chain()
 
 
 @router.get("/runs/{run_id}", response_model=RunRecord)

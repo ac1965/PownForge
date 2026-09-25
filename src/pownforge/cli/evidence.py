@@ -25,3 +25,31 @@ def evidence_verify(run_id: str, workdir: Path = typer.Option(DEFAULT_WORKDIR)) 
         )
         raise typer.Exit(code=1)
     typer.echo("evidence verified: hashes match stored output")
+
+
+@evidence_app.command("verify-chain")
+def evidence_verify_chain(workdir: Path = typer.Option(DEFAULT_WORKDIR)) -> None:
+    """Verify the append-only hash chain across every run this workdir's
+    EvidenceStore has ever saved (refactor v3 §6). Stronger than
+    `evidence verify <run-id>`: that only checks one run's stdout/stderr
+    against its own embedded hash (editable together by anyone with file
+    access); this also detects a run's on-disk content silently diverging
+    from what the chain last recorded for it, and any edit/reorder of the
+    chain ledger itself. Still not proof against an adversary willing to
+    regenerate the whole chain -- see docs/handbook.md §13."""
+    store = _store(workdir)
+    result = store.verify_chain()
+
+    if result.entries_checked == 0:
+        typer.echo("no chain entries recorded yet (no runs saved since this evidence store started chaining)")
+        return
+
+    typer.echo(f"chain entries checked: {result.entries_checked}")
+    if result.ok:
+        typer.echo("chain verified: no broken links or content mismatches")
+        return
+
+    for mismatch in result.mismatches:
+        typer.echo(f"  [{mismatch.kind}] run={mismatch.run_id} seq={mismatch.seq}: {mismatch.detail}", err=True)
+    typer.echo(f"warning: {len(result.mismatches)} mismatch(es) found in the evidence chain", err=True)
+    raise typer.Exit(code=1)

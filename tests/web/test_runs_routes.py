@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -198,6 +199,50 @@ def test_verify_run_ok_when_hashes_match(tmp_path: Path) -> None:
     assert body["ok"] is True
     assert body["stdout"]["ok"] is True
     assert body["stderr"]["ok"] is True
+
+
+def test_verify_runs_chain_ok_after_seeding(tmp_path: Path) -> None:
+    _seed_record(tmp_path)
+    client = _client(tmp_path)
+
+    resp = client.get("/api/runs/verify-chain")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["entries_checked"] == 1
+
+
+def test_verify_runs_chain_with_no_runs(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    resp = client.get("/api/runs/verify-chain")
+    assert resp.status_code == 200
+    assert resp.json()["entries_checked"] == 0
+
+
+def test_verify_runs_chain_detects_tampering(tmp_path: Path) -> None:
+    record = _seed_record(tmp_path)
+    run_path = tmp_path / "state" / "runs" / f"{record.run_id}.json"
+    data = json.loads(run_path.read_text())
+    data["target"] = "tampered"
+    run_path.write_text(json.dumps(data))
+
+    client = _client(tmp_path)
+    resp = client.get("/api/runs/verify-chain")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is False
+    assert body["mismatches"][0]["kind"] == "content_mismatch"
+
+
+def test_verify_runs_chain_route_is_not_swallowed_by_run_id_route(tmp_path: Path) -> None:
+    """`/runs/verify-chain` must resolve to the literal route, not be
+    treated as `/runs/{run_id}` with run_id="verify-chain" (which would
+    404 since no such run exists)."""
+    client = _client(tmp_path)
+    resp = client.get("/api/runs/verify-chain")
+    assert resp.status_code == 200
 
 
 def test_verify_unknown_run_returns_404(tmp_path: Path) -> None:

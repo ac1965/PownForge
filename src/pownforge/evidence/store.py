@@ -6,7 +6,8 @@ import tempfile
 from pathlib import Path
 
 from pownforge.core.atomic_write import atomic_write_text
-from pownforge.core.models import Artifact, EvidenceVerification, HashCheck, RunRecord
+from pownforge.core.models import Artifact, ChainVerification, EvidenceVerification, HashCheck, RunRecord
+from pownforge.evidence.chain import EvidenceChain
 from pownforge.evidence.hashing import sha256_file, sha256_text
 
 
@@ -14,11 +15,24 @@ class EvidenceStore:
     def __init__(self, runs_dir: Path) -> None:
         self._runs_dir = runs_dir
         self._runs_dir.mkdir(parents=True, exist_ok=True)
+        self._chain = EvidenceChain(runs_dir)
 
     def save(self, record: RunRecord) -> Path:
         path = self._runs_dir / f"{record.run_id}.json"
         atomic_write_text(path, record.model_dump_json(indent=2))
+        # Every save (a new run, or a re-save from add_finding()/
+        # review_finding()/result tag mutating an existing one) gets a
+        # chain entry -- see evidence/chain.py for why and
+        # docs/handbook.md §13 "証跡チェーンの改ざん検知".
+        self._chain.append(record.run_id, path)
         return path
+
+    def verify_chain(self) -> ChainVerification:
+        """Whole-store tamper check across every run this EvidenceStore has
+        ever saved -- see EvidenceChain.verify(). Distinct from verify()
+        below, which only checks one run's stdout/stderr against its own
+        embedded hash."""
+        return self._chain.verify()
 
     def load(self, run_id: str) -> RunRecord:
         path = self._runs_dir / f"{run_id}.json"
