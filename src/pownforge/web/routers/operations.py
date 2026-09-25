@@ -36,12 +36,14 @@ class NodeCreate(BaseModel):
     node_id: str
     target: str
     label: str = ""
+    attack_technique_ids: list[str] = Field(default_factory=list)
 
 
 class EdgeCreate(BaseModel):
     source: str
     destination: str
     capabilities: list[Capability] | None = None
+    attack_technique_ids: list[str] = Field(default_factory=list)
 
 
 class ActionCreate(BaseModel):
@@ -62,6 +64,7 @@ class ActionCreate(BaseModel):
     capabilities: list[Capability] = Field(default_factory=lambda: [Capability.READ_ONLY])
     requires: list[str] = Field(default_factory=list)
     provides: list[str] = Field(default_factory=list)
+    attack_technique_ids: list[str] = Field(default_factory=list)
 
 
 class ApprovalCreate(BaseModel):
@@ -108,7 +111,10 @@ def add_operation_node(
     policy: ScopePolicy = Depends(get_policy),
 ) -> AttackOperation:
     try:
-        return add_node(store, policy, name, body.node_id, body.target, label=body.label)
+        return add_node(
+            store, policy, name, body.node_id, body.target, label=body.label,
+            attack_technique_ids=body.attack_technique_ids,
+        )
     except (OperationError, PolicyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -121,7 +127,10 @@ def add_operation_edge(
     policy: ScopePolicy = Depends(get_policy),
 ) -> AttackOperation:
     try:
-        return add_edge(store, policy, name, body.source, body.destination, body.capabilities)
+        return add_edge(
+            store, policy, name, body.source, body.destination, body.capabilities,
+            attack_technique_ids=body.attack_technique_ids,
+        )
     except (OperationError, PolicyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

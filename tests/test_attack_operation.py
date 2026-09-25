@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -400,3 +401,41 @@ def test_execute_leaves_kill_chain_phase_unset_for_phases_without_a_mapping(tmp_
     action = next(a for a in updated.actions if a.id == "a1")
     record = evidence.load(action.run_id)
     assert record.kill_chain_phase is None
+
+
+def test_add_node_and_add_edge_accept_attack_technique_ids(tmp_path: Path) -> None:
+    store = AttackOperationStore(tmp_path / "operations")
+    create_operation(store, "op")
+    policy = _policy()
+
+    add_node(store, policy, "op", "n-a", "a", attack_technique_ids=["T1595"])
+    add_node(store, policy, "op", "n-b", "b")
+    add_edge(store, policy, "op", "a", "b", attack_technique_ids=["T1210"])
+
+    operation = store.load("op")
+    assert operation.nodes[0].attack_technique_ids == ["T1595"]
+    assert operation.nodes[1].attack_technique_ids == []
+    assert operation.edges[0].attack_technique_ids == ["T1210"]
+
+
+def test_action_attack_technique_ids_defaults_to_empty_list() -> None:
+    action = Action(id="a1", name="x", phase=AttackPhase.RECON, kind=ActionKind.SCAN, target="a", plugin="network")
+    assert action.attack_technique_ids == []
+
+
+def test_attack_operation_without_attack_technique_ids_loads_unchanged(tmp_path: Path) -> None:
+    """Backward compatibility: a pre-existing operations/<name>.json with no
+    attack_technique_ids field at all on its nodes/edges/actions must still
+    load, defaulting to empty lists (refactor v3 §3/§12.5)."""
+    store = AttackOperationStore(tmp_path / "operations")
+    create_operation(store, "op")
+    add_node(store, _policy(), "op", "n-a", "a")
+
+    path = tmp_path / "operations" / "op.json"
+    raw = json.loads(path.read_text())
+    assert "attack_technique_ids" in raw["nodes"][0]  # sanity: current writer includes it
+    del raw["nodes"][0]["attack_technique_ids"]
+    path.write_text(json.dumps(raw))
+
+    operation = store.load("op")
+    assert operation.nodes[0].attack_technique_ids == []

@@ -41,13 +41,16 @@ def add_node(
     node_id: str,
     target: str,
     label: str = "",
+    attack_technique_ids: list[str] | None = None,
 ) -> AttackOperation:
     policy.resolve(target)
     with store.lock(operation_name):
         operation = store.load(operation_name)
         if any(node.id == node_id for node in operation.nodes):
             raise OperationError(f"node '{node_id}' already exists")
-        operation.nodes.append(AttackNode(id=node_id, target=target, label=label))
+        operation.nodes.append(
+            AttackNode(id=node_id, target=target, label=label, attack_technique_ids=attack_technique_ids or [])
+        )
         store.save(operation)
         return operation
 
@@ -59,6 +62,7 @@ def add_edge(
     source: str,
     destination: str,
     capabilities: list[Capability] | None = None,
+    attack_technique_ids: list[str] | None = None,
 ) -> AttackOperation:
     policy.resolve(source)
     policy.resolve(destination)
@@ -75,6 +79,7 @@ def add_edge(
             source=source,
             destination=destination,
             capabilities=capabilities or [Capability.NETWORK_PIVOT],
+            attack_technique_ids=attack_technique_ids or [],
         )
         if edge in operation.edges:
             raise OperationError("attack graph edge already exists")

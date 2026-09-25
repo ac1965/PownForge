@@ -90,6 +90,7 @@ export interface Finding {
   detail: string;
   source: string;
   status: FindingStatus;
+  attack_technique_ids: string[];
 }
 
 export interface RunRecord {
@@ -372,6 +373,7 @@ export interface AttackNode {
   target: string;
   label: string;
   state: AttackNodeState;
+  attack_technique_ids: string[];
 }
 
 export interface AttackEdge {
@@ -379,6 +381,7 @@ export interface AttackEdge {
   destination: string;
   relationship: string;
   capabilities: Capability[];
+  attack_technique_ids: string[];
 }
 
 export interface OperationAction {
@@ -395,6 +398,7 @@ export interface OperationAction {
   provides: string[];
   status: ActionStatus;
   run_id: string | null;
+  attack_technique_ids: string[];
 }
 
 export interface Approval {
@@ -576,14 +580,22 @@ export const api = {
   getOperation: (name: string) => request<AttackOperation>(`/operations/${encodeURIComponent(name)}`),
   createOperation: (body: { name: string; objective?: string; engagement?: string | null }) =>
     request<AttackOperation>("/operations", { method: "POST", body: JSON.stringify(body) }),
-  addOperationNode: (name: string, body: { node_id: string; target: string; label?: string }) =>
+  addOperationNode: (
+    name: string,
+    body: { node_id: string; target: string; label?: string; attack_technique_ids?: string[] },
+  ) =>
     request<AttackOperation>(`/operations/${encodeURIComponent(name)}/nodes`, {
       method: "POST",
       body: JSON.stringify(body),
     }),
   addOperationEdge: (
     name: string,
-    body: { source: string; destination: string; capabilities?: Capability[] | null },
+    body: {
+      source: string;
+      destination: string;
+      capabilities?: Capability[] | null;
+      attack_technique_ids?: string[];
+    },
   ) =>
     request<AttackOperation>(`/operations/${encodeURIComponent(name)}/edges`, {
       method: "POST",
@@ -603,6 +615,7 @@ export const api = {
       capabilities?: Capability[];
       requires?: string[];
       provides?: string[];
+      attack_technique_ids?: string[];
     },
   ) =>
     request<AttackOperation>(`/operations/${encodeURIComponent(name)}/actions`, {

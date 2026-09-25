@@ -61,6 +61,11 @@ class AttackNode(BaseModel):
     target: str
     label: str = ""
     state: AttackNodeState = AttackNodeState.KNOWN
+    # MITRE ATT&CK technique ids known to apply to this node (e.g. "T1190"),
+    # set explicitly by whoever builds the graph -- never inferred. Optional
+    # and additive; default empty list keeps existing operation JSON (no
+    # tags) loading unchanged. See docs/handbook.md §14 "ATT&CKタグ".
+    attack_technique_ids: list[str] = Field(default_factory=list)
 
 
 class AttackEdge(BaseModel):
@@ -68,6 +73,7 @@ class AttackEdge(BaseModel):
     destination: str
     relationship: str = "reachable"
     capabilities: list[Capability] = Field(default_factory=list)
+    attack_technique_ids: list[str] = Field(default_factory=list)
 
 
 class Action(BaseModel):
@@ -96,6 +102,9 @@ class Action(BaseModel):
     provides: list[str] = Field(default_factory=list)
     status: ActionStatus = ActionStatus.PLANNED
     run_id: str | None = None
+    # See AttackNode.attack_technique_ids above -- same optional, additive,
+    # explicitly-set-only field, here for the action itself.
+    attack_technique_ids: list[str] = Field(default_factory=list)
 
 
 class Approval(BaseModel):

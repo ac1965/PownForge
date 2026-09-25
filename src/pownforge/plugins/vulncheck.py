@@ -51,6 +51,30 @@ _SEVERITY_BY_SCRIPT: dict[str, str] = {
     "rsa-vuln-roca": "medium",
 }
 
+# MITRE ATT&CK for Enterprise technique ids, assigned per script by the
+# criteria documented in docs/handbook.md §14 "ATT&CKタグ": T1190 for an
+# application/TLS-facing service vulnerability, T1210 for an internal
+# lateral-movement-oriented remote service (SMB), T1552.004 for a
+# key-generation weakness enabling private key recovery (ROCA). A script
+# with no confidently-known mapping is simply absent here, not guessed.
+_ATTACK_TECHNIQUE_BY_SCRIPT: dict[str, list[str]] = {
+    "ssl-heartbleed": ["T1190"],
+    "ssl-poodle": ["T1190"],
+    "ssl-ccs-injection": ["T1190"],
+    "tls-ticketbleed": ["T1190"],
+    "smb-vuln-ms17-010": ["T1210"],
+    "smb-double-pulsar-backdoor": ["T1210"],
+    "http-vuln-cve2010-0738": ["T1190"],
+    "http-vuln-cve2011-3192": ["T1190"],
+    "http-vuln-cve2014-2126": ["T1190"],
+    "http-vuln-cve2014-2127": ["T1190"],
+    "http-vuln-cve2014-2128": ["T1190"],
+    "http-vuln-cve2014-2129": ["T1190"],
+    "http-vuln-cve2015-1635": ["T1190"],
+    "http-vuln-cve2017-1001000": ["T1190"],
+    "rsa-vuln-roca": ["T1552.004"],
+}
+
 
 class VulncheckPlugin(Plugin):
     name = "vulncheck"
@@ -129,6 +153,7 @@ class VulncheckPlugin(Plugin):
                     "title": _ALLOWED_SCRIPTS.get(result["script"], result["script"]),
                     "severity": _SEVERITY_BY_SCRIPT.get(result["script"], "medium"),
                     "detail": result["detail"],
+                    "attack_technique_ids": _ATTACK_TECHNIQUE_BY_SCRIPT.get(result["script"], []),
                 }
                 for result in results
                 if _is_vulnerable_state(result["state"])

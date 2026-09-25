@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class Severity(str, Enum):
@@ -36,6 +36,17 @@ class Finding(BaseModel):
     # human review (`pownforge result review`) moves it to confirmed or
     # false-positive.
     status: FindingStatus = FindingStatus.NEEDS_REVIEW
+    # MITRE ATT&CK for Enterprise technique ids (e.g. "T1190"), assigned
+    # explicitly by a plugin's normalize() or a human reviewer -- never
+    # inferred/scored here. Optional and additive: default empty list keeps
+    # existing findings (no tags) loading unchanged. See docs/handbook.md
+    # §14 "ATT&CKタグ" for the adopted vocabulary and assignment criteria.
+    attack_technique_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("attack_technique_ids")
+    @classmethod
+    def _drop_blank_technique_ids(cls, value: list[str]) -> list[str]:
+        return [item.strip() for item in value if item and item.strip()]
 
 
 class Suggestion(BaseModel):

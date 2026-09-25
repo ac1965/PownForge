@@ -76,8 +76,40 @@ def test_add_node_and_edge(tmp_path: Path) -> None:
         assert resp.status_code == 201
         body = resp.json()
         assert body["edges"] == [
-            {"source": "a", "destination": "b", "relationship": "reachable", "capabilities": ["network-pivot"]}
+            {
+                "source": "a",
+                "destination": "b",
+                "relationship": "reachable",
+                "capabilities": ["network-pivot"],
+                "attack_technique_ids": [],
+            }
         ]
+
+
+def test_add_node_and_edge_accept_attack_technique_ids(tmp_path: Path) -> None:
+    with TestClient(_app(tmp_path)) as client:
+        _register_target(client, "a")
+        _register_target(client, "b")
+        client.post("/api/operations", json={"name": "op-1"})
+
+        resp = client.post(
+            "/api/operations/op-1/nodes",
+            json={"node_id": "n-a", "target": "a", "attack_technique_ids": ["T1595"]},
+        )
+        assert resp.status_code == 201
+        client.post("/api/operations/op-1/nodes", json={"node_id": "n-b", "target": "b"})
+
+        resp = client.post(
+            "/api/operations/op-1/edges",
+            json={"source": "a", "destination": "b", "attack_technique_ids": ["T1210"]},
+        )
+        assert resp.status_code == 201
+
+        got = client.get("/api/operations/op-1")
+        body = got.json()
+        assert body["nodes"][0]["attack_technique_ids"] == ["T1595"]
+        assert body["nodes"][1]["attack_technique_ids"] == []
+        assert body["edges"][0]["attack_technique_ids"] == ["T1210"]
 
 
 def test_add_node_rejects_unregistered_target(tmp_path: Path) -> None:

@@ -739,6 +739,7 @@ def test_vulncheck_plugin_normalizes_vulnerable_result_into_finding(
     assert len(output["_findings"]) == 1
     assert output["_findings"][0]["severity"] == "high"
     assert "Heartbleed" in output["_findings"][0]["title"]
+    assert output["_findings"][0]["attack_technique_ids"] == ["T1190"]
 
 
 def test_vulncheck_plugin_parses_hostscript_results(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -761,6 +762,23 @@ def test_vulncheck_plugin_parses_hostscript_results(monkeypatch: pytest.MonkeyPa
         }
     ]
     assert output["_findings"] == []
+
+
+def test_vulncheck_plugin_tags_hostscript_finding_with_attack_technique(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    plugin = VulncheckPlugin()
+    monkeypatch.setattr(VulncheckPlugin, "check", lambda self: True)
+    target = Target(name="lab", kind=TargetKind.HOST, address="metasploitable2")
+    execution = _execution(tmp_path)
+    command = plugin.build_command(target, {"script": "smb-vuln-ms17-010"}, execution)
+    xml_path = Path(command[command.index("-oX") + 1])
+    xml_path.write_text(VULNCHECK_HOSTSCRIPT_XML.replace("NOT VULNERABLE", "VULNERABLE"))
+
+    output = plugin.normalize(target, "", "", execution)
+
+    assert len(output["_findings"]) == 1
+    assert output["_findings"][0]["attack_technique_ids"] == ["T1210"]
 
 
 def test_vulncheck_plugin_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

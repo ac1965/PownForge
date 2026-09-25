@@ -50,11 +50,14 @@ class PluginExecution:
 class FindingDict(TypedDict, total=False):
     """One entry of normalize()'s optional "_findings" list. `title` is
     required in practice; severity falls back to "info" when missing or
-    invalid (core/finding_utils.py)."""
+    invalid (core/finding_utils.py). `attack_technique_ids` is optional
+    (MITRE ATT&CK technique ids, e.g. "T1190") -- omit it when no mapping is
+    known; see docs/handbook.md §14 "ATT&CKタグ" for the adopted vocabulary."""
 
     title: str
     severity: str
     detail: str
+    attack_technique_ids: list[str]
 
 
 class Plugin(ABC):
@@ -133,7 +136,8 @@ class Plugin(ABC):
         way here, again without touching `self`.
 
         May include an "_findings" key: a list of {"title", "severity",
-        "detail"} dicts for tool-native matches (e.g. nuclei template hits).
+        "detail"} dicts for tool-native matches (e.g. nuclei template hits),
+        each optionally carrying "attack_technique_ids" (see FindingDict).
         ScanRunner pops that key and turns it into real Finding objects
         (source="tool", status defaults to needs-review like any other
         finding). Plugins that don't set it are unaffected."""

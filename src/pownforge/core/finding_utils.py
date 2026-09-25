@@ -19,7 +19,21 @@ def coerce_finding(item: dict[str, Any], source: str) -> Finding | None:
     if not title:
         return None
     detail = str(item.get("detail", ""))
+    raw_technique_ids = item.get("attack_technique_ids", [])
+    technique_ids = [str(t) for t in raw_technique_ids] if isinstance(raw_technique_ids, list) else []
     try:
-        return Finding(title=str(title), severity=item.get("severity", "info"), detail=detail, source=source)
+        return Finding(
+            title=str(title),
+            severity=item.get("severity", "info"),
+            detail=detail,
+            source=source,
+            attack_technique_ids=technique_ids,
+        )
     except ValueError:
-        return Finding(title=str(title), severity=Severity.INFO, detail=detail, source=source)
+        return Finding(
+            title=str(title),
+            severity=Severity.INFO,
+            detail=detail,
+            source=source,
+            attack_technique_ids=technique_ids,
+        )

@@ -939,6 +939,12 @@ Metasploitable2のSamba相手に実行)を実行。この検証で**実バグを
 
 これで許可リスト15本全てについて、実際のnmapでの実行結果を確認済み。
 
+**ATT&CKタグ**: `_findings`の各エントリには、確信の持てる範囲で
+MITRE ATT&CK技術ID(`attack_technique_ids`)を付与しています。採用した
+語彙・付与基準・スクリプトごとの対応は
+[§14「ATT&CKタグ」](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)
+を参照してください。
+
 ### 外部プラグイン(Plugin SDK)
 
 リポジトリ外のPythonパッケージとしてプラグインを配布できます。公開APIは
@@ -2873,9 +2879,9 @@ stage追加→Markdown/HTMLレポート表示までブラウザから一気通�
 | クラス | 役割 |
 | --- | --- |
 | `AttackOperation` | `name`/`objective`/`engagement`と、`nodes`/`edges`/`actions`/`approvals`のリストを保持するトップレベルオブジェクト |
-| `AttackNode` | 到達済み・既知のtargetをグラフのノードとして表す(`id`/`target`/`label`/`state`) |
-| `AttackEdge` | ノード間の到達関係(`source`/`destination`/`relationship`/`capabilities`) |
-| `Action` | 実行候補(`id`/`phase`/`kind`/`target`/`plugin`/`status`)。`kind`は`scan`/`manual`/`pivot`の3種 |
+| `AttackNode` | 到達済み・既知のtargetをグラフのノードとして表す(`id`/`target`/`label`/`state`/`attack_technique_ids`) |
+| `AttackEdge` | ノード間の到達関係(`source`/`destination`/`relationship`/`capabilities`/`attack_technique_ids`) |
+| `Action` | 実行候補(`id`/`phase`/`kind`/`target`/`plugin`/`status`/`attack_technique_ids`)。`kind`は`scan`/`manual`/`pivot`の3種 |
 | `Approval` | `Action`に対する人間の承認記録(`approved_by`/`approved_at`/`note`) |
 
 `AttackOperationStore`(`core/attack_session.py`と同じ「1レコード1JSON
@@ -2943,6 +2949,55 @@ nodeへ反映されることはありません — nodeの`state`が反映する
 既存の`AttackOperation`のJSON(全ノードが`known`)はスキーマ変更なしに
 そのまま読めます。
 
+### ATT&CKタグ(`attack_technique_ids`)(リファクタリング指示書v3 §3)
+
+`Finding`(`core/models/finding.py`)と、`AttackOperation`のグラフ要素
+(`AttackNode`/`AttackEdge`/`Action`、上表参照)は、いずれもオプショナル
+な`attack_technique_ids: list[str]`フィールドを持ちます。
+[MITRE ATT&CK for Enterprise](https://attack.mitre.org/)の技術ID
+(例: `T1190`)を、判明している範囲でタグ付けするためのものです。
+
+**設計方針**:
+
+- 既存フィールドには一切手を加えない後方互換の追加。デフォルト値は
+  空リストで、タグ無しの既存データ(`Finding`のJSON、`AttackOperation`の
+  保存済みJSON)はそのまま読み込める(§12「完了の定義」の要件どおり、
+  既存データを読み込んでもエラーにならないことを確認済み)
+- 自動推論・スコアリングは行わない。プラグインの`normalize()`が自分の
+  扱うCVE/検出内容に対応する技術IDを`_findings`エントリへ**明示的に**
+  含めるか(`plugins/base.py::FindingDict`)、`AttackOperation`のnode/
+  edge/actionを操作するCLI(`--attack-technique`、カンマ区切り)・Web API
+  (`attack_technique_ids`)が呼び出し時に明示的に渡すかのいずれかで、
+  値は常に人間(コードの作成者、またはoperationを組み立てる側)が判断して
+  設定する
+- 「不明な場合はタグを付けない」を既定とする。1件のFinding/node/edge/
+  actionに複数の技術IDを付与してもよいが、確信の持てないマッピングは
+  空のままにする
+
+**現時点で採用している語彙**(初採用は`vulncheck`プラグインのみ。
+他プラグインへの適用は、個別に確信の持てる範囲で追加する方針とし、
+このタスクでは行っていない):
+
+| 技術ID | 名称 | 付与基準 |
+| --- | --- | --- |
+| `T1190` | Exploit Public-Facing Application | 外部/アプリケーション層(HTTP・TLS等)に露出したサービスの既知脆弱性を悪用する検証。`vulncheck`のTLS系(`ssl-*`/`tls-ticketbleed`)・HTTPアプリ系(`http-vuln-cve*`)スクリプトが該当 |
+| `T1210` | Exploitation of Remote Services | 内部ネットワークのリモートサービス(典型的には横展開に使われるSMB等のプロトコル)の既知脆弱性。`vulncheck`の`smb-vuln-ms17-010`/`smb-double-pulsar-backdoor`が該当 |
+| `T1552.004` | Unsecured Credentials: Private Keys | 鍵生成の実装不備により秘密鍵の復元が可能になる脆弱性。`vulncheck`の`rsa-vuln-roca`が該当 |
+
+このタグ付けは`plugins/vulncheck.py`の`_findings`エントリと、
+`_ALLOWED_SCRIPTS`/`_SEVERITY_BY_SCRIPT`と対をなす新設の
+`_ATTACK_TECHNIQUE_BY_SCRIPT`辞書で実装しています。
+
+CLIからは`operation add-node`/`add-edge`/`add-action`の
+`--attack-technique T1190,T1210`(カンマ区切り、複数可)で明示的に
+タグ付けできます。指定しなければ従来どおり空リストのままです。
+
+**将来のRiskForge連携について**: この語彙は将来RiskForgeと共有される
+可能性がありますが、本タスクでは連携コード・RiskForge側ドキュメントの
+変更は一切行っていません([§18](#18-riskforgeとの関係姉妹プロジェクト)、
+およびリファクタリング指示書v3 §9の「着手前にユーザー確認が必須」という
+ゲートに従います)。
+
 ### CLI
 
 ```bash
@@ -2952,7 +3007,8 @@ pownforge operation add-node op1 n-b --target lab-b --label "pivot target"
 pownforge operation add-edge op1 --source lab-a --destination lab-b
 
 pownforge operation add-action op1 a1 "network scan" \
-  --target lab-web --phase discovery --plugin network
+  --target lab-web --phase discovery --plugin network \
+  --attack-technique T1190
 pownforge operation approve op1 a1 --approved-by operator
 pownforge operation execute op1 a1
 pownforge operation show op1
@@ -3520,6 +3576,28 @@ pivotとして)で全段階を記録し、5 stageの`AttackSession`
 `ScopePolicy.authorize_pivot()`もL3の記録で実際に機能することを確認
 できた。
 
+### リファクタリング指示書v3の実施状況(2026-09-25〜)
+
+「PownForge リファクタリング指示書 v3」(ユーザーがアップロードした
+外部ドキュメント。本リポジトリには同梱していない)が定める優先度順
+タスクのうち、実際に着手・完了したものをこの表で追跡します。指示書の
+節番号をそのまま使い、内部アーキテクチャのリファクタリング完了表
+(上記)と同じ粒度(✅完了・見送りとその理由)で記録します。
+
+| 指示書節 | 内容 | 状況 |
+| --- | --- | --- |
+| **§3(一部)** | ATT&CK技術IDタグ付け: `Finding`/`AttackNode`/`AttackEdge`/`Action`への`attack_technique_ids`フィールド追加(後方互換)、語彙のdocs/handbook.md定義([§14「ATT&CKタグ」](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計))、`vulncheck`プラグインでの初適用、CLI(`--attack-technique`)・Web API(`attack_technique_ids`)からの明示的な付与 | ✅ 完了(2026-09-25) |
+| **§3(残り)** | 重大度表現の共通severityモデルへの正規化(CVSSベース+ツール固有情報の保持)、RiskForge `RawFinding`スキーマとの対応表のドキュメント化 | 未着手 |
+| **§0-3** | 実Vulhubチェックアウトでの実機スモークテスト(隔離ラボホスト前提) | 未着手 |
+| **§1(残課題)** | Operationレポート生成、Operation経由scan Actionの非同期実行化 | 未着手(過去に「今はやらない」と回答済み。再着手には現状再確認の上でのユーザー確認が必要) |
+| **§2** | `result import`/`add-finding`のCLI/Web実運用フローの洗い出しとバッチ取り込み等のUX改善 | 未着手 |
+| **§4** | 配布・セットアップ(pipx検証、README「ネイティブ/Docker」2経路整理) | 未着手 |
+| **§5** | テスト戦略の補強(golden fileの蓄積) | 未着手 |
+| **§6** | Evidence証跡チェーンの改ざん検知強化(連結ハッシュ) | 未着手 |
+| **§7** | プラグイン結果の相関分析(Correlator) | 未着手 |
+| **§8** | ProcessExecutorのリソース上限集中管理 | 未着手 |
+| **§9** | RiskForge連携に向けた語彙・スキーマ対応表の準備(ドキュメントのみ) | 未着手(着手前にユーザー確認が必須、との指示書自身のゲートあり) |
+
 ## 18. RiskForgeとの関係(姉妹プロジェクト)
 
 [RiskForge](https://github.com/ac1965/RiskForge)は、PownForgeと対になる
@@ -3605,7 +3683,7 @@ RiskForge = 是正の計画・承認・実行管理・検証結果の記録
 | `SafetyPolicy` | `ScopePolicy`の下で、範囲内の対象に対して検証プリミティブがどこまで到達してよいか(`allowed_actions`/`max_validation_level`/`execution_enabled`等)を制限するポリシー。[§15](#15-検証プリミティブフレームワークphase-2設計骨格) |
 | `Engagement` | 「対象Aから対象Bへの横展開」を記録するための、`Target`とは別の認可単位(対象名の集合)。実行権限は一切追加しない、あくまでブックキーピング層。[§12](#12-target-modelとスコープ制御) |
 | `excluded` / `max_concurrent` | `Target`が持つ、一時的な全面拒否フラグと対象単位の同時実行数上限。[§12](#12-target-modelとスコープ制御) |
-| `Finding` | 1件の検出事項(`title`/`severity`/`detail`/`source`)。`source="tool"`(プラグインの`_findings`由来)と`source="ai"`(`pownforge analyze`由来)がある。severityが不正な値の場合は`info`にフォールバックする(`core/finding_utils.py`) |
+| `Finding` | 1件の検出事項(`title`/`severity`/`detail`/`source`/`attack_technique_ids`)。`source="tool"`(プラグインの`_findings`由来)と`source="ai"`(`pownforge analyze`由来)がある。severityが不正な値の場合は`info`にフォールバックする(`core/finding_utils.py`)。`attack_technique_ids`はオプショナルなMITRE ATT&CK技術IDのタグ([§14「ATT&CKタグ」](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)参照) |
 | `RunRecord` | 1回のスキャン実行の証跡一式(コマンド・出力・findings・タイムスタンプ・`via_target`/`engagement`等)。`EvidenceStore`が保存する単位 |
 | `EvidenceStore` | 実行証跡(コマンド・タイムスタンプ・SHA-256ハッシュ)を保存し、`evidence verify`でハッシュ検証する永続化層(`evidence/store.py`)。[§13](#13-証跡とレポート) |
 | `AuditStore` | `ScopePolicy`/`SafetyPolicy`に拒否されたスキャン・プリミティブ実行の試みを記録する永続化層(`evidence/audit.py`)。この記録経路を迂回する変更はしない([AGENTS.md](../AGENTS.md)の制約) |
@@ -3637,6 +3715,7 @@ RiskForge = 是正の計画・承認・実行管理・検証結果の記録
 | `requires` / `provides` | `Action`間の依存関係を表す自由記述タグ。あるActionが`completed`になると`provides`のタグが「利用可能」になり、別のActionの`requires`を満たす。固定enumの`Capability`とは別語彙([§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)の対応表参照) |
 | `Capability` | `Action`/`AttackEdge`の効果を分類する固定enum(`read-only`/`state-changing`/`credential-related`/`network-pivot`/`persistence`)。`SafetyPolicy`や検証プリミティブのdescriptorが参照する |
 | `KillChainPhase` | Findings/Actionをサイバーキルチェーン上の段階(`recon`/`weaponization`/`delivery`等)に位置づけるenum。`--phase`オプションで指定する。[§13.3](#13-証跡とレポート) |
+| `attack_technique_ids` | `Finding`/`AttackNode`/`AttackEdge`/`Action`が持つ、オプショナルなMITRE ATT&CK技術IDのリスト(例: `T1190`)。自動推論はせず、プラグインの`normalize()`またはCLI/Web層が明示的に付与する。既存データには影響しない後方互換の追加。[§14「ATT&CKタグ」](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計) |
 
 ### 19.4 検証プリミティブ・フレームワーク
 

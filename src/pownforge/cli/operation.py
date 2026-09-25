@@ -51,12 +51,17 @@ def operation_show(name: str, workdir: Path = typer.Option(DEFAULT_WORKDIR)) -> 
         f"actions={len(operation.actions)} approvals={len(operation.approvals)}"
     )
     for node in operation.nodes:
-        typer.echo(f"  node {node.id}\ttarget={node.target}\tstate={node.state.value}\t{node.label}")
+        techniques = f"\t{','.join(node.attack_technique_ids)}" if node.attack_technique_ids else ""
+        typer.echo(f"  node {node.id}\ttarget={node.target}\tstate={node.state.value}\t{node.label}{techniques}")
     for edge in operation.edges:
         caps = ",".join(c.value for c in edge.capabilities)
-        typer.echo(f"  edge {edge.source} -> {edge.destination}\t{edge.relationship}\t[{caps}]")
+        techniques = f"\t{','.join(edge.attack_technique_ids)}" if edge.attack_technique_ids else ""
+        typer.echo(f"  edge {edge.source} -> {edge.destination}\t{edge.relationship}\t[{caps}]{techniques}")
     for action in operation.actions:
-        typer.echo(f"  action {action.id}\t{action.phase.value}\t{action.kind.value}\t{action.target}\t{action.status.value}")
+        techniques = f"\t{','.join(action.attack_technique_ids)}" if action.attack_technique_ids else ""
+        typer.echo(
+            f"  action {action.id}\t{action.phase.value}\t{action.kind.value}\t{action.target}\t{action.status.value}{techniques}"
+        )
 
 
 @operation_app.command("add-node")
@@ -65,6 +70,9 @@ def operation_add_node(
     node_id: str,
     target: str = typer.Option(..., "--target"),
     label: str = typer.Option("", "--label"),
+    attack_technique: str = typer.Option(
+        "", "--attack-technique", help="Comma-separated MITRE ATT&CK technique ids (e.g. T1190), if known."
+    ),
     workdir: Path = typer.Option(DEFAULT_WORKDIR),
     config: Path = typer.Option(DEFAULT_CONFIG),
 ) -> None:
@@ -72,8 +80,9 @@ def operation_add_node(
 
     Purely descriptive bookkeeping -- this never authorizes anything beyond
     what TARGET's own allowed_plugins already permits."""
+    technique_ids = [t.strip() for t in attack_technique.split(",") if t.strip()]
     try:
-        add_node(_operations(workdir), _policy(config), name, node_id, target, label)
+        add_node(_operations(workdir), _policy(config), name, node_id, target, label, technique_ids)
     except OperationError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
@@ -88,6 +97,9 @@ def operation_add_edge(
     capabilities: str = typer.Option(
         "", "--capabilities", help="Comma-separated Capability values; default: network-pivot."
     ),
+    attack_technique: str = typer.Option(
+        "", "--attack-technique", help="Comma-separated MITRE ATT&CK technique ids (e.g. T1210), if known."
+    ),
     workdir: Path = typer.Option(DEFAULT_WORKDIR),
     config: Path = typer.Option(DEFAULT_CONFIG),
 ) -> None:
@@ -97,8 +109,9 @@ def operation_add_edge(
     own approval and, at `execute` time, an Engagement that both targets
     belong to (see ScopePolicy.authorize_pivot())."""
     caps = [Capability(c.strip()) for c in capabilities.split(",") if c.strip()] or None
+    technique_ids = [t.strip() for t in attack_technique.split(",") if t.strip()]
     try:
-        add_edge(_operations(workdir), _policy(config), name, source, destination, caps)
+        add_edge(_operations(workdir), _policy(config), name, source, destination, caps, technique_ids)
     except OperationError as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
@@ -114,11 +127,23 @@ def operation_add_action(
     phase: AttackPhase = typer.Option(..., "--phase"),
     kind: ActionKind = typer.Option(ActionKind.SCAN, "--kind"),
     plugin: Optional[str] = typer.Option(None, "--plugin"),
+    attack_technique: str = typer.Option(
+        "", "--attack-technique", help="Comma-separated MITRE ATT&CK technique ids (e.g. T1190), if known."
+    ),
     workdir: Path = typer.Option(DEFAULT_WORKDIR),
     config: Path = typer.Option(DEFAULT_CONFIG),
 ) -> None:
     """Add a candidate action (scan/manual/pivot) to an attack operation."""
-    action = Action(id=action_id, name=action_name, phase=phase, kind=kind, target=target, plugin=plugin)
+    technique_ids = [t.strip() for t in attack_technique.split(",") if t.strip()]
+    action = Action(
+        id=action_id,
+        name=action_name,
+        phase=phase,
+        kind=kind,
+        target=target,
+        plugin=plugin,
+        attack_technique_ids=technique_ids,
+    )
     try:
         add_action(_operations(workdir), _policy(config), name, action)
     except OperationError as exc:
