@@ -249,6 +249,39 @@ source .venv/bin/activate
 # もしくは毎回 .venv/bin/pownforge ... のように直接呼び出す
 ```
 
+### pipxでのインストール(リファクタリング指示書v3 §4)
+
+`.venv`を意識せず`pownforge`コマンドをグローバルに使いたい場合、
+`pyproject.toml`の`[project.scripts]`(`pownforge = "pownforge.cli:app"`)
+エントリポイントがそのまま使えます。
+
+```bash
+pipx install --python python3.11 .                                              # ローカルチェックアウトから
+pipx install --python python3.11 "git+https://github.com/ac1965/PownForge.git"  # GitHubから直接
+pipx install --python python3.11 ".[web,pdf]"                                   # extraを含める場合
+```
+
+**実機検証**: 上記3パターンすべてを実際に`pipx install`(pipx 1.17.6、
+Python 3.11.16)で実行し、`pownforge`コマンドがPATH上に配置され
+(`~/.local/bin/pownforge`)、`pownforge plugin list`がホストの外部ツール
+(この場合nmap)を正しく検出することを確認した。`.[web,pdf]`extra付きの
+場合は、pipxが作る隔離venv内に`fastapi`/`uvicorn`/`reportlab`が実際に
+インストールされ`import`できることも確認した。検証後は`pipx uninstall
+pownforge`で環境を元に戻している。
+
+**PyInstaller等によるスタンドアロンバイナリ化は採用しない**。各
+プラグインはnmap/trivy/ffuf/sqlmap/grype/syft/semgrep/checkov/
+testssl.sh等の外部ツールをホスト側(または`docker/Dockerfile.runtime`
+内)から呼び出す設計であり(`core/process.py::ProcessExecutor`が
+`subprocess`で起動)、Python本体を1ファイルバイナリに固めても、これら
+の外部ツール(多くがGo/C/別言語の独立プロジェクトで、Pythonの
+バイトコードと一緒には固められない)のインストールは別途必要なまま
+変わらない。得られる利点は「Pythonインタプリタのインストールを省略
+できる」点のみで、複数の独立プロジェクトの実行バイナリを1つの配布物に
+まとめる場合のライセンス・再配布条件の精査という新たなコストの方が
+大きいと判断した。外部ツールをまとめて配布したい場合は、既存の
+Dockerランタイムイメージ(下記)がその役割を既に果たしている。
+
 ### Dockerランタイムイメージのビルド
 
 Docker上で外部ツールを揃えて動かす場合、`docker/Dockerfile.runtime`
@@ -3797,7 +3830,7 @@ pivotとして)で全段階を記録し、5 stageの`AttackSession`
 | **§0-3** | 実Vulhubチェックアウトでの実機スモークテスト(隔離ラボホスト前提)。副次的に発見した2件のバグ、(1)Vulhubのポート公開が全インターフェースにbindされる問題(`_localhost_only_up_command()`)、(2)`--register`が非決定的な順序でポートを選ぶ問題(`_reorder_by_compose_declaration()`)、いずれもその場で修正 | ✅ 完了(2026-09-25。実機検証記録は[§7「実機スモーク手順」](#7-ラボネットワーク)参照) |
 | **§1(残課題)** | Operationレポート生成(`pownforge operation report`、`reporting/operation.py`)、Operation経由scan Actionの非同期実行化(`POST .../execute-async` + `JobManager`のWSジョブキュー) | ✅ 完了(2026-09-25。現状再確認の上でユーザーに再提案し、着手の同意を得てから実施) |
 | **§2** | `result import`/`add-finding`のCLI/Web実運用フローの洗い出しとUX改善: CLIに`result import --finding-title/--finding-severity/--finding-detail`を追加(import+finding追加を1コマンド化)、Web APIに`POST /api/runs/{run_id}/findings`を新設(従来Web UIにはfinding追加手段が皆無だった)、`RunDetail.tsx`にfinding追加フォーム、`ImportRun.tsx`にRun detailへの導線を追加 | ✅ 完了(2026-09-25。実機検証記録は[§13「実際の作業順序の洗い出し」](#13-証跡とレポート)参照) |
-| **§4** | 配布・セットアップ(pipx検証、README「ネイティブ/Docker」2経路整理) | 未着手 |
+| **§4** | 配布・セットアップ: pipx実機検証(ローカル/GitHub/extra付きの3パターン)、README「ネイティブ/Docker」2経路への再構成、PyInstaller不採用の判断・理由の明記([§3「pipxでのインストール」](#3-セットアップとビルド)参照) | ✅ 完了(2026-09-25) |
 | **§5** | テスト戦略の補強(golden fileの蓄積) | 未着手 |
 | **§6** | Evidence証跡チェーンの改ざん検知強化(連結ハッシュ) | 未着手 |
 | **§7** | プラグイン結果の相関分析(Correlator) | 未着手 |

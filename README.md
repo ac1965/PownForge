@@ -12,6 +12,13 @@ LLM（ローカルOllama、またはClaude/OpenAI等のホスト型モデル。`
 
 ## セットアップ
 
+2つの経路があります。**ネイティブ**(Python 3.11+を直接使う)と
+**Docker**(外部ツールをまとめて揃えた実行時イメージを使う)です。
+ラボネットワーク経由の`scan`([ラボ環境](#ラボ環境攻撃対象ホストの動的追加)参照)は
+Docker経路が前提ですが、それ以外はどちらでも構いません。
+
+### ネイティブ
+
 Python 3.11以上が必要です(`pyproject.toml` の `requires-python`)。
 `make install` は `python3.11` で `.venv` を自動作成してインストールします。
 
@@ -24,6 +31,45 @@ make install
 ```bash
 pip install -e ".[dev]"
 ```
+
+**pipxでのインストール**(`.venv`を意識せず`pownforge`コマンドだけを
+グローバルに使いたい場合。実際に検証済みで、既存の`[project.scripts]`
+エントリポイントがそのまま使えます):
+
+```bash
+pipx install --python python3.11 .                                              # ローカルチェックアウトから
+pipx install --python python3.11 "git+https://github.com/ac1965/PownForge.git"  # GitHubから直接
+pipx install --python python3.11 ".[web,pdf]"                                   # Web UI/PDFレポートのextraも含める場合
+```
+
+**スタンドアロンバイナリ化(PyInstaller等)は採用していません**。各
+プラグインはnmap/trivy/ffuf/sqlmap/grype/testssl.sh等の外部ツールを
+ホスト側から呼び出す設計のため、Python本体を1バイナリに固めても、
+これらの外部ツール(多くがGo/C/別言語の独立プロジェクトでPythonに
+同梱できない)のインストールは別途必要なままです。「Pythonのインストール
+だけ省略できる」以上の利点が薄く、複数プロジェクトのバイナリを1つの
+配布物にまとめる際のライセンス・再配布上の複雑さも増すため、現時点では
+見送っています。外部ツールをまとめて揃えたい場合は下記のDocker経路を
+使ってください。
+
+### Docker
+
+外部ツールをすべて揃えた実行時イメージ(`docker/Dockerfile.runtime`)を
+ビルドして使う経路です。ホスト側にnmap/trivy/ffuf等を個別インストール
+する必要がありません(`sqlmap`のみDockerイメージに含めていません。
+ホスト側`.venv`からの実行を想定。理由は
+[docs/handbook.md §6](docs/handbook.md#6-プラグイン)参照)。
+
+```bash
+docker compose build
+docker compose run pownforge plugin list
+```
+
+詳細なビルド手順・既知の制約(ラボネットワーク経由の`scan`は
+`docker compose run pownforge ...`が必須、`analyze`/`walkthrough
+generate`は逆にホスト側`.venv`が必須、等)は
+[docs/handbook.md §3「セットアップとビルド」](docs/handbook.md#3-セットアップとビルド)
+を参照してください。
 
 ## クイックスタート
 
