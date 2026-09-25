@@ -232,3 +232,29 @@ def test_execute_rejects_unmet_requires(tmp_path: Path) -> None:
         got = client.get("/api/operations/op-1")
         action = next(a for a in got.json()["actions"] if a["id"] == "a1")
         assert action["status"] == "approved"
+
+
+def test_get_operation_report_markdown_and_html(tmp_path: Path) -> None:
+    with TestClient(_app(tmp_path)) as client:
+        _register_target(client, "a")
+        client.post("/api/operations", json={"name": "op-1", "objective": "lab"})
+        client.post(
+            "/api/operations/op-1/actions",
+            json={"id": "a1", "name": "manual foothold", "phase": "initial-access", "kind": "manual", "target": "a"},
+        )
+        client.post("/api/operations/op-1/actions/a1/approve", json={"approved_by": "operator"})
+        client.post("/api/operations/op-1/actions/a1/execute", json={"output": "uid=0(root)"})
+
+        resp = client.get("/api/operations/op-1/report")
+        assert resp.status_code == 200
+        assert "# Attack Operation: op-1" in resp.json()["markdown"]
+
+        resp = client.get("/api/operations/op-1/report", params={"format": "html"})
+        assert resp.status_code == 200
+        assert resp.json()["html"].startswith("<!doctype html>")
+
+
+def test_get_operation_report_unknown_operation_returns_404(tmp_path: Path) -> None:
+    with TestClient(_app(tmp_path)) as client:
+        resp = client.get("/api/operations/nope/report")
+    assert resp.status_code == 404

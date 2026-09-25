@@ -1995,7 +1995,8 @@ pownforge web serve  # 同一オリジンでAPIとSPAの両方を配信
 ![Targets画面](images/web-targets.png)
 
 Dashboard/Targets/Lab/Runs/Run detail/Audit/New Scan/Scan live/
-Playbooks/Playbook live/Attack Session/Operation/Primitives/Engagement/Walkthrough/Settingsの各画面から、
+Playbooks/Playbook live/Attack Session/Operation/Operation action live/
+Primitives/Engagement/Walkthrough/Settingsの各画面から、
 target追加・削除、labホスト起動・削除、kindクラスタ操作(Labページ、作成/削除・kubernetes対象登録)、
 VulhubシナリオのLab Provider操作(Labページ、起動/停止/破棄・url対象登録)、
 横断エンゲージメント・レポート生成とCVE露出マトリクスの表示
@@ -2006,7 +2007,10 @@ Playbook実行(ステップ単位のライブ進捗、
 stage追加・レポート表示([§13](#13-証跡とレポート)の
 `AttackSession`節参照)、`AttackOperation`の作成・node/edge/action追加・
 承認・実行(Operationページ、[§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)
-の`/api/operations`系REST APIを呼ぶ)、Analyze実行、finding検証、evidence検証、
+の`/api/operations`系REST APIを呼ぶ。scan種別actionの実行はOperation
+action liveページへ遷移してライブ進捗を表示し、manual/pivotはその場の
+フォームで記録する)、Operationレポート生成(§14「レポート生成」節)、
+Analyze実行、finding検証、evidence検証、
 複数runをまたぐウォークスルー生成、AI既定モデル・出力言語の設定
 (Settings)までひととおり操作できます。`AttackOperation`はEmacs連携
 ([§10](#10-emacs連携)の`pownforge-operation-*`コマンド)からも同様に
@@ -3043,6 +3047,37 @@ scan種別と異なり、manual/pivotの`execute`はコマンドを一切実行�
 いません。AIが`AttackOperation`やActionを直接操作する経路は追加して
 いません(すべて人間がCLI/将来のフロントエンドから操作する想定)。
 
+### レポート生成(`pownforge operation report`、リファクタリング指示書v3 §1)
+
+`AttackSession`の`reporting/attack_session.py`パターンをそのまま踏襲した
+読み取り専用レポートです。`reporting/operation.py`(Markdown/HTML)と
+`reporting/pdf.py::render_operation`(PDF、`pip install -e '.[pdf]'`が
+必要)が、`AttackOperation`のグラフ(nodes/edges、`attack_technique_ids`
+込み)・Actions一覧・承認者・(実行済みActionについては)`run_id`から
+解決した`RunRecord`のFindingsまでを1つのレポートにまとめます。未実行の
+Action(`run_id`が無い)は「未実行」として示すだけで、エラーにはしません。
+
+```bash
+pownforge operation report op1 --format markdown  # 既定
+pownforge operation report op1 --format html
+pownforge operation report op1 --format pdf
+# -> <workdir>/reports/operation-op1.{md,html,pdf}
+```
+
+Web APIは`GET /api/operations/{name}/report?format=markdown|html|pdf`
+(`attack-session`の`GET /api/attack-sessions/{name}/report`と同じ形)。
+`AttackSession`のレポートと異なり集約対象は「経路として束ねた既存run」
+ではなく「Operation自身のActionが辿った実行結果」である点が違いです。
+
+**実機検証**: target登録 → operation作成 → scan種別action追加
+(`network`プラグイン、`attack_technique_ids`付き) → 承認 → Web UI
+「実行する」ボタンでの実nmapスキャン実行、という流れの後、Operations
+ページの「レポート」節にある「レポート表示」ボタン(markdown/html切替)と
+「PDFをダウンロード」リンクを実際にクリックし、3形式すべてが承認者・
+`run_id`・実際のnmapコマンド・`attack_technique_ids`のタグ(`[T1595]`)・
+(finding無しの場合の)プレースホルダーを正しく含んで表示されることを
+ブラウザ上で確認した。
+
 ### Web API
 
 `web/routers/operations.py`(`/api/operations`系)がCLIの`operation`サブ
@@ -3058,6 +3093,43 @@ Serviceを介さず`core.operation`のドメイン関数を直接呼ぶ。これ
 承認・実行フローを迂回できないようにしている(新規Actionは常に
 `status=planned`/`run_id=null`から始まる)。
 
+**scan種別Actionの非同期実行(リファクタリング指示書v3 §1)**:
+`POST /api/operations/{name}/actions/{action_id}/execute`(同期)は
+scan種別を実行するとツール終了までHTTPリクエストをブロックし、ライブ
+進捗が無いという制約が残っていました。`/scans`/`/playbooks`が既に使う
+`web/jobs.py::JobManager`のWSジョブキューパターンを`operation execute`
+にも適用し、以下を追加しています(同期版の`.../execute`はmanual/pivot
+向けにそのまま残る、後方互換の追加):
+
+- `POST /api/operations/{name}/actions/{action_id}/execute-async` —
+  対象Actionが`scan`種別であることを確認した上で(`scan`以外は
+  PownForgeが何もsubprocessを起動しないため、400で同期版の利用を促す)
+  `JobManager.submit_operation_action()`にバックグラウンド実行を委譲し、
+  `{job_id, status}`を`202 Accepted`で即座に返す
+- `GET /api/operations/jobs/{job_id}` — ジョブの状態(pending/running/
+  done/error)・`run_id`・`returncode`・エラーメッセージを返す
+- `WS /api/ws/operations/jobs/{job_id}` — `type: line/done/error`の
+  メッセージをリアルタイムに流す(`/ws/scans/{job_id}`と同じ形)
+
+内部的には`OperationRunner.execute()`に`on_line`コールバックを追加
+しただけで(`ScanRunner.run_request()`へそのまま転送)、`ScanRunner`/
+`ProcessExecutor`など既存の実行責務分離は変更していません。manual/pivot
+はサブプロセスを起動しないため引き続き同期の`.../execute`のみを使います。
+
+Web UI(`Operations.tsx`)は、実行対象のActionが`scan`種別なら
+`execute-async`を呼んで`/operations/:name/actions/:actionId/live/:jobId`
+(新設の`OperationActionLive.tsx`)へ遷移してライブ出力を表示し、
+manual/pivotなら従来どおり`command`/`output`/`tool`を入力する同期フォーム
+を表示します(`ScanLive.tsx`と同じWebSocket購読パターン)。
+
+**実機検証**: Web UIから実際に target登録 → operation作成 → scan種別
+action追加(`network`プラグイン) → 承認 → 「実行する」ボタン押下という
+一連の操作を行い、(1)ページが即座に`OperationActionLive`へ遷移し
+リクエストがブロックされないこと、(2)実際のnmap実行(約18秒)の標準出力が
+1行ずつライブ表示されること、(3)完了時に`status: done`とrun_idへの
+リンクが表示されること、(4)Operation詳細に戻るとActionが
+`status=completed`・`run_id`設定済みになっていることを確認した。
+
 ### Emacs連携
 
 `emacs/pownforge.el`の`pownforge-operation-*`コマンド群(list/show/create/
@@ -3071,6 +3143,9 @@ list`)は、この対応の一環として`attack-session list`と同じ形で�
 
 Web UIの専用画面(React、`webui/src/pages/Operations.tsx`)、Emacs連携
 (`pownforge-operation-*`、[§10](#10-emacs連携)参照)とも実装済みです。
+リファクタリング指示書v3 §1が指摘していた2つの残課題(Operationレポート
+生成、scan種別Action実行の非同期化)も、上記「レポート生成」節・
+「Web API」節の内容で解消済みです(2026-09-25)。
 
 **実機検証**: `operation create --engagement` → `add-node`(2件) →
 `add-edge` → `add-action --kind manual`/`--kind pivot` → `approve` →
@@ -3589,7 +3664,7 @@ pivotとして)で全段階を記録し、5 stageの`AttackSession`
 | **§3(一部)** | ATT&CK技術IDタグ付け: `Finding`/`AttackNode`/`AttackEdge`/`Action`への`attack_technique_ids`フィールド追加(後方互換)、語彙のdocs/handbook.md定義([§14「ATT&CKタグ」](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計))、`vulncheck`プラグインでの初適用、CLI(`--attack-technique`)・Web API(`attack_technique_ids`)からの明示的な付与 | ✅ 完了(2026-09-25) |
 | **§3(残り)** | 重大度表現の共通severityモデルへの正規化(CVSSベース+ツール固有情報の保持)、RiskForge `RawFinding`スキーマとの対応表のドキュメント化 | 未着手 |
 | **§0-3** | 実Vulhubチェックアウトでの実機スモークテスト(隔離ラボホスト前提) | 未着手 |
-| **§1(残課題)** | Operationレポート生成、Operation経由scan Actionの非同期実行化 | 未着手(過去に「今はやらない」と回答済み。再着手には現状再確認の上でのユーザー確認が必要) |
+| **§1(残課題)** | Operationレポート生成(`pownforge operation report`、`reporting/operation.py`)、Operation経由scan Actionの非同期実行化(`POST .../execute-async` + `JobManager`のWSジョブキュー) | ✅ 完了(2026-09-25。現状再確認の上でユーザーに再提案し、着手の同意を得てから実施) |
 | **§2** | `result import`/`add-finding`のCLI/Web実運用フローの洗い出しとバッチ取り込み等のUX改善 | 未着手 |
 | **§4** | 配布・セットアップ(pipx検証、README「ネイティブ/Docker」2経路整理) | 未着手 |
 | **§5** | テスト戦略の補強(golden fileの蓄積) | 未着手 |

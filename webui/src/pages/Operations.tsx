@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   ActionKind,
   AttackOperation,
@@ -31,6 +32,7 @@ const CAPABILITIES: Capability[] = [
 ];
 
 export default function Operations() {
+  const navigate = useNavigate();
   const [operations, setOperations] = useState<AttackOperation[]>([]);
   const [targets, setTargets] = useState<Target[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -72,6 +74,11 @@ export default function Operations() {
   const [execOutput, setExecOutput] = useState("");
   const [execTool, setExecTool] = useState("");
   const [executing, setExecuting] = useState(false);
+  const [executingAsync, setExecutingAsync] = useState(false);
+
+  const [reportFormat, setReportFormat] = useState<"markdown" | "html">("markdown");
+  const [report, setReport] = useState<{ markdown?: string; html?: string } | null>(null);
+  const [loadingReport, setLoadingReport] = useState(false);
 
   const refreshOperations = () => api.listOperations().then(setOperations).catch((e) => setError(String(e)));
 
@@ -83,10 +90,12 @@ export default function Operations() {
   useEffect(() => {
     if (!selected) {
       setDetail(null);
+      setReport(null);
       return;
     }
     setError(null);
     api.getOperation(selected).then(setDetail).catch((e) => setError(String(e)));
+    setReport(null);
   }, [selected]);
 
   const createOperation = (e: FormEvent) => {
@@ -218,6 +227,32 @@ export default function Operations() {
       })
       .catch((e) => setError(String(e)))
       .finally(() => setExecuting(false));
+  };
+
+  const submitExecuteAsync = () => {
+    if (!selected || !executeActionId) return;
+    setExecutingAsync(true);
+    setError(null);
+    api
+      .executeOperationActionAsync(selected, executeActionId)
+      .then(({ job_id }) => {
+        navigate(`/operations/${selected}/actions/${executeActionId}/live/${job_id}`);
+      })
+      .catch((e) => setError(String(e)))
+      .finally(() => setExecutingAsync(false));
+  };
+
+  const executeTargetAction = executeActionId ? detail?.actions.find((a) => a.id === executeActionId) : undefined;
+
+  const loadReport = () => {
+    if (!selected) return;
+    setLoadingReport(true);
+    setError(null);
+    api
+      .getOperationReport(selected, reportFormat)
+      .then(setReport)
+      .catch((e) => setError(String(e)))
+      .finally(() => setLoadingReport(false));
   };
 
   return (
@@ -554,23 +589,42 @@ export default function Operations() {
               </div>
             )}
 
-            {executeActionId && (
+            {executeActionId && executeTargetAction?.kind === "scan" && (
               <div className="card">
                 <h4>action「{executeActionId}」を実行</h4>
                 <p className="muted">
-                  kindがmanual/pivotの場合はoutput等を手動で記録します。scanの場合は登録済みのplugin/optionsで実際にスキャンが実行されます。
+                  登録済みのplugin/optionsで実際にスキャンが実行されます。バックグラウンドで実行し、
+                  完了までライブ進捗画面に遷移します(操作をブロックしません)。
+                </p>
+                <div>
+                  <button type="button" onClick={submitExecuteAsync} disabled={executingAsync}>
+                    {executingAsync ? "起動中..." : "実行する"}
+                  </button>
+                  <button type="button" onClick={() => setExecuteActionId(null)}>
+                    キャンセル
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {executeActionId && executeTargetAction && executeTargetAction.kind !== "scan" && (
+              <div className="card">
+                <h4>action「{executeActionId}」を実行</h4>
+                <p className="muted">
+                  kindがmanual/pivotのため、PownForge自身は何も実行しません。人間が別ツールで
+                  実施した結果(output等)をここで記録するだけです。
                 </p>
                 <form onSubmit={submitExecute} className="form-grid">
                   <label>
-                    command(任意、manual/pivot用)
+                    command(任意)
                     <input value={execCommand} onChange={(e) => setExecCommand(e.target.value)} />
                   </label>
                   <label>
-                    output(任意、manual/pivot用)
-                    <input value={execOutput} onChange={(e) => setExecOutput(e.target.value)} />
+                    output(必須)
+                    <input value={execOutput} onChange={(e) => setExecOutput(e.target.value)} required />
                   </label>
                   <label>
-                    tool(任意、manual/pivot用)
+                    tool(任意)
                     <input value={execTool} onChange={(e) => setExecTool(e.target.value)} />
                   </label>
                   <div>
@@ -609,6 +663,37 @@ export default function Operations() {
                   ))}
                 </tbody>
               </table>
+            )}
+
+            <h4>レポート</h4>
+            <div className="option-row">
+              <select value={reportFormat} onChange={(e) => setReportFormat(e.target.value as "markdown" | "html")}>
+                <option value="markdown">markdown</option>
+                <option value="html">html</option>
+              </select>
+              <button type="button" onClick={loadReport} disabled={loadingReport}>
+                {loadingReport ? "生成中..." : "レポート表示"}
+              </button>
+              <a href={api.operationReportPdfUrl(detail.name)} target="_blank" rel="noreferrer">
+                PDFをダウンロード
+              </a>
+            </div>
+            {report?.markdown && (
+              <div>
+                <h5>結果(Markdown)</h5>
+                <pre>{report.markdown}</pre>
+              </div>
+            )}
+            {report?.html && (
+              <div>
+                <h5>結果(HTML)</h5>
+                <iframe
+                  title="operation-report-preview"
+                  srcDoc={report.html}
+                  sandbox=""
+                  style={{ width: "100%", height: "600px", border: "1px solid #ccc", marginTop: "0.5rem" }}
+                />
+              </div>
             )}
           </div>
         </>

@@ -63,3 +63,34 @@ def test_operation_add_node_edge_action_accept_attack_technique_option(tmp_path:
     assert "T1595" in result.stdout
     assert "T1210" in result.stdout
     assert "T1190,T1210" in result.stdout
+
+
+def test_operation_report_writes_markdown_by_default(tmp_path: Path) -> None:
+    workdir = str(tmp_path / "state")
+    assert runner.invoke(app, ["operation", "create", "op-1", "--objective", "lab", "--workdir", workdir]).exit_code == 0
+
+    result = runner.invoke(app, ["operation", "report", "op-1", "--workdir", workdir])
+    assert result.exit_code == 0
+
+    report_path = tmp_path / "state" / "reports" / "operation-op-1.md"
+    assert report_path.exists()
+    content = report_path.read_text()
+    assert "# Attack Operation: op-1" in content
+    assert "Actionがまだありません" in content
+
+
+def test_operation_report_supports_html_format(tmp_path: Path) -> None:
+    workdir = str(tmp_path / "state")
+    assert runner.invoke(app, ["operation", "create", "op-1", "--workdir", workdir]).exit_code == 0
+
+    result = runner.invoke(app, ["operation", "report", "op-1", "--format", "html", "--workdir", workdir])
+    assert result.exit_code == 0
+
+    report_path = tmp_path / "state" / "reports" / "operation-op-1.html"
+    assert report_path.exists()
+    assert report_path.read_text().startswith("<!doctype html>")
+
+
+def test_operation_report_unknown_operation_errors(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["operation", "report", "nope", "--workdir", str(tmp_path / "state")])
+    assert result.exit_code == 1

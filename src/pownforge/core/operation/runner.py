@@ -19,7 +19,7 @@ from pownforge.core.operation.model import (
 )
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.core.registry import PluginRegistry
-from pownforge.core.runner import RunnerError, ScanRunner
+from pownforge.core.runner import OnLine, RunnerError, ScanRunner
 from pownforge.evidence.audit import AuditStore
 from pownforge.evidence.store import EvidenceStore
 
@@ -91,6 +91,7 @@ class OperationRunner:
         manual_tool: str | None = None,
         manual_tool_version: str | None = None,
         manual_returncode: int = 0,
+        on_line: OnLine | None = None,
     ) -> AttackOperation:
         action = find_action(operation, action_id)
         if action.status != ActionStatus.APPROVED:
@@ -115,7 +116,7 @@ class OperationRunner:
 
         try:
             if action.kind == ActionKind.SCAN:
-                record = self._execute_scan(action, approval)
+                record = self._execute_scan(action, approval, on_line=on_line)
             else:
                 record = self._execute_manual_or_pivot(
                     operation,
@@ -157,12 +158,16 @@ class OperationRunner:
             if node.target == target:
                 node.state = state
 
-    def _execute_scan(self, action: Action, approval: Approval) -> RunRecord:
+    def _execute_scan(self, action: Action, approval: Approval, *, on_line: OnLine | None = None) -> RunRecord:
         """Run a SCAN action through the existing ScanRunner, the same
         engine `pownforge scan <plugin>` uses. The ExecutionRequest
         carries action_id/approval_id (refactor §18/P2 §9) since this
         run represents an approved AttackOperation Action, unlike a bare
-        `pownforge scan` run outside any operation."""
+        `pownforge scan` run outside any operation. `on_line` (refactor
+        v3 §1) is forwarded to ScanRunner unchanged, same as `pownforge
+        scan`'s own live-output callback -- it's how web/jobs.py streams
+        an in-progress scan Action's output over a WebSocket instead of
+        blocking the request until the tool exits."""
         assert action.plugin is not None
         request = ExecutionRequest(
             target=action.target,
@@ -177,7 +182,7 @@ class OperationRunner:
             store=self._store,
             audit=self._audit,
             concurrency=self._concurrency,
-        ).run_request(request)
+        ).run_request(request, on_line=on_line)
 
     def _execute_manual_or_pivot(
         self,

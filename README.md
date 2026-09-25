@@ -173,6 +173,9 @@ Phase 2では、既存の `ScanRunner → Plugin → EvidenceStore` を維持し
 - `pownforge operation approve <name> <action-id> --approved-by <operator>`
 - `pownforge operation execute <name> <action-id>`
 - `pownforge operation show <name>`
+- `pownforge operation report <name> --format markdown|html|pdf`（グラフ・Actions・findingsをレポート化）
+
+Web UIでは、scan種別Actionの`execute`はバックグラウンドジョブとして実行され、WebSocketでライブ進捗を確認できます（`POST /api/operations/{name}/actions/{action_id}/execute-async`、詳細は[docs/handbook.md §14](docs/handbook.md#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)）。
 
 これにより既存の `AttackSession` は後方互換の「既存Runの物語化」に残し、新しい `AttackOperation` を実行計画・認可・状態遷移の中心モデルとします。
 
@@ -203,6 +206,6 @@ Phase 2では、既存の `ScanRunner → Plugin → EvidenceStore` を維持し
 | `pownforge lab`（攻撃対象ホストの動的追加） | `tleemcjr/metasploitable2` | **常駐しないラボイメージ向けの`docker run -i`修正**（[lab.py](src/pownforge/core/lab.py)）を実機検証で発見・修正 |
 | `Playbook`（複数プラグインの連続実行・条件分岐） | OWASP Juice Shop、CLI/Web UI/Emacsの3経路 | 線形実行・条件分岐(`when`)の両方を実際に確認。Web UIはブラウザでPlaybooks画面からWebSocketライブ進捗まで、EmacsはCLI経由のライブテールまで実機確認。**`process-status`をシンボルのまま`string-trim`に渡すEmacs側の潜在バグ（`pownforge-scan`にも存在）を発見・修正**（[pownforge.el](emacs/pownforge.el)） |
 | `AttackSession`（複数run経路の名前付き永続化） | 実`network`スキャンのrun、CLI/Web UI/Emacsの3経路 | セッション作成→stage追加→Markdown/HTMLレポート表示を3経路それぞれで実機確認。WebはブラウザでAttack Sessionページから一気通貫、Emacsは実CLI（スタブでなく`.venv/bin/pownforge`）に対し`pownforge-attack-session-add-stage`/`-report`を実行し、レポートファイルの内容まで確認 |
-| `AttackOperation`（攻撃経路のモデル化と承認フロー、Phase 2設計） | 実`network`スキャン | `operation create`→`add-action`→`approve`→`execute`→`show`を実行し、`execute`が既存の`ScanRunner`経由で実nmapスキャンを完走させ`run_id`が記録されることを確認。未承認Actionの`execute`拒否、`manual`種別Actionは登録・承認まではできても`execute`が常に拒否されることも確認。CLIのみでWeb UI/Emacsは未対応（詳細は[docs/handbook.md §14](docs/handbook.md#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)） |
+| `AttackOperation`（攻撃経路のモデル化と承認フロー、Phase 2設計） | 実`network`スキャン、CLI/Web UI/Emacsの3経路 | `operation create`→`add-action`→`approve`→`execute`→`show`を実行し、`execute`が既存の`ScanRunner`経由で実nmapスキャンを完走させ`run_id`が記録されることを確認。未承認Actionの`execute`拒否、`manual`/`pivot`種別は記録専用プロバイダ（`import_manual_run()`経由）として実行されることも確認。Web UI（`Operations.tsx`）からscan種別Actionを実行し、`execute-async`によるバックグラウンド実行とWebSocketライブ進捗表示（実nmap出力）、完了後の`run_id`反映、および`operation report`によるMarkdown/HTMLレポート生成までブラウザ上で一気通貫確認済み。Emacs連携（`pownforge-operation-*`）も同様に対応（詳細は[docs/handbook.md §14](docs/handbook.md#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)） |
 
 見つかったバグはいずれも実機検証でのみ露見するもので（モックXML/JSONを使うユニットテストだけでは検出できなかった）、発見のたびに再現テストを追加した上で修正しています。詳細な検証記録は [docs/handbook.md §6 プラグイン](docs/handbook.md#6-プラグイン)・[§7 ラボネットワーク](docs/handbook.md#7-ラボネットワーク)・[§12 Target modelとスコープ制御](docs/handbook.md#12-target-modelとスコープ制御) を参照してください。

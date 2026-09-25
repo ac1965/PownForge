@@ -152,6 +152,46 @@ def operation_add_action(
     typer.echo(f"added action '{action_id}'")
 
 
+@operation_app.command("report")
+def operation_report(
+    name: str,
+    format: ReportFormat = typer.Option(ReportFormat.MARKDOWN, "--format", help="markdown, html, or pdf"),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+) -> None:
+    """Render an attack operation's graph and actions into <workdir>/reports/.
+
+    Read-only, same as `attack-session report`: never executes anything.
+    Actions that haven't been run yet (no `run_id`) are shown as such,
+    without evidence/findings."""
+    try:
+        operation = _operations(workdir).load(name)
+    except OperationError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    store = _store(workdir)
+    records = {}
+    for action in operation.actions:
+        if action.run_id and action.run_id not in records:
+            try:
+                records[action.run_id] = store.load(action.run_id)
+            except FileNotFoundError:
+                pass
+
+    if format == ReportFormat.PDF:
+        report_path = workdir / "reports" / f"operation-{name}.pdf"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_bytes(_pdf_module().render_operation(operation, records))
+    elif format == ReportFormat.HTML:
+        report_path = workdir / "reports" / f"operation-{name}.html"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(operation_rendering.render_html(operation, records))
+    else:
+        report_path = workdir / "reports" / f"operation-{name}.md"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(operation_rendering.render_markdown(operation, records))
+    typer.echo(f"wrote {report_path}")
+
+
 @operation_app.command("approve")
 def operation_approve(
     name: str,

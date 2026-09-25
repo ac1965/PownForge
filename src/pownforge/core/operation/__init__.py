@@ -34,6 +34,7 @@ from pownforge.core.operation.model import (
     AttackOperation,
     AttackPhase,
     OperationError,
+    find_approval,
 )
 from pownforge.core.operation.runner import OperationRunner
 from pownforge.core.operation.service import add_action, add_edge, add_node, create_operation
@@ -66,5 +67,6 @@ __all__ = [
     "approve_action",
     "attack_graph",
     "create_operation",
+    "find_approval",
     "validation_level_reaches",
 ]

@@ -137,6 +137,28 @@ def test_execute_scan_action_runs_via_scanrunner(tmp_path: Path) -> None:
     assert action.run_id is not None
 
 
+def test_execute_scan_action_forwards_on_line_callback(tmp_path: Path) -> None:
+    """refactor v3 §1: OperationRunner.execute()'s on_line is how
+    web/jobs.py streams a SCAN action's output live instead of blocking
+    the request until the tool exits -- this pins that it actually
+    reaches ScanRunner/ProcessExecutor for a real subprocess (echo)."""
+    store = AttackOperationStore(tmp_path / "operations")
+    create_operation(store, "op")
+    add_action(
+        store, _policy(), "op",
+        Action(id="a1", name="x", phase=AttackPhase.RECON, kind=ActionKind.SCAN, target="a", plugin="network"),
+    )
+    approve_action(store, "op", "a1", "operator")
+    operation = store.load("op")
+
+    lines: list[str] = []
+    updated = _runner(tmp_path, _policy()).execute(operation, "a1", on_line=lines.append)
+
+    action = next(a for a in updated.actions if a.id == "a1")
+    assert action.status == ActionStatus.COMPLETED
+    assert any("127.0.0.1" in line for line in lines)
+
+
 def test_execute_success_moves_the_matching_node_to_succeeded(tmp_path: Path) -> None:
     store = AttackOperationStore(tmp_path / "operations")
     create_operation(store, "op")

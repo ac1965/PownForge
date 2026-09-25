@@ -43,7 +43,12 @@
 ;;   `pownforge-operation-execute' -- execute an approved action. A SCAN
 ;;     action runs through the real ScanRunner; MANUAL/PIVOT actions never
 ;;     execute anything themselves, only record a transcript the operator
-;;     already ran (same as `pownforge-result-import').
+;;     already ran (same as `pownforge-result-import'). Synchronous here --
+;;     the live-progress WebSocket job queue (refactor v3 §1) is a Web UI
+;;     feature only; Emacs just waits for the CLI subprocess to exit.
+;;   `pownforge-operation-report' -- render an operation's graph/actions
+;;     into a Markdown report and open it (mirrors
+;;     `pownforge-attack-session-report').
 ;;   `pownforge-result-list', `pownforge-result-show' -- browse past runs;
 ;;     `result-show' renders findings with `pownforge-review-finding-at-point'
 ;;     bound locally to update a finding's review status in place.
@@ -682,6 +687,7 @@ anything."
     (define-key map "a" #'pownforge-operation-add-action)
     (define-key map "p" #'pownforge-operation-approve)
     (define-key map "x" #'pownforge-operation-execute)
+    (define-key map "r" #'pownforge-operation-report)
     map)
   "Keymap for `pownforge-operation-list-mode'.")
 
@@ -858,6 +864,18 @@ must already be the transcript of what a human ran with an external TOOL
                        (unless (string-empty-p output) (list "--output" output))
                        (unless (string-empty-p tool) (list "--tool" tool)))))
     (message "%s" (string-trim (pownforge--run args '(:config :workdir))))))
+
+(defun pownforge-operation-report (name)
+  "Generate attack operation NAME's Markdown report and open it.
+Mirrors `pownforge-attack-session-report', but for `AttackOperation'
+\(the graph of nodes/edges/actions, not a linear session -- see
+docs/handbook.md §14 \"Operationレポート生成\")."
+  (interactive (list (completing-read "Operation: " (pownforge--operation-names) nil t)))
+  (let* ((out (pownforge--run (list "operation" "report" name) '(:workdir)))
+         (path (when (string-match "wrote \\(.+\\)$" out) (match-string 1 out))))
+    (unless path
+      (user-error "could not determine report path from: %s" out))
+    (find-file (string-trim path))))
 
 ;;; Results (list + detail)
 

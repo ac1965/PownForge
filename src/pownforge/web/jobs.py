@@ -8,6 +8,7 @@ from typing import Any
 
 from pownforge.core.concurrency import ConcurrencyGuard
 from pownforge.core.models import Playbook
+from pownforge.core.operation import AttackOperationStore, OperationError, OperationRunner
 from pownforge.core.orchestrator import run_playbook
 from pownforge.core.policy import PolicyError, ScopePolicy
 from pownforge.core.registry import PluginRegistry
@@ -34,6 +35,16 @@ class PlaybookJob:
     queue: "asyncio.Queue[dict[str, Any]]" = field(default_factory=asyncio.Queue)
 
 
+@dataclass
+class OperationActionJob:
+    job_id: str
+    status: str = "pending"  # pending -> running -> done | error
+    run_id: str | None = None
+    returncode: int | None = None
+    error: str | None = None
+    queue: "asyncio.Queue[dict[str, Any]]" = field(default_factory=asyncio.Queue)
+
+
 class JobManager:
     """Runs scans in a small background thread pool and fans each job's
     stdout lines out through an asyncio.Queue, so a WebSocket handler in the
@@ -46,6 +57,7 @@ class JobManager:
         self._executor = ThreadPoolExecutor(max_workers=max_workers)
         self._jobs: dict[str, Job] = {}
         self._playbook_jobs: dict[str, PlaybookJob] = {}
+        self._operation_action_jobs: dict[str, OperationActionJob] = {}
 
     def submit(
         self,
@@ -140,3 +152,56 @@ class JobManager:
 
     def get_playbook_job(self, job_id: str) -> PlaybookJob | None:
         return self._playbook_jobs.get(job_id)
+
+    def submit_operation_action(
+        self,
+        store: AttackOperationStore,
+        evidence: EvidenceStore,
+        operation_name: str,
+        action_id: str,
+        runner: OperationRunner,
+    ) -> str:
+        """Run a SCAN-kind Action's `operation execute` in the background,
+        the same way `submit()` above does for a bare `pownforge scan`
+        (refactor v3 §1): the caller (web/routers/operations.py) has
+        already checked the Action is `scan`-kind before calling this --
+        manual/pivot stay on the existing synchronous `execute` endpoint,
+        since they never invoke a subprocess and have nothing to stream."""
+        job_id = uuid.uuid4().hex[:12]
+        job = OperationActionJob(job_id=job_id)
+        self._operation_action_jobs[job_id] = job
+        loop = asyncio.get_running_loop()
+
+        def on_line(line: str) -> None:
+            loop.call_soon_threadsafe(job.queue.put_nowait, {"type": "line", "data": line})
+
+        def work() -> None:
+            job.status = "running"
+            try:
+                updated = store.update(
+                    operation_name,
+                    lambda operation: runner.execute(operation, action_id, on_line=on_line),
+                )
+            except OperationError as exc:
+                job.status = "error"
+                job.error = str(exc)
+                loop.call_soon_threadsafe(job.queue.put_nowait, {"type": "error", "message": str(exc)})
+                return
+            action = next(a for a in updated.actions if a.id == action_id)
+            job.run_id = action.run_id
+            if action.run_id is not None:
+                try:
+                    job.returncode = evidence.load(action.run_id).evidence.returncode
+                except FileNotFoundError:
+                    job.returncode = None
+            job.status = "done"
+            loop.call_soon_threadsafe(
+                job.queue.put_nowait,
+                {"type": "done", "run_id": job.run_id, "returncode": job.returncode},
+            )
+
+        self._executor.submit(work)
+        return job_id
+
+    def get_operation_action_job(self, job_id: str) -> OperationActionJob | None:
+        return self._operation_action_jobs.get(job_id)

@@ -13,6 +13,7 @@ from pownforge.core.models import (
     RunRecord,
     Severity,
 )
+from pownforge.core.operation import Action, ActionStatus, AttackOperation, find_approval
 from pownforge.reporting.summary import summarize
 
 # Imported lazily-at-module-level rather than inside render(): this module
@@ -299,6 +300,129 @@ def render_attack_session(session: AttackSession, records: list[RunRecord]) -> b
                     story.append(Spacer(1, 1.5 * mm))
         else:
             story.append(Paragraph("No findings recorded for this stage.", styles["Normal"]))
+
+    doc.build(story)
+    return buf.getvalue()
+
+
+def _action_approved_by(operation: AttackOperation, action: Action) -> str | None:
+    if action.status not in (ActionStatus.APPROVED, ActionStatus.COMPLETED):
+        return None
+    try:
+        return find_approval(operation, action.id).approved_by
+    except Exception:  # noqa: BLE001 - find_approval raises OperationError; report is read-only
+        return None
+
+
+def render_operation(operation: AttackOperation, records: dict[str, RunRecord]) -> bytes:
+    """Render OPERATION as a PDF. RECORDS maps an Action's `run_id` to its
+    resolved RunRecord, for every action that has already been executed --
+    mirrors reporting/operation.py's render_markdown()/render_html()
+    section for section."""
+    styles = _stylesheet()
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        title=f"Attack Operation: {operation.name} — PownForge report",
+        topMargin=18 * mm,
+        bottomMargin=18 * mm,
+    )
+    story: list = [Paragraph(f"Attack Operation: {escape(operation.name)}", styles["Title"])]
+    if operation.objective:
+        story.append(Paragraph(escape(operation.objective), styles["Normal"]))
+    story.append(Spacer(1, 4 * mm))
+
+    header_rows = []
+    if operation.engagement:
+        header_rows.append(("Engagement", operation.engagement))
+    header_rows += [
+        ("Nodes", str(len(operation.nodes))),
+        ("Edges", str(len(operation.edges))),
+        ("Actions", str(len(operation.actions))),
+        ("Approvals", str(len(operation.approvals))),
+    ]
+    story.append(_kv_table(header_rows, styles))
+
+    story.append(Paragraph("グラフ: ノード", styles["Heading2"]))
+    if not operation.nodes:
+        story.append(Paragraph("ノードがまだありません。", styles["Normal"]))
+    for node in operation.nodes:
+        label = f" — {escape(node.label)}" if node.label else ""
+        techniques = f" [{escape(', '.join(node.attack_technique_ids))}]" if node.attack_technique_ids else ""
+        story.append(
+            Paragraph(
+                f'<font face="Courier">{escape(node.id)}</font> '
+                f"({escape(node.target)}, {escape(node.state.value)}){label}{techniques}",
+                styles["Normal"],
+            )
+        )
+
+    story.append(Paragraph("グラフ: エッジ", styles["Heading2"]))
+    if not operation.edges:
+        story.append(Paragraph("エッジがまだありません。", styles["Normal"]))
+    for edge in operation.edges:
+        caps = ", ".join(c.value for c in edge.capabilities)
+        techniques = f" [{escape(', '.join(edge.attack_technique_ids))}]" if edge.attack_technique_ids else ""
+        story.append(
+            Paragraph(
+                f'<font face="Courier">{escape(edge.source)}</font> -&gt; '
+                f'<font face="Courier">{escape(edge.destination)}</font> '
+                f"({escape(edge.relationship)}, {escape(caps)}){techniques}",
+                styles["Normal"],
+            )
+        )
+
+    story.append(Paragraph("Actions", styles["Heading2"]))
+    if not operation.actions:
+        story.append(Paragraph("Actionがまだありません。", styles["Normal"]))
+    for action in operation.actions:
+        techniques = f" [{escape(', '.join(action.attack_technique_ids))}]" if action.attack_technique_ids else ""
+        story.append(
+            Paragraph(
+                f'<font face="Courier">{escape(action.id)}</font>: {escape(action.name)}{techniques}',
+                styles["Heading3"],
+            )
+        )
+        rows = [
+            ("Phase", action.phase.value),
+            ("Kind", action.kind.value),
+            ("Target", action.target),
+            ("Status", action.status.value),
+        ]
+        if action.plugin:
+            rows.append(("Plugin", action.plugin))
+        approved_by = _action_approved_by(operation, action)
+        if approved_by:
+            rows.append(("Approved by", approved_by))
+        if action.requires:
+            rows.append(("Requires", ", ".join(action.requires)))
+        if action.provides:
+            rows.append(("Provides", ", ".join(action.provides)))
+        story.append(_kv_table(rows, styles))
+
+        record = records.get(action.run_id) if action.run_id else None
+        if record is None:
+            story.append(Paragraph("未実行(まだ operation execute を通していません)。", styles["Normal"]))
+            continue
+
+        story.append(
+            _kv_table(
+                [("Run id", record.run_id), ("Command", " ".join(record.evidence.command))],
+                styles,
+            )
+        )
+        if record.findings:
+            for status, heading in _STATUS_SECTIONS:
+                findings = _sorted_findings(record, status)
+                if not findings:
+                    continue
+                story.append(Paragraph(heading, styles["Heading3"]))
+                for finding in findings:
+                    story.append(_render_finding(finding, styles))
+                    story.append(Spacer(1, 1.5 * mm))
+        else:
+            story.append(Paragraph("このActionにはfindingが記録されていません。", styles["Normal"]))
 
     doc.build(story)
     return buf.getvalue()

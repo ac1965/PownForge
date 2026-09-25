@@ -134,6 +134,9 @@ TXT
   "operation execute")
     echo "completed action '$4' (run=exec001)"
     ;;
+  "operation report")
+    echo "wrote /tmp/fake-pownforge-operation-$3.md"
+    ;;
   "primitive list")
     printf 'http.oob-interaction\t[oob-interaction]\tmax_level=validation\tOOB HTTP interaction check\n'
     printf '    --option path (required): Absolute path containing {callback}\n'

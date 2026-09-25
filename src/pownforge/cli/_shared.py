@@ -93,6 +93,7 @@ from pownforge.reporting import attack_session as attack_session_rendering
 from pownforge.reporting import engagement as engagement_report_render
 from pownforge.reporting import html as html_report
 from pownforge.reporting import markdown
+from pownforge.reporting import operation as operation_rendering
 from pownforge.reporting import primitive as primitive_report_render
 from pownforge.reporting import walkthrough as walkthrough_report
 
@@ -300,6 +301,7 @@ __all__ = [
     "locked_policy",
     "markdown",
     "operation_app",
+    "operation_rendering",
     "os",
     "playbook_app",
     "plugin_app",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 from pownforge.core.models import Capability
@@ -21,7 +21,10 @@ from pownforge.core.operation import (
     create_operation,
 )
 from pownforge.core.policy import PolicyError, ScopePolicy
-from pownforge.web.deps import get_operation_runner, get_operations, get_policy
+from pownforge.evidence.store import EvidenceStore
+from pownforge.reporting.operation import render_html, render_markdown
+from pownforge.web.deps import get_job_manager, get_operation_runner, get_operations, get_policy, get_store
+from pownforge.web.jobs import JobManager
 
 router = APIRouter(tags=["operations"])
 
@@ -78,6 +81,19 @@ class ExecuteRequest(BaseModel):
     tool: str | None = None
     tool_version: str | None = None
     returncode: int = 0
+
+
+class OperationActionJobCreated(BaseModel):
+    job_id: str
+    status: str
+
+
+class OperationActionJobStatus(BaseModel):
+    job_id: str
+    status: str
+    run_id: str | None = None
+    returncode: int | None = None
+    error: str | None = None
 
 
 @router.get("/operations", response_model=list[AttackOperation])
@@ -187,3 +203,107 @@ def execute_operation_action(
         # OperationRunner.execute() already wraps any PolicyError/RunnerError
         # it hits internally into OperationError -- see core/operation/runner.py.
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/operations/{name}/actions/{action_id}/execute-async",
+    response_model=OperationActionJobCreated,
+    status_code=202,
+)
+async def execute_operation_action_async(
+    name: str,
+    action_id: str,
+    store: AttackOperationStore = Depends(get_operations),
+    evidence: EvidenceStore = Depends(get_store),
+    runner: OperationRunner = Depends(get_operation_runner),
+    jobs: JobManager = Depends(get_job_manager),
+) -> OperationActionJobCreated:
+    """Run a SCAN-kind Action in the background and stream its output over
+    `/ws/operations/jobs/{job_id}`, the same live-progress pattern
+    `POST /scans` already gives a bare `pownforge scan` (refactor v3 §1
+    -- the synchronous `.../execute` above blocks the request until the
+    tool exits, with no progress in between). MANUAL/PIVOT actions never
+    invoke a subprocess (PownForge only records evidence a human already
+    produced) and have nothing to stream, so they stay on the synchronous
+    endpoint -- rejected here with 400 rather than silently queued."""
+    try:
+        operation = store.load(name)
+    except OperationError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    action = next((a for a in operation.actions if a.id == action_id), None)
+    if action is None:
+        raise HTTPException(status_code=404, detail=f"no action named '{action_id}'")
+    if action.kind != ActionKind.SCAN:
+        raise HTTPException(
+            status_code=400,
+            detail=f"action '{action_id}' is kind '{action.kind.value}', not 'scan' -- "
+            "use the synchronous .../execute endpoint for manual/pivot actions",
+        )
+    job_id = jobs.submit_operation_action(store, evidence, name, action_id, runner)
+    return OperationActionJobCreated(job_id=job_id, status="pending")
+
+
+@router.get("/operations/jobs/{job_id}", response_model=OperationActionJobStatus)
+def get_operation_action_job_status(
+    job_id: str, jobs: JobManager = Depends(get_job_manager)
+) -> OperationActionJobStatus:
+    job = jobs.get_operation_action_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"no job with id '{job_id}'")
+    return OperationActionJobStatus(
+        job_id=job.job_id, status=job.status, run_id=job.run_id, returncode=job.returncode, error=job.error
+    )
+
+
+@router.websocket("/ws/operations/jobs/{job_id}")
+async def operation_action_job_live(websocket: WebSocket, job_id: str) -> None:
+    await websocket.accept()
+    jobs: JobManager = websocket.app.state.jobs
+    job = jobs.get_operation_action_job(job_id)
+    if job is None:
+        await websocket.send_json({"type": "error", "message": f"no job with id '{job_id}'"})
+        await websocket.close()
+        return
+
+    try:
+        while True:
+            message = await job.queue.get()
+            await websocket.send_json(message)
+            if message["type"] in ("done", "error"):
+                break
+    except WebSocketDisconnect:
+        return
+    await websocket.close()
+
+
+@router.get("/operations/{name}/report")
+def get_operation_report(
+    name: str,
+    format: str = "markdown",
+    store: AttackOperationStore = Depends(get_operations),
+    evidence: EvidenceStore = Depends(get_store),
+):
+    try:
+        operation = store.load(name)
+    except OperationError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    records: dict[str, Any] = {}
+    for action in operation.actions:
+        if action.run_id and action.run_id not in records:
+            try:
+                records[action.run_id] = evidence.load(action.run_id)
+            except FileNotFoundError:
+                pass
+    if format == "pdf":
+        try:
+            from pownforge.reporting import pdf as pdf_report
+        except ImportError as exc:
+            raise HTTPException(status_code=501, detail=str(exc)) from exc
+        return Response(
+            content=pdf_report.render_operation(operation, records),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="operation-{name}.pdf"'},
+        )
+    if format == "html":
+        return {"html": render_html(operation, records)}
+    return {"markdown": render_markdown(operation, records)}

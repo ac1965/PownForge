@@ -419,6 +419,19 @@ export interface AttackOperation {
   approvals: Approval[];
 }
 
+export interface OperationActionJobCreated {
+  job_id: string;
+  status: string;
+}
+
+export interface OperationActionJobStatus {
+  job_id: string;
+  status: string;
+  run_id: string | null;
+  returncode: number | null;
+  error: string | null;
+}
+
 export const api = {
   listTargets: () => request<Target[]>("/targets"),
   addTarget: (target: Target) =>
@@ -636,4 +649,17 @@ export const api = {
       `/operations/${encodeURIComponent(name)}/actions/${encodeURIComponent(actionId)}/execute`,
       { method: "POST", body: JSON.stringify(body) },
     ),
+  executeOperationActionAsync: (name: string, actionId: string) =>
+    request<OperationActionJobCreated>(
+      `/operations/${encodeURIComponent(name)}/actions/${encodeURIComponent(actionId)}/execute-async`,
+      { method: "POST" },
+    ),
+  getOperationActionJob: (jobId: string) =>
+    request<OperationActionJobStatus>(`/operations/jobs/${encodeURIComponent(jobId)}`),
+  getOperationReport: (name: string, format: "markdown" | "html" = "markdown") =>
+    request<{ markdown?: string; html?: string }>(
+      `/operations/${encodeURIComponent(name)}/report?format=${format}`,
+    ),
+  operationReportPdfUrl: (name: string) =>
+    `/api/operations/${encodeURIComponent(name)}/report?format=pdf`,
 };

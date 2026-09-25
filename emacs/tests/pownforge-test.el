@@ -422,6 +422,13 @@ signal wrong-type-argument instead of annotating the buffer."
                      '("operation" "execute" "op-1" "a1"
                        "--output" "uid=0(root)" "--tool" "manual-exploit"))))))
 
+(ert-deftest pownforge-test-operation-report-opens-file ()
+  (pownforge-test-with-fake-cli
+   (let (opened-path)
+     (cl-letf (((symbol-function 'find-file) (lambda (path) (setq opened-path path))))
+       (pownforge-operation-report "op-1"))
+     (should (equal opened-path "/tmp/fake-pownforge-operation-op-1.md")))))
+
 ;;; Walkthrough (multi-run narrative)
 
 (ert-deftest pownforge-test-walkthrough-generate-with-explicit-run-ids ()

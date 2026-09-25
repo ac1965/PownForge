@@ -11,6 +11,7 @@ import Playbooks from "./pages/Playbooks";
 import PlaybookLive from "./pages/PlaybookLive";
 import AttackSessions from "./pages/AttackSessions";
 import Operations from "./pages/Operations";
+import OperationActionLive from "./pages/OperationActionLive";
 import Primitives from "./pages/Primitives";
 import Engagement from "./pages/Engagement";
 import ImportRun from "./pages/ImportRun";
@@ -82,6 +83,7 @@ export default function App() {
             <Route path="/playbooks/runs/:jobId/live" element={<PlaybookLive />} />
             <Route path="/attack-sessions" element={<AttackSessions />} />
             <Route path="/operations" element={<Operations />} />
+            <Route path="/operations/:name/actions/:actionId/live/:jobId" element={<OperationActionLive />} />
             <Route path="/primitives" element={<Primitives />} />
             <Route path="/engagement" element={<Engagement />} />
             <Route path="/import" element={<ImportRun />} />

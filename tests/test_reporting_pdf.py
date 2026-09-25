@@ -193,3 +193,54 @@ def test_render_attack_session_with_no_stages_shows_placeholder() -> None:
     session = AttackSession(name="empty", stages=[])
     text = _text(pdf.render_attack_session(session, []))
     assert "ステージがまだありません" in text
+
+
+def _operation_and_records():
+    from pownforge.core.operation import Action, ActionKind, ActionStatus, Approval, AttackNode, AttackOperation
+
+    action = Action(
+        id="a1", name="recon scan", phase="discovery", kind=ActionKind.SCAN, target="lab-a",
+        plugin="network", status=ActionStatus.COMPLETED, run_id="run1", attack_technique_ids=["T1190"],
+    )
+    operation = AttackOperation(
+        name="op-1",
+        objective="lab engagement",
+        engagement="eng1",
+        nodes=[AttackNode(id="n-a", target="lab-a", label="foothold", attack_technique_ids=["T1595"])],
+        actions=[action],
+        approvals=[Approval(id="ap1", action_id="a1", approved_by="operator")],
+    )
+    record = _record(
+        target="lab-a", plugin="network",
+        findings=[Finding(title="Open port 3000", status="confirmed", severity="high")],
+    )
+    record.run_id = "run1"
+    return operation, {"run1": record}
+
+
+def test_render_operation_produces_a_valid_pdf() -> None:
+    operation, records = _operation_and_records()
+    data = pdf.render_operation(operation, records)
+    assert data.startswith(b"%PDF-")
+    assert len(pypdf.PdfReader(io.BytesIO(data)).pages) >= 1
+
+
+def test_render_operation_includes_graph_actions_and_findings() -> None:
+    operation, records = _operation_and_records()
+    text = _text(pdf.render_operation(operation, records))
+    assert "Attack Operation: op-1" in text
+    assert "lab engagement" in text
+    assert "eng1" in text
+    assert "foothold" in text
+    assert "T1595" in text
+    assert "recon scan" in text
+    assert "T1190" in text
+    assert "operator" in text
+    assert "Open port 3000" in text
+
+
+def test_render_operation_with_no_actions_shows_placeholder() -> None:
+    from pownforge.core.operation import AttackOperation
+
+    text = _text(pdf.render_operation(AttackOperation(name="empty"), {}))
+    assert "Actionがまだありません" in text
