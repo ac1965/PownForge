@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///opt/homebrew/bin/../share/nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.991 scan initiated Fri Sep 25 17:07:41 2026 as: nmap -sV -Pn -p 3000 -oX tests/golden/network/nmap_localhost.xml 127.0.0.1 -->
+<nmaprun scanner="nmap" args="nmap -sV -Pn -p 3000 -oX tests/golden/network/nmap_localhost.xml 127.0.0.1" start="1790323661" startstr="Fri Sep 25 17:07:41 2026" version="7.991" xmloutputversion="1.05">
+<scaninfo type="connect" protocol="tcp" numservices="1" services="3000"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<host starttime="1790323661" endtime="1790323672"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="127.0.0.1" addrtype="ipv4"/>
+<hostnames>
+<hostname name="localhost" type="PTR"/>
+</hostnames>
+<ports><port protocol="tcp" portid="3000"><state state="open" reason="syn-ack" reason_ttl="0"/><service name="http" product="Uvicorn" method="probed" conf="10"><cpe>cpe:/a:encode:uvicorn</cpe></service></port>
+</ports>
+<times srtt="149" rttvar="5000" to="100000"/>
+</host>
+<runstats><finished time="1790323672" timestr="Fri Sep 25 17:07:52 2026" summary="Nmap done at Fri Sep 25 17:07:52 2026; 1 IP address (1 host up) scanned in 11.16 seconds" elapsed="11.16" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>

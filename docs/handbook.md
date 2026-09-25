@@ -3604,6 +3604,56 @@ make test-all
 findingsが正しく記録・表示されることを確認してから完了としています
 (各プラグインの「実機検証記録」を参照)。
 
+### golden file(実ツール出力サンプルによるパーサー回帰テスト、リファクタリング指示書v3 §5)
+
+**位置づけ**: これは上記「実機で検証してから完了とする」方針の**代替では
+ありません**。実機検証は新機能追加・バグ修正のたびに引き続き必須です。
+golden fileは、過去に実機検証で確認した「実ツールがこの形のJSON/XMLを
+返す」という既知パターンに対して、パーサーのロジックが将来の変更で
+壊れていないかを高速に(実ツールのインストール・実行なしに)検出する
+ための**回帰防止**の仕組みです。
+
+**過去に実機検証で見つかったバグの再現テスト状況(監査、2026-09-25)**:
+過去に実機検証でのみ発覚したバグ(README「実機検証状況」表、および本書
+各節の「実機検証」記述)を洗い出し、`tests/`配下に再現テストが既に
+存在するか確認した。
+
+| バグ | 発見箇所 | 再現テスト |
+| --- | --- | --- |
+| url種別対象のhostname抽出 | `network`(`plugins/network.py`) | `test_network_plugin_extracts_host_from_url_kind_target`(`tests/test_plugins.py`) |
+| hostrule系スクリプトの結果取りこぼし | `vulncheck`(`plugins/vulncheck.py`) | `test_vulncheck_plugin_parses_hostscript_results`(`tests/test_plugins.py`) |
+| 常駐しないラボイメージが`docker run -d`直後に終了 | `LabManager`(`core/lab.py`) | `test_add_keeps_stdin_open_so_services_and_bash_style_images_stay_running`(`tests/test_lab.py`) |
+| Emacsプロセスセンチネルの`wrong-type-argument` | `pownforge-scan`/`pownforge-playbook-run`(`emacs/pownforge.el`) | 該当ERTテスト(`emacs/tests/pownforge-test.el`、発見時に追加済み) |
+| Vulhubポートが全インターフェースにbind、`--register`の非決定的なポート選択 | `VulhubProvider`(`core/lab.py`) | `test_start_forces_published_ports_to_localhost`等、`test_status_reorders_published_ports_to_match_compose_declaration`等(`tests/test_lab_provider.py`。[§7](#vulhubを外部lab-providerとして扱う)参照) |
+
+上記はすべて既に再現テストがあり、抜けは見つからなかった。一方、
+Dockerランタイムイメージのビルド順序に起因するバグ(`go install`と
+`pip install`の順序でCLIシムが衝突する、testssl.shの`hexdump`/`ps`/`dig`
+依存漏れ等)はDockerfileの記述順・apt依存パッケージリストの問題であり、
+Pythonのパーサーコードに対する回帰テストという形では表現できない
+(`docker/Dockerfile.runtime`自体がその修正の記録)。
+
+**golden fileの置き場所と使い方**: `tests/golden/<プラグイン名>/`配下に
+実ツールの生出力をファイルとして置き、`tests/test_golden_fixtures.py`
+から読み込んでパーサー(`normalize()`や`_trivy.py`等の共有ヘルパー)に
+直接渡す。既存の各プラグインテスト(`tests/test_plugins.py`等)が
+「実機で確認した内容をPython文字列リテラルとしてインラインに埋め込む」
+形を長年取ってきたのに対し(それ自体は既に実質的な回帰テストとして
+機能しており、置き換えは不要)、golden fileは**ファイルとして独立させる**
+ことで差分レビュー・再利用をしやすくする、今後増やしていく形式です。
+
+現時点で3件(`network`のnmap XML、`container`のtrivy JSON、`imagevuln`の
+grype JSON)を実機で採取して追加した。**実機検証**: いずれも実際の
+`nmap`/`trivy`/`grype`(このマシンにインストール済み)を実行して採取した
+本物の出力であることを確認済み(`trivy`は`--severity CRITICAL`で
+ツール自身にファイルサイズを絞らせ、`grype`は出力フィルタが無いため
+採取後に`matches`配列を2件に絞ったが、残した各エントリの内容は一切
+編集していない)。他プラグイン(ffuf/nuclei/sqlmap/checkov/semgrep/syft/
+testssl.sh等、いずれもこのマシンにインストール済みで採取自体は可能)への
+拡張は、価値の高いものから今後のセッションで追加していく想定で、本タスク
+では網羅していない(「可能な範囲で」の範囲として、まず3件でパターンを
+確立した)。
+
 ## 17. 付録: 実装状況サマリー
 
 設計当初に提示された「Phase 2〜10」のロードマップ(10フェーズ・M1〜M7
@@ -3831,7 +3881,7 @@ pivotとして)で全段階を記録し、5 stageの`AttackSession`
 | **§1(残課題)** | Operationレポート生成(`pownforge operation report`、`reporting/operation.py`)、Operation経由scan Actionの非同期実行化(`POST .../execute-async` + `JobManager`のWSジョブキュー) | ✅ 完了(2026-09-25。現状再確認の上でユーザーに再提案し、着手の同意を得てから実施) |
 | **§2** | `result import`/`add-finding`のCLI/Web実運用フローの洗い出しとUX改善: CLIに`result import --finding-title/--finding-severity/--finding-detail`を追加(import+finding追加を1コマンド化)、Web APIに`POST /api/runs/{run_id}/findings`を新設(従来Web UIにはfinding追加手段が皆無だった)、`RunDetail.tsx`にfinding追加フォーム、`ImportRun.tsx`にRun detailへの導線を追加 | ✅ 完了(2026-09-25。実機検証記録は[§13「実際の作業順序の洗い出し」](#13-証跡とレポート)参照) |
 | **§4** | 配布・セットアップ: pipx実機検証(ローカル/GitHub/extra付きの3パターン)、README「ネイティブ/Docker」2経路への再構成、PyInstaller不採用の判断・理由の明記([§3「pipxでのインストール」](#3-セットアップとビルド)参照) | ✅ 完了(2026-09-25) |
-| **§5** | テスト戦略の補強(golden fileの蓄積) | 未着手 |
+| **§5** | テスト戦略の補強: 過去の実機検証発見バグ5件を監査し再現テストの抜けが無いことを確認、golden file(`tests/golden/`)を新設し`network`/`container`/`imagevuln`の3件を実機採取([§16「golden file」](#16-テスト)参照) | ✅ 完了(2026-09-25。他プラグインへの拡張は継続タスクとして未着手のまま残す) |
 | **§6** | Evidence証跡チェーンの改ざん検知強化(連結ハッシュ) | 未着手 |
 | **§7** | プラグイン結果の相関分析(Correlator) | 未着手 |
 | **§8** | ProcessExecutorのリソース上限集中管理 | 未着手 |
