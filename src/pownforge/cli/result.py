@@ -174,3 +174,28 @@ def result_review(
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(f"finding '{finding_id}' on run '{run_id}' -> {status.value}")
+
+
+@result_app.command("correlate")
+def result_correlate(
+    target: str = typer.Option(..., "--target", help="Registered target whose saved runs to correlate."),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+) -> None:
+    """Look for "individually low-risk, together high-risk" combinations
+    across this target's already-saved runs (refactor v3 §7) -- read-only
+    post-processing over existing Findings, never triggers a new scan."""
+    store = _store(workdir)
+    runs = [r for r in store.list() if r.target == target]
+    if not runs:
+        typer.echo(f"no runs recorded for target '{target}'")
+        raise typer.Exit()
+
+    risks = correlate(runs)
+    if not risks:
+        typer.echo(f"no correlated risks found across {len(runs)} run(s) for target '{target}'")
+        return
+
+    for risk in risks:
+        typer.echo(f"[{risk.severity.value}] {risk.title} (rule={risk.rule_id})")
+        typer.echo(f"  {risk.detail}")
+        typer.echo(f"  runs: {', '.join(risk.source_run_ids)}")

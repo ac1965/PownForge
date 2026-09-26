@@ -35,6 +35,7 @@ from pownforge.application.context import (
 )
 from pownforge.application import targets as target_service
 from pownforge.core.analysis import AnalysisError, run_analysis
+from pownforge.core.correlator import correlate
 from pownforge.core.attack_session import AttackSessionError, AttackSessionStore, add_stage, create_attack_session
 from pownforge.core.concurrency import ConcurrencyGuard
 from pownforge.core.findings import FindingNotFoundError, add_finding, review_finding
@@ -282,6 +283,7 @@ __all__ = [
     "build_store",
     "collect_engagement",
     "config_app",
+    "correlate",
     "create_attack_session",
     "create_operation",
     "default_registry",

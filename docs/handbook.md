@@ -387,10 +387,11 @@ pownforge analyze <run-id>
 | `pownforge scan vulncheck --target <name> --option script=<許可されたNSEスクリプト名> [--option port=...] [--live]` | vulncheckプラグイン(nmapの許可リスト済み`vuln safe`スクリプト1本による既知CVE検証)を実行 |
 | `pownforge result list` | 実行結果の一覧 |
 | `pownforge result show <run-id>` | 実行結果の詳細(JSON) |
-| `pownforge result import --target <name> --command <text> --output <text> [--tool ... --engagement <name> --via <target> --phase <p> --artifact <file> --cve <id>]` | 人間が別ツールで実施した工程の証跡を記録(PownForgeは`--command`を実行しない)。`--engagement`/`--via`は横展開の記録用、`--phase`でKillChainフェーズ、`--artifact`(繰り返し可)で成果物をハッシュ添付、`--cve`(繰り返し可)でCVEタグ。詳細は[§13](#13-証跡とレポート) |
+| `pownforge result import --target <name> --command <text> --output <text> [--tool ... --engagement <name> --via <target> --phase <p> --artifact <file> --cve <id> --finding-title <text> --finding-severity ... --finding-detail <text>]` | 人間が別ツールで実施した工程の証跡を記録(PownForgeは`--command`を実行しない)。`--engagement`/`--via`は横展開の記録用、`--phase`でKillChainフェーズ、`--artifact`(繰り返し可)で成果物をハッシュ添付、`--cve`(繰り返し可)でCVEタグ、`--finding-title`(指定時)で`result add-finding`を同時実行。詳細は[§13](#13-証跡とレポート) |
 | `pownforge result add-finding <run-id> --title <text> [--severity ... --detail ...]` | 人間が観測したfinding(`source: "manual"`)をrunに追加。既定`needs-review` |
 | `pownforge result review <run-id> <finding-id> <needs-review\|confirmed\|false-positive>` | findingの検証状態を更新 |
 | `pownforge result tag <run-id> --cve <id> [--cve ...] [--remove]` | 既存run(scan/manual)にCVEタグを追加/削除。`report engagement`のCVE露出マトリクスの相関キー |
+| `pownforge result correlate --target <name>` | 対象の既存run群を横断し、個別には低リスクでも組み合わせで高リスクになるパターンを検出(読み取り専用、新規スキャンは実行しない)。詳細は[§7 (v3)](#プラグイン結果の相関分析result-correlateリファクタリング指示書v3-7) |
 | `pownforge report generate <run-id> [--format markdown\|html\|pdf]` | レポートを`.pownforge/reports/<run-id>.{md,html,pdf}`に生成。`pdf`は`pip install -e '.[pdf]'`(reportlab、Noto Sans JP埋め込みでCJK文字化けなし)が必要 |
 | `pownforge report engagement [--target <name> \| --engagement <name>] [--format markdown\|html\|pdf]` | スキャン/手動run(`RunRecord`)と検証プリミティブrun(`PrimitiveRunRecord`)を横断した1つのエンゲージメント・レポートを生成(詳細は[§13](#13-証跡とレポート))。スコープ省略時は全run。`--engagement`は`--config`が必要 |
 | `pownforge analyze <run-id> [--model ...] [--language ja\|en]` | LLMによる分析草案を出力。`--model`/`--language`省略時は`pownforge config`の保存値を使う |
@@ -2795,6 +2796,48 @@ Engagement外の対象への`result import --via`が拒否されること、Enga
   「どのCVEが・どこまで成立し・誰が実悪用を確認したか」を1表で示す
   (CVEタグが1つも無ければ節ごと省略)
 
+### プラグイン結果の相関分析(`result correlate`、リファクタリング指示書v3 §7)
+
+各プラグイン(nmap/nuclei/trivy等)は独立してFindingを出すだけで、同一
+対象に対する複数プラグインの結果を突き合わせた「単体では低リスクだが
+組み合わせると危険な経路」の検出はこれまでありませんでした。
+`core/correlator.py::correlate()`がこれを埋めます。
+
+```bash
+pownforge result correlate --target lab-web
+```
+
+**設計上の一線**: これは**実行系ではなく後処理**です。`correlate()`は
+呼び出し元が既に読み込んだ`RunRecord`のリストを受け取るだけで、
+`EvidenceStore`にも`ProcessExecutor`にも一切触れません(AGENTS.mdの
+「実際に`subprocess`を実行するのは`core/process.py`・`core/lab.py`・
+`ai/ollama.py`に限定」という制約を守るため、この3つのどれも呼び出さない
+設計です)。新しいスキャンを一切トリガーしないため、既存の証跡・スコープ
+とは独立に何度実行しても安全です。
+
+**採用した3ルール**(最初は小さいセットから、という指示書の方針どおり):
+
+| ルールID | 組み合わせ | 重大度 |
+| --- | --- | --- |
+| `high-value-port-with-severe-finding` | `network`が検出した高価値ポート(SSH/RDP/MySQL/Redis/etcd等の開放)+ 同一targetのどこかにあるhigh以上のfinding | high |
+| `leaked-secret-with-remote-access` | `secrets`(gitleaks)由来のfinding + `network`が検出したリモートアクセス用ポート(SSH/RDP/WinRM)の開放 | high |
+| `multiple-plugins-confirm-critical` | 2つ以上の異なるプラグインが、それぞれ`status=confirmed`のcritical findingを持つ | critical |
+
+3つ目のルールだけ`status=confirmed`のfindingのみを対象にしています
+(「複数の独立した検出結果が実際に確認された」という、他の2ルールより
+強い主張をするため)。他の2ルールは、レビュー前のツール検出結果
+(`source="tool"`、既定`needs-review`)も対象に含めます — 人間が確認する
+候補を洗い出すのが目的であり、確認済みである必要はないという判断です。
+
+**レポート統合は見送り**(指示書v3 §7item3の指示どおり): `reporting/
+markdown.py`/`html.py`への統合は行わず、まずCLIでの動作確認のみです。
+必要になれば別タスクとして切り出します。
+
+**実機検証**: 実際に`pownforge scan network`(実nmap)で高価値ポート
+(6379/Redis相当)の開放を検出した上で`result add-finding`でcritical
+findingを追加し、`pownforge result correlate --target lab`が
+`high-value-port-with-severe-finding`ルールを正しく検出することを確認した。
+
 出力は`<workdir>/reports/engagement-{target-<name>|engagement-<name>|all}.{md,html,pdf}`。
 
 Findingは`needs-review`(既定)/`confirmed`/`false-positive`のいずれかの
@@ -3944,7 +3987,7 @@ pivotとして)で全段階を記録し、5 stageの`AttackSession`
 | **§4** | 配布・セットアップ: pipx実機検証(ローカル/GitHub/extra付きの3パターン)、README「ネイティブ/Docker」2経路への再構成、PyInstaller不採用の判断・理由の明記([§3「pipxでのインストール」](#3-セットアップとビルド)参照) | ✅ 完了(2026-09-25) |
 | **§5** | テスト戦略の補強: 過去の実機検証発見バグ5件を監査し再現テストの抜けが無いことを確認、golden file(`tests/golden/`)を新設し`network`/`container`/`imagevuln`の3件を実機採取([§16「golden file」](#16-テスト)参照) | ✅ 完了(2026-09-25。他プラグインへの拡張は継続タスクとして未着手のまま残す) |
 | **§6** | Evidence証跡チェーンの改ざん検知強化: `evidence/chain.py::EvidenceChain`(前方参照の連結ハッシュ、マークル木は不採用)を`EvidenceStore.save()`に統合。`pownforge evidence verify-chain`・`GET /api/runs/verify-chain`・Runsページのボタンを新設。既存の`<run_id>.json`フォーマットは無変更([§13「証跡チェーンの改ざん検知」](#13-証跡とレポート)参照) | ✅ 完了(2026-09-25) |
-| **§7** | プラグイン結果の相関分析(Correlator) | 未着手 |
+| **§7** | プラグイン結果の相関分析(Correlator): `core/correlator.py`に読み取り専用のルールエンジン(`list[RunRecord]`のみを受け取り、スキャン/`EvidenceStore`/`ProcessExecutor`には一切触れない設計)を新設。3ルール(高価値ポート×重大finding、漏洩シークレット×リモートアクセス、複数プラグイン一致の要確認済finding)、CLI `pownforge result correlate --target <name>` を追加([§7「プラグイン結果の相関分析」](#プラグイン結果の相関分析result-correlateリファクタリング指示書v3-7)参照) | ✅ 完了(2026-09-26。レポートへの統合は指示書項目3により意図的に見送り) |
 | **§8** | ProcessExecutorのリソース上限集中管理 | 未着手 |
 | **§9** | RiskForge連携に向けた語彙・スキーマ対応表の準備(ドキュメントのみ) | 未着手(着手前にユーザー確認が必須、との指示書自身のゲートあり) |
 
