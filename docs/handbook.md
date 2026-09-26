@@ -4026,7 +4026,7 @@ pivotとして)で全段階を記録し、5 stageの`AttackSession`
 | **§6** | Evidence証跡チェーンの改ざん検知強化: `evidence/chain.py::EvidenceChain`(前方参照の連結ハッシュ、マークル木は不採用)を`EvidenceStore.save()`に統合。`pownforge evidence verify-chain`・`GET /api/runs/verify-chain`・Runsページのボタンを新設。既存の`<run_id>.json`フォーマットは無変更([§13「証跡チェーンの改ざん検知」](#13-証跡とレポート)参照) | ✅ 完了(2026-09-25) |
 | **§7** | プラグイン結果の相関分析(Correlator): `core/correlator.py`に読み取り専用のルールエンジン(`list[RunRecord]`のみを受け取り、スキャン/`EvidenceStore`/`ProcessExecutor`には一切触れない設計)を新設。3ルール(高価値ポート×重大finding、漏洩シークレット×リモートアクセス、複数プラグイン一致の要確認済finding)、CLI `pownforge result correlate --target <name>` を追加([§7「プラグイン結果の相関分析」](#プラグイン結果の相関分析result-correlateリファクタリング指示書v3-7)参照) | ✅ 完了(2026-09-26。レポートへの統合は指示書項目3により意図的に見送り) |
 | **§8** | ProcessExecutorのリソース上限集中管理: `core/process.py`に`ProcessResourceLimiter`(1プロセス内限定のグローバル同時実行数上限+対象単位の累積実行時間予算、既定無制限で後方互換)を新設。`ScanRunner`(`core/runner.py`)が`ConcurrencyError`と同じ経路で`RunnerError`化・`AuditStore`記録する。既存の`max_concurrent`/`ConcurrencyGuard`(対象単位・cross-process)とは独立した軽量な追加レイヤー([§12「プロセス全体のリソース上限」](#プロセス全体のリソース上限processresourcelimiterリファクタリング指示書v3-8)参照) | ✅ 完了(2026-09-26) |
-| **§9** | RiskForge連携に向けた語彙・スキーマ対応表の準備(ドキュメントのみ) | 未着手(着手前にユーザー確認が必須、との指示書自身のゲートあり) |
+| **§9** | RiskForge連携に向けた語彙・スキーマ対応表の準備(ドキュメントのみ、実装ではない): ATT&CK技術ID語彙([§14](#attckタグattack_technique_idsリファクタリング指示書v3-3))をPownForge側からの共有語彙案として確定、`Finding`/`RawFinding`対応表([§18.5](#185-共通severityモデルfinding拡張とrawfindingとの対応リファクタリング指示書v3-3))を実際のRiskForgeリポジトリ(コミット`0cfb1d5`)で再確認(前提に変化なし)。コード変更・RiskForge側リポジトリへの変更は無し([§18.6](#186-riskforge連携に向けた語彙スキーマ対応表の準備リファクタリング指示書v3-9)参照) | ✅ 完了(2026-09-26。着手前にユーザーへ「連携の実装ではなく準備作業か」を確認し、明示的な同意を得てから実施) |
 
 ## 18. RiskForgeとの関係(姉妹プロジェクト)
 
@@ -4151,6 +4151,38 @@ findingに`cvss_score`/`native_severity`が正しく付与されることを確�
 連携コード(RawFinding変換ロジック、専用エクスポートAPI等)も実装して
 いません。上記の対応表はPownForge側のドキュメントとしての整理であり、
 RiskForge側で正式化されるまでは非公式な参考情報として扱ってください。
+
+### 18.6 RiskForge連携に向けた語彙・スキーマ対応表の準備(リファクタリング指示書v3 §9)
+
+**重要(指示書自身のゲート)**: この節はPhase 5(PownForge↔RiskForge連携)
+の実装ではありません。両プロジェクトのAGENTS.mdが定める「連携コードは
+明示的な依頼がない限り実装しない」制約の**手前**にある、ドキュメント
+レベルの準備作業です。ユーザーから「これは連携の実装ではなく準備作業
+として進めてよいか」の明示的な確認を得た上で(2026-09-26)、以下の
+2点のみを行いました。コード変更は一切ありません。
+
+1. **ATT&CK技術ID語彙の確定**: [§14「ATT&CKタグ」](#attckタグattack_technique_idsリファクタリング指示書v3-3)
+   の語彙表(`T1190`/`T1210`/`T1552.004`、§3で導入)を、PownForge/
+   RiskForge両プロジェクトで共有し得る語彙の**PownForge側からの提案**
+   として確定します。§10の実施順序どおり、PownForgeがこの語彙を
+   `docs/handbook.md`に先に確定させ、RiskForge側が独自に語彙を
+   定義することはこの時点ではありません(RiskForge側リポジトリへの
+   変更は一切行っていません)。
+2. **`Finding`/`RawFinding`スキーマ対応表の確認**: [§18.5](#185-共通severityモデルfinding拡張とrawfindingとの対応リファクタリング指示書v3-3)
+   に§3実施時点(2026-09-25)で作成済みの対応表を、本タスク着手時点
+   (2026-09-26)で再確認しました。実際にRiskForgeリポジトリ
+   (`/Users/ac1965/Projects/RiskForge`、コミット`0cfb1d5`時点)を
+   再度読み直し、(a)`RawFinding`は引き続きフィールドレベルの実装が
+   存在しない(`internal/application/finding.go`のコメント参照のみ)、
+   (b)ATT&CK関連の概念は`AGENTS.md`のどこにも記述がない、という
+   §18.5作成時点からの前提に変化が無いことを確認しました。対応表
+   自体の追記は不要と判断し、変更していません。
+
+**行っていないこと**: RiskForge側のリポジトリ(ドキュメント・コード
+いずれも)には一切変更を加えていません。RiskForge側が独自にATT&CK
+語彙や`RawFinding`スキーマを定義する作業は、RiskForge側のAGENTS.md/
+ADRプロセスに従って別途行われるべきもので、本タスクはそれを代行・
+先取りしません。
 
 ## 19. 付録: 用語解説
 
