@@ -6,6 +6,7 @@ import pytest
 from pownforge.core.concurrency import ConcurrencyGuard
 from pownforge.core.models import Target, TargetKind
 from pownforge.core.policy import PolicyError, ScopePolicy
+from pownforge.core.process import ProcessExecutor, ProcessResourceLimiter
 from pownforge.core.registry import PluginRegistry
 from pownforge.core.runner import RunnerError, ScanRunner
 from pownforge.evidence.audit import AuditStore
@@ -297,3 +298,32 @@ def test_runner_with_a_guard_but_no_max_concurrent_is_unrestricted(tmp_path: Pat
 
     record = runner.run("lab", "echo", {})
     assert record.evidence.returncode == 0
+
+
+def test_runner_surfaces_process_limit_as_runner_error_and_records_audit(tmp_path: Path) -> None:
+    # Refactor v3 §8: a ProcessResourceLimiter (core/process.py) is a
+    # separate, in-process control from ConcurrencyGuard above -- ScanRunner
+    # treats an exhausted budget the same way it already treats a rejected
+    # ConcurrencyGuard slot: RunnerError to the caller, a record in AuditStore.
+    policy = ScopePolicy(targets={})
+    policy.add_target(Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1"))
+    registry = PluginRegistry()
+    registry.register(EchoPlugin())
+    store = EvidenceStore(tmp_path / "runs")
+    audit = AuditStore(tmp_path / "violations")
+    limiter = ProcessResourceLimiter(max_concurrent=0)
+    runner = ScanRunner(
+        policy=policy,
+        registry=registry,
+        store=store,
+        audit=audit,
+        process_executor=ProcessExecutor(limiter=limiter),
+    )
+
+    with pytest.raises(RunnerError, match="concurrent"):
+        runner.run("lab", "echo", {})
+
+    violations = audit.list()
+    assert len(violations) == 1
+    assert violations[0].target == "lab"
+    assert violations[0].plugin == "echo"

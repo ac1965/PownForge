@@ -2694,6 +2694,43 @@ ConcurrencyGuard`が`<workdir>/active/<target>/`配下のロックファイル�
 永久にハングする -- `tests/web/test_scans_routes.py`の既存コメント
 参照)。
 
+### プロセス全体のリソース上限(`ProcessResourceLimiter`、リファクタリング指示書v3 §8)
+
+上記の`max_concurrent`/`ConcurrencyGuard`はいずれも**対象単位**の制限で、
+プロセスをまたいで効きます。これに対し`core/process.py::ProcessResourceLimiter`は、
+**1つのPythonプロセスが自分自身を守るための**、より軽量な追加の安全弁です。
+CLIの1回の呼び出しは元からOS単位で1プロセスなので恩恵は薄く、主眼は
+Web UIの`JobManager`(`ThreadPoolExecutor(max_workers=2)`)のように、
+1プロセス内で複数のスキャンが同時に走り得る場合に、そのプロセス自身が
+外部ツールを起動しすぎて自分のリソースを食い潰さないようにすることです。
+
+- **同時実行数の上限**(`POWNFORGE_MAX_CONCURRENT_PROCESSES`環境変数): このプロセス内で
+  同時に走ってよい`ProcessExecutor.run()`呼び出し(=外部ツールプロセス)の総数。
+  対象をまたいだグローバルな上限で、`max_concurrent`(対象ごと)とは独立した別軸。
+- **対象単位の累積実行時間の上限**(`POWNFORGE_MAX_TARGET_SECONDS`環境変数): 1つの対象が
+  このプロセスの生存期間中に消費してよい実行時間の合計(秒)。個々の実行の
+  タイムアウト(`ScanRunner(timeout=...)`)とは別で、「1回は許容範囲でも積み重なると
+  問題」というケースを対象にする。
+
+いずれも既定は`None`(無制限)で、環境変数を設定しない限り**挙動は一切変わりません**
+(既存のCLI/Web呼び出し・既存テストへの影響なし)。上限に達した場合は
+`ConcurrencyGuard`と同じ「キューイングせず即座に拒否」の方針を踏襲し、
+`ProcessLimitError`→`RunnerError`に変換された上で`AuditStore`に記録されます
+(スコープ違反の拒否記録と同じ経路。理由文字列で区別可能)。
+
+状態はプロセス内メモリのみに保持し、`ConcurrencyGuard`のようにロックファイルへ
+永続化しません(プロセス再起動でリセットされる)。「自分自身の暴走を防ぐ」
+という目的に対して、cross-processの永続化はむしろ過剰と判断したためです。
+`core/process.py`に閉じた変更で、`cli/`・`plugins/`からsubprocessを直接呼ぶような
+後退は起こしていません。レポート統合等は不要と判断し見送りました。
+
+**実機検証**: `pownforge web serve`を`POWNFORGE_MAX_CONCURRENT_PROCESSES=1`で起動し、
+同じ対象へ`POST /api/scans`を2回連続で発行(network プラグイン、実nmap `-sV`)。
+1件目は正常完了、2件目は`{"status": "error", "error": "global concurrent execution
+limit reached ..."}`で即座に拒否され、`GET /api/audit`にも同じ理由で記録されることを
+確認した。環境変数を設定しない場合は同じ2リクエストが両方とも正常完了することも
+確認済み(既定無制限であることの回帰確認)。
+
 ### Engagementと横展開の記録
 
 `ScopePolicy`は本来「1対象=1認可」のモデルです。横展開(対象Aで得た
@@ -3988,7 +4025,7 @@ pivotとして)で全段階を記録し、5 stageの`AttackSession`
 | **§5** | テスト戦略の補強: 過去の実機検証発見バグ5件を監査し再現テストの抜けが無いことを確認、golden file(`tests/golden/`)を新設し`network`/`container`/`imagevuln`の3件を実機採取([§16「golden file」](#16-テスト)参照) | ✅ 完了(2026-09-25。他プラグインへの拡張は継続タスクとして未着手のまま残す) |
 | **§6** | Evidence証跡チェーンの改ざん検知強化: `evidence/chain.py::EvidenceChain`(前方参照の連結ハッシュ、マークル木は不採用)を`EvidenceStore.save()`に統合。`pownforge evidence verify-chain`・`GET /api/runs/verify-chain`・Runsページのボタンを新設。既存の`<run_id>.json`フォーマットは無変更([§13「証跡チェーンの改ざん検知」](#13-証跡とレポート)参照) | ✅ 完了(2026-09-25) |
 | **§7** | プラグイン結果の相関分析(Correlator): `core/correlator.py`に読み取り専用のルールエンジン(`list[RunRecord]`のみを受け取り、スキャン/`EvidenceStore`/`ProcessExecutor`には一切触れない設計)を新設。3ルール(高価値ポート×重大finding、漏洩シークレット×リモートアクセス、複数プラグイン一致の要確認済finding)、CLI `pownforge result correlate --target <name>` を追加([§7「プラグイン結果の相関分析」](#プラグイン結果の相関分析result-correlateリファクタリング指示書v3-7)参照) | ✅ 完了(2026-09-26。レポートへの統合は指示書項目3により意図的に見送り) |
-| **§8** | ProcessExecutorのリソース上限集中管理 | 未着手 |
+| **§8** | ProcessExecutorのリソース上限集中管理: `core/process.py`に`ProcessResourceLimiter`(1プロセス内限定のグローバル同時実行数上限+対象単位の累積実行時間予算、既定無制限で後方互換)を新設。`ScanRunner`(`core/runner.py`)が`ConcurrencyError`と同じ経路で`RunnerError`化・`AuditStore`記録する。既存の`max_concurrent`/`ConcurrencyGuard`(対象単位・cross-process)とは独立した軽量な追加レイヤー([§12「プロセス全体のリソース上限」](#プロセス全体のリソース上限processresourcelimiterリファクタリング指示書v3-8)参照) | ✅ 完了(2026-09-26) |
 | **§9** | RiskForge連携に向けた語彙・スキーマ対応表の準備(ドキュメントのみ) | 未着手(着手前にユーザー確認が必須、との指示書自身のゲートあり) |
 
 ## 18. RiskForgeとの関係(姉妹プロジェクト)
@@ -4148,6 +4185,7 @@ RiskForge側で正式化されるまでは非公式な参考情報として扱�
 | `ScanRunner` | `ScopePolicy.authorize()`→`ConcurrencyGuard`→`Plugin.build_command()`→`ProcessExecutor.run()`→`Plugin.normalize()`→`EvidenceStore.save()`の一連の流れを統括するコア実行エンジン(`core/runner.py`) |
 | `ProcessExecutor` | 実際に`subprocess`を起動する唯一の場所の1つ(`core/process.py`)。`cli/`パッケージから直接`subprocess`を呼ばないための一本化ポイント |
 | `ConcurrencyGuard` | `<workdir>/active/<target>/`配下のロックファイルで、プロセスをまたいで対象ごとの同時実行数(`max_concurrent`)を管理するコンポーネント(`core/concurrency.py`)。[§12](#12-target-modelとスコープ制御) |
+| `ProcessResourceLimiter` | 1つのPythonプロセス内でのみ有効な、グローバルな同時実行数上限と対象単位の累積実行時間予算(`core/process.py`)。`ConcurrencyGuard`(cross-process・対象単位)とは独立した軽量な追加の安全弁で、既定は無制限。[§12「プロセス全体のリソース上限」](#プロセス全体のリソース上限processresourcelimiterリファクタリング指示書v3-8) |
 | `Playbook` | 複数プラグインを決まった順序で連続実行する定義ファイル(`config/playbooks/*.yaml`)。実行時の分岐やAI判断は入れず、各ステップで`ScanRunner.run()`を呼ぶだけ(`orchestrator.py`)。[§8](#8-playbook-複数プラグインの連続実行) |
 | `LabManager` | 隔離Dockerネットワーク(既定`pownforge-lab`、常に`--internal`)上の検証対象コンテナを起動・削除するコンポーネント(`core/lab.py`)。`KindClusterManager`(kindクラスタ)・`VulhubProvider`(Vulhub連携)も同様の外部Lab Provider。[§7](#7-ラボネットワーク) |
 | `kind` | Docker上でKubernetesクラスタを起動するツール(kind-in-Docker)。`pownforge lab kind`が使う。`Target.kind`(上記`TargetKind`)とは無関係の別語彙。[§7](#7-ラボネットワーク) |

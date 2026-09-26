@@ -8,7 +8,7 @@ from pownforge.core.concurrency import ConcurrencyError, ConcurrencyGuard
 from pownforge.core.finding_utils import coerce_finding
 from pownforge.core.models import Evidence, ExecutionRequest, ExecutionResult, Finding, RunRecord, Target
 from pownforge.core.policy import PolicyError, ScopePolicy
-from pownforge.core.process import ProcessExecutor, execution_result_from_process
+from pownforge.core.process import ProcessExecutor, ProcessLimitError, execution_result_from_process
 from pownforge.core.registry import PluginRegistry
 from pownforge.core.secrets import mask_command
 from pownforge.evidence.audit import AuditStore
@@ -92,12 +92,18 @@ class ScanRunner:
                 self._audit.record(target=target_name, plugin=plugin_name, reason=str(exc))
             raise
 
-        if self._concurrency is None:
-            return self._run_locked(target, request, on_line)
         try:
+            if self._concurrency is None:
+                return self._run_locked(target, request, on_line)
             with self._concurrency.acquire(target_name, target.max_concurrent):
                 return self._run_locked(target, request, on_line)
-        except ConcurrencyError as exc:
+        except (ConcurrencyError, ProcessLimitError) as exc:
+            # ConcurrencyError (core/concurrency.py, cross-process, per-target
+            # max_concurrent) and ProcessLimitError (core/process.py, refactor
+            # v3 §8, in-process global concurrency / per-target cumulative
+            # time budget) are two independent guards but the same "reject,
+            # don't queue" story to the caller -- both surface as RunnerError
+            # and get an AuditStore record the same way a scope violation does.
             if self._audit is not None:
                 self._audit.record(target=target_name, plugin=plugin_name, reason=str(exc))
             raise RunnerError(str(exc)) from exc
@@ -136,7 +142,9 @@ class ScanRunner:
             execution.data["excluded_hosts"] = excluded_hosts
             command = plugin.build_command(target, options, execution)
 
-            process_result = self._process_executor.run(command, timeout=self._timeout, on_stdout_line=on_line)
+            process_result = self._process_executor.run(
+                command, timeout=self._timeout, on_stdout_line=on_line, target_name=target_name
+            )
             execution_result = execution_result_from_process(process_result)
 
             if execution_result.timed_out:
