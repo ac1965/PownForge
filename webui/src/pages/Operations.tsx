@@ -8,6 +8,7 @@ import {
   api,
   Target,
 } from "../api/client";
+import AttackGraph from "../components/AttackGraph";
 
 const PHASES: AttackPhase[] = [
   "recon",
@@ -327,6 +328,13 @@ export default function Operations() {
             <h3>{detail.name}</h3>
             <p className="muted">{detail.objective}</p>
             {detail.engagement && <p className="muted">engagement: {detail.engagement}</p>}
+
+            <h4>攻撃経路図</h4>
+            {detail.nodes.length === 0 ? (
+              <p className="muted">まだnodeが無いため図を描けません。</p>
+            ) : (
+              <AttackGraph nodes={detail.nodes} edges={detail.edges} actions={detail.actions} />
+            )}
 
             <h4>nodes</h4>
             {detail.nodes.length === 0 ? (

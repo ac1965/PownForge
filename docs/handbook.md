@@ -3467,6 +3467,39 @@ Web UIの専用画面(React、`webui/src/pages/Operations.tsx`)、Emacs連携
 既存経路(`execute`が実nmapスキャンを実行し`run_id`を記録)も
 リグレッションが無いことを再確認済み。
 
+### 攻撃経路の可視化(`AttackGraph`コンポーネント、2026-09-27)
+
+Web UIの`Operations.tsx`は元々nodes/edges/actionsを表形式でしか表示して
+おらず、攻撃経路そのもの(どのnodeがどのnodeへ繋がっているか)を一目で
+把握できなかった。`webui/src/components/AttackGraph.tsx`(新規)を追加し、
+Operation詳細画面のnodesテーブルの直前に、node/edgeを有向グラフとして
+描画する「攻撃経路図」節を挿入した。
+
+- 純SVGで自前実装(依存追加なし): `webui/package.json`の既存依存は
+  `react`/`react-dom`/`react-router-dom`のみで、グラフ描画ライブラリは
+  無い。この機能単体のために新規ライブラリを追加するのは大袈裟なため、
+  最短経路(BFS)によるレイヤー配置レイアウトを自前で計算する
+- `AttackEdge.source`/`destination`と`Action.target`は、いずれも
+  `AttackNode.id`ではなく`AttackNode.target`(スコープ対象名)を指す
+  ことを`core/operation/service.py`の`add_edge`(`AttackGraph.has_target`
+  を呼ぶ)で確認した上で実装。node配置・edge描画・actionの紐付けは
+  すべて`target`をキーにしている
+- node枠線の色はstate(known/candidate/planned/approved/running/
+  succeeded/failed/skipped)、node右上の丸はそのtargetに紐づくactionの
+  status別の色。`attack_technique_ids`(§14「ATT&CKタグ」)はnode・edge
+  双方でラベルとして表示する。ホバー(SVGの`<title>`)で詳細を表示
+- 元のnodes/edgesテーブルは変更せず維持し、グラフは追加のビジュアライ
+  ゼーション層として挿入した
+
+**実機検証**: `operation create` → `add-node`(2件、うち1件に
+`--attack-technique T1190`) → `add-edge --attack-technique T1210` →
+`add-action --kind scan --plugin network --attack-technique T1190` →
+`add-action --kind pivot` → `approve`まで実データを作成し、
+`pownforge web serve` + `npm run dev`(webui)を実際に起動してブラウザで
+攻撃経路図が正しく描画されること(2ノード・矢印付きedge・ATT&CKタグ・
+action状態の丸)を確認した。`npm run build`(`tsc`型チェック込み)は
+クリーン。
+
 ## 15. 検証プリミティブ・フレームワーク(Phase 2設計・骨格)
 
 `AttackOperation`(§14)が「攻撃経路を計画・承認する」層なのに対し、この

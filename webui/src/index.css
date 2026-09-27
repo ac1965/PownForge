@@ -233,3 +233,43 @@ pre {
   padding: 1rem;
   margin-bottom: 1rem;
 }
+
+.attack-graph-wrap {
+  overflow-x: auto;
+  margin-bottom: 1rem;
+}
+
+.attack-graph-edges {
+  color: #8888; /* edge line/arrow color, kept separate from node text's currentColor */
+}
+
+.attack-graph-node-label {
+  font-size: 12px;
+  font-weight: bold;
+  fill: currentColor;
+}
+
+.attack-graph-node-target {
+  font-size: 10px;
+  opacity: 0.7;
+  fill: currentColor;
+}
+
+.attack-graph-node-attck {
+  font-size: 9px;
+  opacity: 0.6;
+  font-family: ui-monospace, Consolas, monospace;
+  fill: currentColor;
+}
+
+.attack-graph-edge-label {
+  font-size: 10px;
+  opacity: 0.75;
+  text-anchor: middle;
+  fill: currentColor;
+}
+
+.attack-graph-legend {
+  font-size: 0.8rem;
+  margin-top: 0.25rem;
+}
