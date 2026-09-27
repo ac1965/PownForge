@@ -269,6 +269,17 @@ pre {
   fill: currentColor;
 }
 
+.attack-graph-node-impact {
+  font-size: 9px;
+  fill: #c0392b;
+  font-weight: bold;
+}
+
+.attack-graph-node-impact-badge {
+  font-size: 13px;
+  fill: #c0392b;
+}
+
 .attack-graph-legend {
   font-size: 0.8rem;
   margin-top: 0.25rem;

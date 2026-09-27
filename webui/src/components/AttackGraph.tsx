@@ -1,4 +1,4 @@
-import { AttackEdge, AttackNode, AttackNodeState, OperationAction } from "../api/client";
+import { AttackEdge, AttackNode, AttackNodeState, Capability, OperationAction } from "../api/client";
 
 // AttackGraph renders an AttackOperation's nodes/edges as a directed
 // graph — the "攻撃経路" that Operations.tsx otherwise only shows as two
@@ -37,11 +37,19 @@ const ACTION_COLOR: Record<OperationAction["status"], string> = {
   rejected: "#c0392b",
 };
 
+// Capabilities that represent a real consequence for the target (data
+// changed, credentials obtained, a foothold persisted) as opposed to
+// read-only/network-pivot which are just observation or movement --
+// mirrors how core/operation/model.py's provided_tags() distinguishes
+// "what an action provides" from mere reconnaissance.
+const IMPACT_CAPABILITIES = new Set<Capability>(["state-changing", "credential-related", "persistence"]);
+const IMPACT_COLOR = "#c0392b";
+
 const COL_WIDTH = 210;
-const ROW_HEIGHT = 84;
+const ROW_HEIGHT = 100;
 const MARGIN = 60;
 const NODE_W = 150;
-const NODE_H = 46;
+const NODE_H = 60;
 
 interface Position {
   x: number;
@@ -98,6 +106,29 @@ function layoutByTarget(nodes: AttackNode[], edges: AttackEdge[]): Map<string, P
   return positions;
 }
 
+interface Impact {
+  provides: string[];
+  isImpactful: boolean;
+}
+
+// nodeImpact answers "what did compromising this target actually get the
+// attacker" -- mirrors core/operation/model.py's provided_tags(), scoped
+// to one target's completed actions, plus a broader isImpactful flag for
+// nodes that reached (or are reaching for) real consequence even before
+// anything is confirmed provided yet.
+function nodeImpact(target: string, actionsByTarget: Map<string, OperationAction[]>, outgoingByTarget: Map<string, AttackEdge[]>): Impact {
+  const targetActions = actionsByTarget.get(target) ?? [];
+  const completed = targetActions.filter((a) => a.status === "completed");
+  const provides = [...new Set(completed.flatMap((a) => a.provides))];
+  const outgoing = outgoingByTarget.get(target) ?? [];
+  const isImpactful =
+    targetActions.some((a) => a.phase === "impact") ||
+    completed.some((a) => a.capabilities.some((c) => IMPACT_CAPABILITIES.has(c))) ||
+    outgoing.some((e) => e.capabilities.some((c) => IMPACT_CAPABILITIES.has(c))) ||
+    provides.length > 0;
+  return { provides, isImpactful };
+}
+
 export default function AttackGraph({ nodes, edges, actions }: Props) {
   if (nodes.length === 0) return null;
 
@@ -113,6 +144,12 @@ export default function AttackGraph({ nodes, edges, actions }: Props) {
   for (const a of actions) {
     if (!actionsByTarget.has(a.target)) actionsByTarget.set(a.target, []);
     actionsByTarget.get(a.target)!.push(a);
+  }
+
+  const outgoingByTarget = new Map<string, AttackEdge[]>();
+  for (const e of edges) {
+    if (!outgoingByTarget.has(e.source)) outgoingByTarget.set(e.source, []);
+    outgoingByTarget.get(e.source)!.push(e);
   }
 
   const maxX = Math.max(...[...positions.values()].map((p) => p.x)) + NODE_W + MARGIN;
@@ -131,6 +168,9 @@ export default function AttackGraph({ nodes, edges, actions }: Props) {
           <marker id="attack-graph-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
             <path d="M0,0 L8,4 L0,8 Z" fill="#8888" />
           </marker>
+          <marker id="attack-graph-arrow-impact" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+            <path d="M0,0 L8,4 L0,8 Z" fill={IMPACT_COLOR} />
+          </marker>
         </defs>
 
         <g className="attack-graph-edges">
@@ -138,6 +178,7 @@ export default function AttackGraph({ nodes, edges, actions }: Props) {
             const from = positions.get(e.source);
             const to = positions.get(e.destination);
             if (!from || !to) return null; // shouldn't happen; domain requires both endpoints to be existing nodes
+            const isImpactEdge = e.capabilities.some((c) => IMPACT_CAPABILITIES.has(c));
             const x1 = from.x + NODE_W;
             const y1 = from.y + NODE_H / 2;
             const x2 = to.x;
@@ -146,7 +187,15 @@ export default function AttackGraph({ nodes, edges, actions }: Props) {
             const midY = (y1 + y2) / 2;
             return (
               <g key={`${e.source}->${e.destination}-${i}`} className="attack-graph-edge">
-                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="currentColor" strokeWidth={1.5} markerEnd="url(#attack-graph-arrow)" />
+                <line
+                  x1={x1}
+                  y1={y1}
+                  x2={x2}
+                  y2={y2}
+                  stroke={isImpactEdge ? IMPACT_COLOR : "currentColor"}
+                  strokeWidth={isImpactEdge ? 2.5 : 1.5}
+                  markerEnd={isImpactEdge ? "url(#attack-graph-arrow-impact)" : "url(#attack-graph-arrow)"}
+                />
                 <text x={midX} y={midY - 6} textAnchor="middle" className="attack-graph-edge-label">
                   {e.relationship}
                   {e.attack_technique_ids.length > 0 ? ` (${e.attack_technique_ids.join(", ")})` : ""}
@@ -160,14 +209,35 @@ export default function AttackGraph({ nodes, edges, actions }: Props) {
           const pos = positions.get(target);
           if (!pos) return null;
           const nodeActions = actionsByTarget.get(target) ?? [];
+          const { provides, isImpactful } = nodeImpact(target, actionsByTarget, outgoingByTarget);
+          const impactText = provides.length > 0 ? provides.join(", ") : isImpactful ? "確認要" : null;
           return (
             <g key={n.id} transform={`translate(${pos.x}, ${pos.y})`} className="attack-graph-node">
+              {isImpactful && (
+                <rect
+                  x={-3}
+                  y={-3}
+                  width={NODE_W + 6}
+                  height={NODE_H + 6}
+                  rx={9}
+                  fill="none"
+                  stroke={IMPACT_COLOR}
+                  strokeWidth={2}
+                  strokeDasharray="4 3"
+                />
+              )}
               <rect width={NODE_W} height={NODE_H} rx={6} fill={STATE_COLOR[n.state]} fillOpacity={0.18} stroke={STATE_COLOR[n.state]} strokeWidth={2}>
                 <title>
                   {n.label || n.id} ({target}) -- state: {n.state}
                   {n.attack_technique_ids.length > 0 ? `, ATT&CK: ${n.attack_technique_ids.join(", ")}` : ""}
+                  {isImpactful ? `, impact: ${impactText}` : ""}
                 </title>
               </rect>
+              {isImpactful && (
+                <text x={NODE_W - 14} y={-6} className="attack-graph-node-impact-badge" textAnchor="middle">
+                  ⚠
+                </text>
+              )}
               <text x={8} y={18} className="attack-graph-node-label">
                 {n.label || n.id}
               </text>
@@ -175,8 +245,13 @@ export default function AttackGraph({ nodes, edges, actions }: Props) {
                 {target}
               </text>
               {n.attack_technique_ids.length > 0 && (
-                <text x={8} y={NODE_H - 2} className="attack-graph-node-attck">
+                <text x={8} y={46} className="attack-graph-node-attck">
                   {n.attack_technique_ids.join(", ")}
+                </text>
+              )}
+              {impactText && (
+                <text x={8} y={NODE_H - 2} className="attack-graph-node-impact">
+                  {impactText}
                 </text>
               )}
               {nodeActions.map((a, i) => (
@@ -192,7 +267,10 @@ export default function AttackGraph({ nodes, edges, actions }: Props) {
       </svg>
       <p className="attack-graph-legend muted">
         node枠線の色 = state（known/candidate/planned/approved/running/succeeded/failed/skipped）。
-        右上の丸 = そのtargetに対するaction（色はstatus）。ホバーで詳細を表示します。
+        右上の丸 = そのtargetに対するaction（色はstatus）。
+        赤い破線の外枠と⚠ = そのtargetへの侵害が実害（state-changing/credential-related/persistence等）につながったこと。
+        下部の赤文字 = 実際に得られたもの（provides）、まだ確定していない場合は「確認要」。
+        赤い太線のedge = その経路の悪用が実害に直結すること。ホバーで詳細を表示します。
       </p>
     </div>
   );
