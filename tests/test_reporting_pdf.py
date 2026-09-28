@@ -87,6 +87,19 @@ def test_render_with_findings_lists_severity_and_detail() -> None:
     assert "要確認" in text
 
 
+def test_render_with_findings_shows_cvss_score_when_present() -> None:
+    record = _record(
+        findings=[
+            Finding(title="Log4Shell", severity="critical", detail="rce", cvss_score=10.0),
+            Finding(title="Manual note", severity="low", detail="checked by hand"),
+        ]
+    )
+    text = _text(pdf.render(record))
+    assert "CVSS 10.0" in text
+    # A finding with no cvss_score must not grow a stray "CVSS None".
+    assert "CVSS None" not in text
+
+
 def test_render_orders_findings_by_severity_desc() -> None:
     record = _record(
         findings=[

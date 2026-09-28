@@ -4167,12 +4167,21 @@ templateを持たないexposure/misconfiguration系テンプレートは
 ATT&CKタグ([§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)
 「ATT&CKタグ」節)と同じ方針で「確信の持てる範囲で個別に追加する」に
 留め、引き続き未実施です。値は`reporting/markdown.py`/`html.py`の
-finding表示(CVSSバッジ)、`webui`のRun detailページに反映済みです
-(いずれもFinding.cvss_scoreの有無だけを見る汎用ロジックのため、対応
-プラグインが増えるほど自動的に表示対象が広がります)。**PDFレポート
-(`reporting/pdf.py`)とAttackSession/Operationレポートへの反映は、
-対象プラグインが増えた今も未実施のまま**です(trivy/grype追加時からの
-既知の未着手項目で、nuclei対応でも解消していません)。
+finding表示(CVSSバッジ)、`webui`のRun detailページ、`reporting/pdf.py`
+(2026-09-28追加)に反映済みです。markdown/html/webui/PDFいずれも
+`Finding.cvss_score`の有無だけを見る汎用ロジックのため、対応プラグインが
+増えるほど自動的に表示対象が広がります。
+
+PDFは`reporting/pdf.py::_render_finding()`という単一の共有関数が
+`render()`(Run)/`render_attack_session()`/`render_operation()`/
+`render_primitive()`/`render_engagement()`の5種類全てのfinding表示から
+呼ばれる作りだったため、この1関数への追記だけでRun/AttackSession/
+Operation/primitive/engagementの全PDFレポートに反映されました(markdown.py
+の`_render_finding()`と同じ「CVSSスコアのみ表示、`cvss_vector`/
+`native_severity`は非表示」という表示範囲に揃えています)。
+`tests/test_reporting_pdf.py::test_render_with_findings_shows_cvss_score_when_present`
+で、CVSS付きfindingには`"CVSS 10.0"`が出力され、CVSS無しfindingに
+`"CVSS None"`という不正な文字列が混入しないことを確認済みです。
 
 **RiskForgeの`RawFinding`との対応について(重要な留保)**: 本節を書くに
 あたり、実際にRiskForgeリポジトリ(`/Users/ac1965/Projects/RiskForge`、

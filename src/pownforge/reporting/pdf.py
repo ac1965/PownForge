@@ -114,9 +114,13 @@ def _kv_table(rows: list[tuple[str, str]], styles: dict) -> Table:
 def _render_finding(finding: Finding, styles: dict) -> Paragraph:
     tag = _SOURCE_LABELS.get(finding.source, "manual")
     color = _SEVERITY_COLORS[finding.severity].hexval()
+    # Same "CVSS <score>" fragment as reporting/markdown.py's _render_finding
+    # (html.py shows the identical value as a separate badge) -- only the
+    # score, not cvss_vector/native_severity, matching what's shown there.
+    cvss = f", CVSS {finding.cvss_score}" if finding.cvss_score is not None else ""
     text = (
         f'<font color="{color}"><b>[{escape(finding.severity.value)}]</b></font> '
-        f"({escape(tag)}, <font face=\"Courier\">{escape(finding.finding_id)}</font>) "
+        f"({escape(tag)}{cvss}, <font face=\"Courier\">{escape(finding.finding_id)}</font>) "
         f"<b>{escape(finding.title)}</b> — {escape(finding.detail)}"
     )
     return Paragraph(text, styles["Normal"])
