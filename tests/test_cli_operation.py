@@ -65,6 +65,60 @@ def test_operation_add_node_edge_action_accept_attack_technique_option(tmp_path:
     assert "T1190,T1210" in result.stdout
 
 
+def test_operation_add_action_accepts_capabilities_requires_provides(tmp_path: Path) -> None:
+    config = str(tmp_path / "targets.yaml")
+    workdir = str(tmp_path / "state")
+    assert runner.invoke(
+        app, ["target", "add", "lab-a", "--address", "127.0.0.1", "--kind", "host", "--config", config]
+    ).exit_code == 0
+    assert runner.invoke(app, ["operation", "create", "op-1", "--workdir", workdir]).exit_code == 0
+    assert runner.invoke(
+        app,
+        ["operation", "add-node", "op-1", "n-a", "--target", "lab-a", "--workdir", workdir, "--config", config],
+    ).exit_code == 0
+
+    result = runner.invoke(
+        app,
+        [
+            "operation", "add-action", "op-1", "a1", "credential dump",
+            "--target", "lab-a", "--phase", "credential-access", "--kind", "manual",
+            "--capabilities", "credential-related,state-changing",
+            "--requires", "admin-session-on-lab-a",
+            "--provides", "credential:lab-a-admin",
+            "--workdir", workdir, "--config", config,
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+
+    result = runner.invoke(app, ["operation", "show", "op-1", "--workdir", workdir])
+    assert result.exit_code == 0
+    assert "credential-related,state-changing" in result.stdout
+    assert "requires=[admin-session-on-lab-a]" in result.stdout
+    assert "provides=[credential:lab-a-admin]" in result.stdout
+
+
+def test_operation_add_action_defaults_capabilities_to_read_only(tmp_path: Path) -> None:
+    config = str(tmp_path / "targets.yaml")
+    workdir = str(tmp_path / "state")
+    assert runner.invoke(
+        app, ["target", "add", "lab-a", "--address", "127.0.0.1", "--kind", "host", "--config", config]
+    ).exit_code == 0
+    assert runner.invoke(app, ["operation", "create", "op-1", "--workdir", workdir]).exit_code == 0
+    assert runner.invoke(
+        app,
+        ["operation", "add-node", "op-1", "n-a", "--target", "lab-a", "--workdir", workdir, "--config", config],
+    ).exit_code == 0
+    assert runner.invoke(
+        app,
+        ["operation", "add-action", "op-1", "a1", "network scan", "--target", "lab-a", "--phase", "discovery",
+         "--plugin", "network", "--workdir", workdir, "--config", config],
+    ).exit_code == 0
+
+    result = runner.invoke(app, ["operation", "show", "op-1", "--workdir", workdir])
+    assert result.exit_code == 0
+    assert "[read-only]" in result.stdout
+
+
 def test_operation_report_writes_markdown_by_default(tmp_path: Path) -> None:
     workdir = str(tmp_path / "state")
     assert runner.invoke(app, ["operation", "create", "op-1", "--objective", "lab", "--workdir", workdir]).exit_code == 0

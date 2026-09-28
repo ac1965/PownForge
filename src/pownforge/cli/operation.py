@@ -58,9 +58,13 @@ def operation_show(name: str, workdir: Path = typer.Option(DEFAULT_WORKDIR)) -> 
         techniques = f"\t{','.join(edge.attack_technique_ids)}" if edge.attack_technique_ids else ""
         typer.echo(f"  edge {edge.source} -> {edge.destination}\t{edge.relationship}\t[{caps}]{techniques}")
     for action in operation.actions:
+        caps = ",".join(c.value for c in action.capabilities)
+        requires = f"\trequires=[{','.join(action.requires)}]" if action.requires else ""
+        provides = f"\tprovides=[{','.join(action.provides)}]" if action.provides else ""
         techniques = f"\t{','.join(action.attack_technique_ids)}" if action.attack_technique_ids else ""
         typer.echo(
-            f"  action {action.id}\t{action.phase.value}\t{action.kind.value}\t{action.target}\t{action.status.value}{techniques}"
+            f"  action {action.id}\t{action.phase.value}\t{action.kind.value}\t{action.target}\t"
+            f"{action.status.value}\t[{caps}]{requires}{provides}{techniques}"
         )
 
 
@@ -127,6 +131,15 @@ def operation_add_action(
     phase: AttackPhase = typer.Option(..., "--phase"),
     kind: ActionKind = typer.Option(ActionKind.SCAN, "--kind"),
     plugin: Optional[str] = typer.Option(None, "--plugin"),
+    capabilities: str = typer.Option(
+        "", "--capabilities", help="Comma-separated Capability values; default: read-only."
+    ),
+    requires: str = typer.Option(
+        "", "--requires", help="Comma-separated tags this action needs before it can run (see docs §14)."
+    ),
+    provides: str = typer.Option(
+        "", "--provides", help="Comma-separated tags this action makes available once completed (see docs §14)."
+    ),
     attack_technique: str = typer.Option(
         "", "--attack-technique", help="Comma-separated MITRE ATT&CK technique ids (e.g. T1190), if known."
     ),
@@ -134,6 +147,9 @@ def operation_add_action(
     config: Path = typer.Option(DEFAULT_CONFIG),
 ) -> None:
     """Add a candidate action (scan/manual/pivot) to an attack operation."""
+    caps = [Capability(c.strip()) for c in capabilities.split(",") if c.strip()] or [Capability.READ_ONLY]
+    requires_tags = [t.strip() for t in requires.split(",") if t.strip()]
+    provides_tags = [t.strip() for t in provides.split(",") if t.strip()]
     technique_ids = [t.strip() for t in attack_technique.split(",") if t.strip()]
     action = Action(
         id=action_id,
@@ -142,6 +158,9 @@ def operation_add_action(
         kind=kind,
         target=target,
         plugin=plugin,
+        capabilities=caps,
+        requires=requires_tags,
+        provides=provides_tags,
         attack_technique_ids=technique_ids,
     )
     try:

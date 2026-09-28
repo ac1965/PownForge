@@ -421,7 +421,7 @@ pownforge analyze <run-id>
 | `pownforge operation list` | AttackOperationの一覧 |
 | `pownforge operation add-node <name> <node-id> --target <target> [--label <text>]` | 登録済みtargetをグラフのnodeとして追加(記述のみ、認可を拡張しない) |
 | `pownforge operation add-edge <name> --source <target> --destination <target> [--capabilities <csv>]` | 既に追加済みのnode(target名)どうしをedgeで接続(記述のみ、実行・pivot権限を与えない) |
-| `pownforge operation add-action <name> <action-id> <action-name> --target <target> --phase <phase> [--kind scan\|manual\|pivot] [--plugin <name>]` | Actionを追加。`--kind scan`(既定)は`--plugin`必須、`manual`/`pivot`は`--plugin`を指定できない |
+| `pownforge operation add-action <name> <action-id> <action-name> --target <target> --phase <phase> [--kind scan\|manual\|pivot] [--plugin <name>] [--capabilities <csv>] [--requires <csv>] [--provides <csv>]` | Actionを追加。`--kind scan`(既定)は`--plugin`必須、`manual`/`pivot`は`--plugin`を指定できない。`--capabilities`は既定`read-only`、`--requires`/`--provides`は[§14「requires/provides」](#requiresprovidesactionどうしの依存関係refactor-13)参照 |
 | `pownforge operation approve <name> <action-id> --approved-by <operator> [--note <text>]` | Actionに人間の承認を記録 |
 | `pownforge operation execute <name> <action-id> [--command <text>] [--output <text>] [--tool <name>] [--tool-version <text>] [--returncode <n>]` | 承認済みActionを実行。`scan`は既存`ScanRunner`経由、`manual`/`pivot`は`--output`必須の記録専用(PownForge自身は何も実行しない。詳細は[§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)) |
 | `pownforge operation show <name>` | AttackOperationのnodes/edges/actions/approvalsを表示 |
@@ -3231,11 +3231,16 @@ enum)とは**別の語彙**です。混同しやすいので対応表を示し�
 | 使う場所 | `SafetyPolicy`(実行可否のenvelope判定)、検証プリミティブのdescriptor | `OperationRunner.execute()`の前提評価のみ |
 | 例 | `capabilities=[credential-related]` (「このActionは認証情報を扱う」) | `provides=["credential"]` → 後続Actionが`requires=["credential"]`で参照 |
 
-CLIから`requires`/`provides`を指定するオプションは現時点では無く
-(`operation add-action`が`Action`の他フィールドと同様、Python/Web層から
-組み立てることを前提とした最小限のCLI引数のみを公開しているため)、
-`add_action()`にモデルを直接渡す経路(将来のWeb UI、テスト等)で設定
-します。
+`operation add-action`は`--capabilities`(カンマ区切り、既定
+`read-only`)・`--requires`・`--provides`(いずれもカンマ区切りの自由記述
+タグ)をCLIから直接指定できます(2026-09-28、[ac1965/PownForge#14](https://github.com/ac1965/PownForge/issues/14)対応)。
+Web API(`POST /api/operations/{name}/actions`)・webui(Operations画面の
+action追加フォーム、capabilitiesはedgeと同じチェックボックスUI)も
+同じ3フィールドに対応済みで、`operation show`・webuiのaction一覧
+テーブルにも表示されます。core層の`add_action()`は元々`Action`
+オブジェクトをそのまま受け取れる設計だったため、この対応で
+core/Web API/webui APIクライアント型の変更は不要でした(CLIのオプション
+追加とwebuiフォームへのチェックボックス追加のみ)。
 
 ### `AttackNode.state`の遷移(refactor §12)
 

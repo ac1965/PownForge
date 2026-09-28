@@ -61,6 +61,7 @@ export default function Operations() {
   const [actionKind, setActionKind] = useState<ActionKind>("scan");
   const [actionTarget, setActionTarget] = useState("");
   const [actionPlugin, setActionPlugin] = useState("");
+  const [actionCapabilities, setActionCapabilities] = useState<Capability[]>([]);
   const [actionRequires, setActionRequires] = useState("");
   const [actionProvides, setActionProvides] = useState("");
   const [addingAction, setAddingAction] = useState(false);
@@ -156,6 +157,9 @@ export default function Operations() {
   const toggleEdgeCapability = (cap: Capability) =>
     setEdgeCapabilities((prev) => (prev.includes(cap) ? prev.filter((c) => c !== cap) : [...prev, cap]));
 
+  const toggleActionCapability = (cap: Capability) =>
+    setActionCapabilities((prev) => (prev.includes(cap) ? prev.filter((c) => c !== cap) : [...prev, cap]));
+
   const addAction = (e: FormEvent) => {
     if (!selected) return;
     e.preventDefault();
@@ -169,6 +173,7 @@ export default function Operations() {
         kind: actionKind,
         target: actionTarget,
         plugin: actionKind === "scan" && actionPlugin ? actionPlugin : null,
+        capabilities: actionCapabilities.length > 0 ? actionCapabilities : undefined,
         requires: actionRequires
           .split(",")
           .map((s) => s.trim())
@@ -184,6 +189,7 @@ export default function Operations() {
         setActionName("");
         setActionTarget("");
         setActionPlugin("");
+        setActionCapabilities([]);
         setActionRequires("");
         setActionProvides("");
       })
@@ -462,6 +468,9 @@ export default function Operations() {
                     <th>kind</th>
                     <th>target</th>
                     <th>plugin</th>
+                    <th>capabilities</th>
+                    <th>requires</th>
+                    <th>provides</th>
                     <th>status</th>
                     <th>run_id</th>
                     <th></th>
@@ -476,6 +485,9 @@ export default function Operations() {
                       <td>{a.kind}</td>
                       <td>{a.target}</td>
                       <td>{a.plugin ?? "-"}</td>
+                      <td>{a.capabilities.join(", ")}</td>
+                      <td>{a.requires.join(", ") || "-"}</td>
+                      <td>{a.provides.join(", ") || "-"}</td>
                       <td>{a.status}</td>
                       <td>{a.run_id ?? "-"}</td>
                       <td>
@@ -560,6 +572,19 @@ export default function Operations() {
                   />
                 </label>
               )}
+              <div>
+                capabilities(任意、既定read-only)
+                {CAPABILITIES.map((cap) => (
+                  <label key={cap} className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={actionCapabilities.includes(cap)}
+                      onChange={() => toggleActionCapability(cap)}
+                    />
+                    {cap}
+                  </label>
+                ))}
+              </div>
               <label>
                 requires(任意、カンマ区切り)
                 <input value={actionRequires} onChange={(e) => setActionRequires(e.target.value)} />
