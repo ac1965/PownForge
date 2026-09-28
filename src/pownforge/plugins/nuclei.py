@@ -88,6 +88,9 @@ class NucleiPlugin(Plugin):
                     "title": match["name"] or match["template_id"] or "nuclei match",
                     "severity": match["severity"],
                     "detail": match["description"] or match["matched_at"] or "",
+                    "native_severity": match["native_severity"],
+                    "cvss_score": match["cvss_score"],
+                    "cvss_vector": match["cvss_vector"],
                 }
                 for match in matches
             ],
@@ -105,6 +108,12 @@ class NucleiPlugin(Plugin):
             except json.JSONDecodeError:
                 continue
             info = data.get("info") or {}
+            # Nuclei's template "classification" block (see
+            # https://docs.projectdiscovery.io/templates/reference/info)
+            # carries CVSS data on CVE-backed templates only -- absent for
+            # most exposure/misconfiguration templates.
+            classification = info.get("classification") or {}
+            cvss_score = classification.get("cvss-score")
             matches.append(
                 {
                     "template_id": data.get("template-id"),
@@ -112,6 +121,9 @@ class NucleiPlugin(Plugin):
                     "severity": info.get("severity"),
                     "description": info.get("description"),
                     "matched_at": data.get("matched-at") or data.get("host"),
+                    "native_severity": info.get("severity"),
+                    "cvss_score": float(cvss_score) if isinstance(cvss_score, (int, float)) else None,
+                    "cvss_vector": classification.get("cvss-metrics") or None,
                 }
             )
         return matches

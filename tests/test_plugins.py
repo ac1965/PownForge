@@ -206,6 +206,22 @@ NUCLEI_JSONL = "\n".join(
                 "matched-at": "http://lab-web:3000/x",
             }
         ),
+        json.dumps(
+            {
+                "template-id": "CVE-2021-44228",
+                "info": {
+                    "name": "Log4Shell RCE",
+                    "severity": "critical",
+                    "description": "Apache Log4j2 JNDI RCE.",
+                    "classification": {
+                        "cve-id": ["CVE-2021-44228"],
+                        "cvss-metrics": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H",
+                        "cvss-score": 10,
+                    },
+                },
+                "matched-at": "http://lab-web:3000/",
+            }
+        ),
         "",  # trailing blank line should be skipped
     ]
 )
@@ -227,14 +243,21 @@ def test_nuclei_plugin_normalizes_jsonl_into_matches_and_findings(
 
     output = plugin.normalize(target, "", "", execution)
 
-    assert len(output["matches"]) == 2
+    assert len(output["matches"]) == 3
     assert output["matches"][0]["name"] == "Exposed Admin Panel"
 
     findings = output["_findings"]
     assert findings[0]["title"] == "Exposed Admin Panel"
     assert findings[0]["severity"] == "medium"
+    assert findings[0]["native_severity"] == "medium"
+    assert findings[0]["cvss_score"] is None
+    assert findings[0]["cvss_vector"] is None
     assert findings[1]["title"] == "Weird severity template"
     assert findings[1]["severity"] == "unknown"  # ScanRunner/coerce_finding handles the fallback
+    assert findings[2]["title"] == "Log4Shell RCE"
+    assert findings[2]["native_severity"] == "critical"
+    assert findings[2]["cvss_score"] == 10.0
+    assert findings[2]["cvss_vector"] == "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H"
 
 
 def test_nuclei_plugin_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

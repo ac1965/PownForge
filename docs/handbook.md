@@ -4145,20 +4145,34 @@ RiskForge = 是正の計画・承認・実行管理・検証結果の記録
 
 | フィールド | 内容 | 出典の例 |
 | --- | --- | --- |
-| `cvss_score` | CVSS基本値(0.0〜10.0、範囲外は`None`に丸める) | trivyの`CVSS.<source>.V3Score`(無ければ`V2Score`)、grypeの`vulnerability.cvss[].metrics.baseScore` |
-| `cvss_vector` | CVSSベクター文字列 | 同上の`V3Vector`/`V2Vector`、`vulnerability.cvss[].vector` |
-| `native_severity` | ツール自身が報告した重大度ラベル(マッピング前の生値) | trivyの`"CRITICAL"`、grypeの`"Negligible"`等 |
+| `cvss_score` | CVSS基本値(0.0〜10.0、範囲外は`None`に丸める) | trivyの`CVSS.<source>.V3Score`(無ければ`V2Score`)、grypeの`vulnerability.cvss[].metrics.baseScore`、nucleiの`info.classification.cvss-score` |
+| `cvss_vector` | CVSSベクター文字列 | 同上の`V3Vector`/`V2Vector`、`vulnerability.cvss[].vector`、nucleiの`info.classification.cvss-metrics` |
+| `native_severity` | ツール自身が報告した重大度ラベル(マッピング前の生値) | trivyの`"CRITICAL"`、grypeの`"Negligible"`、nucleiの`info.severity`(例`"critical"`)等 |
 
 現時点で`container`(trivy image、`plugins/_trivy.py`の共通ロジックを
-`kubernetes`(trivy k8s)とも共有)と`imagevuln`(grype)の2プラグインに
-実装しています(**実機検証**: 実際の`trivy`/`grype`を`alpine:3.10`に対して
-実行し、`trivy`はCVE-2021-36159の`cvss_score=9.1`、`grype`は125件全ての
-findingに`cvss_score`/`native_severity`が正しく付与されることを確認済み)。
-他プラグイン(nuclei、checkov等)への横展開は、ATT&CKタグ([§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)
+`kubernetes`(trivy k8s)とも共有)、`imagevuln`(grype)、`nuclei`
+(2026-09-28追加)の3プラグインに実装しています(**実機検証**: 実際の
+`trivy`/`grype`を`alpine:3.10`に対して実行し、`trivy`はCVE-2021-36159の
+`cvss_score=9.1`、`grype`は125件全てのfindingに`cvss_score`/
+`native_severity`が正しく付与されることを確認済み。`nuclei`は
+インストール済みの実テンプレート`~/nuclei-templates/http/cves/2021/
+CVE-2021-44228.yaml`で`info.classification`のフィールド名
+(`cvss-score`/`cvss-metrics`)を実機確認した上で実装し、
+`tests/test_plugins.py`の`test_nuclei_plugin_normalizes_jsonl_into_matches_and_findings`
+に同テンプレート相当のJSONL行を追加して`cvss_score=10.0`/
+`cvss_vector`/`native_severity="critical"`への変換を検証済み。CVE
+templateを持たないexposure/misconfiguration系テンプレートは
+`classification`自体が無いため`cvss_score`/`cvss_vector`は`None`のまま、
+`native_severity`のみ設定される)。他プラグイン(`checkov`等)への横展開は、
+ATT&CKタグ([§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)
 「ATT&CKタグ」節)と同じ方針で「確信の持てる範囲で個別に追加する」に
-留め、本タスクでは行っていません。値は`reporting/markdown.py`/`html.py`
-のfinding表示(CVSSバッジ)、`webui`のRun detailページに反映済みです
-(PDF・AttackSession/Operationレポートへの反映は未実施)。
+留め、引き続き未実施です。値は`reporting/markdown.py`/`html.py`の
+finding表示(CVSSバッジ)、`webui`のRun detailページに反映済みです
+(いずれもFinding.cvss_scoreの有無だけを見る汎用ロジックのため、対応
+プラグインが増えるほど自動的に表示対象が広がります)。**PDFレポート
+(`reporting/pdf.py`)とAttackSession/Operationレポートへの反映は、
+対象プラグインが増えた今も未実施のまま**です(trivy/grype追加時からの
+既知の未着手項目で、nuclei対応でも解消していません)。
 
 **RiskForgeの`RawFinding`との対応について(重要な留保)**: 本節を書くに
 あたり、実際にRiskForgeリポジトリ(`/Users/ac1965/Projects/RiskForge`、
