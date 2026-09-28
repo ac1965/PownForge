@@ -17,6 +17,7 @@ from pownforge.core.models import Target, TargetKind
 from pownforge.plugins._trivy import findings_from_trivy_results
 from pownforge.plugins.imagevuln import ImagevulnPlugin
 from pownforge.plugins.network import NetworkPlugin
+from pownforge.plugins.nuclei import NucleiPlugin
 from pownforge.plugins.base import PluginExecution
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
@@ -95,3 +96,35 @@ def test_imagevuln_plugin_parses_golden_grype_json(tmp_path: Path) -> None:
     assert multi_cvss_finding["severity"] == "high"
     assert multi_cvss_finding["cvss_score"] is not None
     assert multi_cvss_finding["native_severity"] == "High"
+
+
+# --- nuclei ---------------------------------------------------------------
+# tests/golden/nuclei/robots_txt_endpoint.jsonl: `nuclei -u http://127.0.0.1
+# -t http/miscellaneous/robots-txt-endpoint.yaml -jsonl`, captured
+# 2026-09-28 against a local `python3 -m http.server` serving a real
+# robots.txt -- real, complete, unmodified nuclei JSONL (one line, no
+# trimming needed). This template carries no `info.classification`
+# (misconfiguration/discovery templates don't get CVSS from NVD, only
+# CVE-backed templates do -- see tests/test_plugins.py's inline
+# CVE-2021-44228-shaped fixture for that path, verified against the real
+# installed template file), so this golden entry's cvss_score/cvss_vector
+# are expected to be None with only native_severity set.
+
+
+def test_nuclei_plugin_parses_golden_robots_txt_jsonl(tmp_path: Path) -> None:
+    plugin = NucleiPlugin()
+    target = Target(name="local-site", kind=TargetKind.URL, address="http://127.0.0.1:8917")
+    execution = _execution(tmp_path)
+    execution.path("nuclei.jsonl").write_bytes(
+        (GOLDEN_DIR / "nuclei" / "robots_txt_endpoint.jsonl").read_bytes()
+    )
+
+    output = plugin.normalize(target, "", "", execution)
+
+    assert len(output["matches"]) == 1
+    finding = output["_findings"][0]
+    assert finding["title"] == "robots.txt endpoint prober"
+    assert finding["severity"] == "info"
+    assert finding["native_severity"] == "info"
+    assert finding["cvss_score"] is None
+    assert finding["cvss_vector"] is None

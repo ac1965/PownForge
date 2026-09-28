@@ -3821,17 +3821,32 @@ Pythonのパーサーコードに対する回帰テストという形では表�
 機能しており、置き換えは不要)、golden fileは**ファイルとして独立させる**
 ことで差分レビュー・再利用をしやすくする、今後増やしていく形式です。
 
-現時点で3件(`network`のnmap XML、`container`のtrivy JSON、`imagevuln`の
-grype JSON)を実機で採取して追加した。**実機検証**: いずれも実際の
-`nmap`/`trivy`/`grype`(このマシンにインストール済み)を実行して採取した
-本物の出力であることを確認済み(`trivy`は`--severity CRITICAL`で
-ツール自身にファイルサイズを絞らせ、`grype`は出力フィルタが無いため
-採取後に`matches`配列を2件に絞ったが、残した各エントリの内容は一切
-編集していない)。他プラグイン(ffuf/nuclei/sqlmap/checkov/semgrep/syft/
-testssl.sh等、いずれもこのマシンにインストール済みで採取自体は可能)への
-拡張は、価値の高いものから今後のセッションで追加していく想定で、本タスク
-では網羅していない(「可能な範囲で」の範囲として、まず3件でパターンを
-確立した)。
+現時点で4件(`network`のnmap XML、`container`のtrivy JSON、`imagevuln`の
+grype JSON、`nuclei`のJSONL)を実機で採取して追加した。**実機検証**:
+いずれも実際の`nmap`/`trivy`/`grype`/`nuclei`(このマシンにインストール
+済み)を実行して採取した本物の出力であることを確認済み(`trivy`は
+`--severity CRITICAL`でツール自身にファイルサイズを絞らせ、`grype`は
+出力フィルタが無いため採取後に`matches`配列を2件に絞ったが、残した各
+エントリの内容は一切編集していない)。
+
+`nuclei`(2026-09-28追加)は、ローカルの`python3 -m http.server`に実際の
+`robots.txt`を置いて`http/miscellaneous/robots-txt-endpoint.yaml`
+テンプレートで実行し、本物のマッチを1件そのまま(トリミング無し)採取した
+(`tests/golden/nuclei/robots_txt_endpoint.jsonl`)。このテンプレートは
+`info.classification`を持たない(CVSSはCVE紐付けテンプレートのみが持つ
+情報で、discovery/misconfiguration系テンプレートには無い)ため、golden
+fileが検証するのは`cvss_score`/`cvss_vector`が`None`のまま
+`native_severity`だけが設定される経路。CVSS付きの経路(`classification`
+あり)は、実際にインストール済みのCVEテンプレート
+(`~/nuclei-templates/http/cves/2021/CVE-2021-44228.yaml`)のフィールド
+形状を確認した上で`tests/test_plugins.py`にインラインfixtureとして
+別途カバー済み(実際に脆弱なJNDI処理サービスを用意しないと実マッチが
+再現できないため、golden fileでの実マッチ採取は見送った)。
+
+他プラグイン(ffuf/sqlmap/checkov/semgrep/syft/testssl.sh等、いずれも
+このマシンにインストール済みで採取自体は可能)への拡張は、価値の高い
+ものから今後のセッションで追加していく想定で、本タスクでは網羅して
+いない(「可能な範囲で」の範囲として、まず4件でパターンを確立した)。
 
 ## 17. 付録: 実装状況サマリー
 
