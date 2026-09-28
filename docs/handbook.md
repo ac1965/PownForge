@@ -4163,10 +4163,41 @@ CVE-2021-44228.yaml`で`info.classification`のフィールド名
 `cvss_vector`/`native_severity="critical"`への変換を検証済み。CVE
 templateを持たないexposure/misconfiguration系テンプレートは
 `classification`自体が無いため`cvss_score`/`cvss_vector`は`None`のまま、
-`native_severity`のみ設定される)。他プラグイン(`checkov`等)への横展開は、
-ATT&CKタグ([§14](#14-attackoperationモデル攻撃経路のモデル化と承認フローphase-2設計)
-「ATT&CKタグ」節)と同じ方針で「確信の持てる範囲で個別に追加する」に
-留め、引き続き未実施です。値は`reporting/markdown.py`/`html.py`の
+`native_severity`のみ設定される)。
+
+`vulncheck`(2026-09-28追加)にも実装しています。ただしtrivy/grype/nuclei
+とは方式が異なり、**実行時に動的抽出するのではなく、静的なルックアップ
+表**(`plugins/vulncheck.py`の`_CVSS_BY_SCRIPT`)です。`vulncheck`の各
+nmap NSEスクリプトは元々1つの既知CVEに固定で紐づいている
+(`_ALLOWED_SCRIPTS`、例: ssl-heartbleed→CVE-2014-0160)ため、nmapの
+XML出力を都度パースしてCVSSを抽出する必要が無く、NVD REST API
+(`services.nvd.nist.gov`、confirmed 2026-09-28)で実際に確認した値を
+コードへハードコードするだけで済みました。`smb-double-pulsar-backdoor`
+はバックドア存在確認でCVEを持たないため対象外、`smb-vuln-ms17-010`は
+CVE-2017-0143〜0148の6件のうちv3スコアが同点最大(8.8)の4件から最小
+番号のCVE-2017-0143を代表値として採用しています。**`native_severity`は
+NVD自身の`baseSeverity`ラベルで、既存の`_SEVERITY_BY_SCRIPT`(PownForge
+独自の編集判断)とは値が食い違う場合があります**(例: ssl-poodleは
+NVD上「LOW」(3.4)だが既存severityは「medium」、smb-vuln-ms17-010は
+CVE単位でNVD「HIGH」(8.8)だが既存severityは実害の大きさから
+「critical」)。これはtrivy/grype/nucleiでも起こり得る想定どおりの差異
+(`native_severity`は情報源側の生値、`severity`は引き続き唯一のソート
+権威)であり、今回`_SEVERITY_BY_SCRIPT`自体は変更していません。
+
+CVE-2010-0738・CVE-2011-3192・CVE-2014-2126/2127/2128/2129はNVDがCVSS
+v3を採点しておらずv2のみのため、`cvss_vector`はv2の慣例どおり
+`"CVSS:2.0/"`のような接頭辞を持たない裸のベクター文字列
+(`AV:N/AC:L/Au:N/...`)になります(trivyの`V2Vector`と同じ形式)。
+
+`checkov`/`zapbaseline`/`sqlmap`への横展開は、**データが無いのではなく
+概念的に適用できない**ため見送りました: `checkov`のseverityは有料クラウド
+認証(PownForgeは方針上使わない)時のみ提供される上、そもそもCVEに紐づか
+ない設定ミス検出でCVSSという値自体が存在しません([iac.py:11-18](../src/pownforge/plugins/iac.py))。
+`zapbaseline`のriskcodeはZAP独自のリスク分類([zapbaseline.py:44-49](../src/pownforge/plugins/zapbaseline.py))、
+`sqlmap`は個別CVEを特定しない手法確認([sqlmap.py:150-159](../src/pownforge/plugins/sqlmap.py))で、
+いずれも対応するCVEレコードが無いためCVSSを算出しようがありません。
+severity正規化の横展開は`container`/`imagevuln`/`nuclei`/`vulncheck`の
+4プラグインで実質的に打ち止めと判断します。値は`reporting/markdown.py`/`html.py`の
 finding表示(CVSSバッジ)、`webui`のRun detailページ、`reporting/pdf.py`
 (2026-09-28追加)に反映済みです。markdown/html/webui/PDFいずれも
 `Finding.cvss_score`の有無だけを見る汎用ロジックのため、対応プラグインが

@@ -763,6 +763,54 @@ def test_vulncheck_plugin_normalizes_vulnerable_result_into_finding(
     assert output["_findings"][0]["severity"] == "high"
     assert "Heartbleed" in output["_findings"][0]["title"]
     assert output["_findings"][0]["attack_technique_ids"] == ["T1190"]
+    assert output["_findings"][0]["cvss_score"] == 7.5
+    assert output["_findings"][0]["cvss_vector"] == "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+    assert output["_findings"][0]["native_severity"] == "HIGH"
+
+
+def test_vulncheck_plugin_uses_bare_v2_vector_when_nvd_has_no_v3_score(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # http-vuln-cve2011-3192 (CVE-2011-3192) never received a CVSS v3 score
+    # from NVD -- only v2, whose vector strings carry no "CVSS:x.y/" prefix.
+    plugin = VulncheckPlugin()
+    monkeypatch.setattr(VulncheckPlugin, "check", lambda self: True)
+    target = Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1")
+    execution = _execution(tmp_path)
+    command = plugin.build_command(target, {"script": "http-vuln-cve2011-3192"}, execution)
+    xml_path = Path(command[command.index("-oX") + 1])
+    xml_path.write_text(
+        VULNCHECK_VULNERABLE_XML.replace("ssl-heartbleed", "http-vuln-cve2011-3192")
+    )
+
+    output = plugin.normalize(target, "", "", execution)
+
+    assert output["_findings"][0]["cvss_score"] == 7.8
+    assert output["_findings"][0]["cvss_vector"] == "AV:N/AC:L/Au:N/C:N/I:N/A:C"
+    assert output["_findings"][0]["native_severity"] == "HIGH"
+
+
+def test_vulncheck_plugin_smb_double_pulsar_backdoor_has_no_cvss(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # smb-double-pulsar-backdoor detects backdoor presence, not a specific
+    # CVE -- it's deliberately absent from _CVSS_BY_SCRIPT.
+    plugin = VulncheckPlugin()
+    monkeypatch.setattr(VulncheckPlugin, "check", lambda self: True)
+    target = Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1")
+    execution = _execution(tmp_path)
+    command = plugin.build_command(target, {"script": "smb-double-pulsar-backdoor"}, execution)
+    xml_path = Path(command[command.index("-oX") + 1])
+    xml_path.write_text(
+        VULNCHECK_VULNERABLE_XML.replace("ssl-heartbleed", "smb-double-pulsar-backdoor")
+    )
+
+    output = plugin.normalize(target, "", "", execution)
+
+    finding = output["_findings"][0]
+    assert "cvss_score" not in finding
+    assert "cvss_vector" not in finding
+    assert "native_severity" not in finding
 
 
 def test_vulncheck_plugin_parses_hostscript_results(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -802,6 +850,11 @@ def test_vulncheck_plugin_tags_hostscript_finding_with_attack_technique(
 
     assert len(output["_findings"]) == 1
     assert output["_findings"][0]["attack_technique_ids"] == ["T1210"]
+    # Representative CVE-2017-0143 (the lowest-numbered of the four CVEs
+    # tied at the highest v3 score, 8.8, among the six ms17-010 covers).
+    assert output["_findings"][0]["cvss_score"] == 8.8
+    assert output["_findings"][0]["cvss_vector"] == "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+    assert output["_findings"][0]["native_severity"] == "HIGH"
 
 
 def test_vulncheck_plugin_raises_when_tool_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

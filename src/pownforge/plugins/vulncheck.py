@@ -51,6 +51,46 @@ _SEVERITY_BY_SCRIPT: dict[str, str] = {
     "rsa-vuln-roca": "medium",
 }
 
+# CVSS base score / vector / NVD's own baseSeverity label per script, unlike
+# _SEVERITY_BY_SCRIPT above these are NOT PownForge's editorial judgment --
+# each is a static fact looked up from https://nvd.nist.gov (NVD REST API,
+# confirmed 2026-09-28) for the single CVE the script targets. Prefers
+# CVSS v3.1/v3.0 over v2 (same priority as _cvss_from_trivy_vulnerability in
+# plugins/_trivy.py); several older CVEs here only ever got a v2 score from
+# NVD, never a v3 one, so the format for those is a bare v2 vector, no
+# "CVSS:x.y/" prefix -- consistent with what NVD itself reports for CVSS v2.
+#
+# `smb-double-pulsar-backdoor` is deliberately absent: it detects backdoor
+# *presence*, not a specific CVE, so no CVSS record exists for it.
+# `smb-vuln-ms17-010` covers six CVEs (2017-0143 through 0148, EternalBlue);
+# four of them tie at the highest v3 score (8.8) -- CVE-2017-0143 (the
+# lowest-numbered of the tied four) is used as the single representative.
+#
+# Deliberately not reconciled with _SEVERITY_BY_SCRIPT above: several of
+# these NVD-derived labels disagree with PownForge's own editorial severity
+# (e.g. ssl-poodle is NVD-"LOW" but rated "medium" here, smb-vuln-ms17-010 is
+# NVD-"HIGH" per-CVE but rated "critical" here for its real-world impact).
+# That's expected and matches the existing trivy/grype/nuclei precedent
+# where `native_severity` can differ from `Finding.severity` -- `severity`
+# remains the single sorting/grouping authority (docs/handbook.md §18.5),
+# these fields are supplementary evidence, not a correction to override it.
+_CVSS_BY_SCRIPT: dict[str, tuple[float, str, str]] = {
+    "ssl-heartbleed": (7.5, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N", "HIGH"),
+    "ssl-poodle": (3.4, "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:L/I:N/A:N", "LOW"),
+    "ssl-ccs-injection": (7.4, "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N", "HIGH"),
+    "tls-ticketbleed": (7.5, "CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N", "HIGH"),
+    "smb-vuln-ms17-010": (8.8, "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H", "HIGH"),
+    "http-vuln-cve2010-0738": (5.3, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:N", "MEDIUM"),
+    "http-vuln-cve2011-3192": (7.8, "AV:N/AC:L/Au:N/C:N/I:N/A:C", "HIGH"),
+    "http-vuln-cve2014-2126": (8.5, "AV:N/AC:M/Au:S/C:C/I:C/A:C", "HIGH"),
+    "http-vuln-cve2014-2127": (8.5, "AV:N/AC:M/Au:S/C:C/I:C/A:C", "HIGH"),
+    "http-vuln-cve2014-2128": (5.0, "AV:N/AC:L/Au:N/C:P/I:N/A:N", "MEDIUM"),
+    "http-vuln-cve2014-2129": (7.1, "AV:N/AC:M/Au:N/C:N/I:N/A:C", "HIGH"),
+    "http-vuln-cve2015-1635": (9.8, "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", "CRITICAL"),
+    "http-vuln-cve2017-1001000": (7.5, "CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:N", "HIGH"),
+    "rsa-vuln-roca": (5.9, "CVSS:3.0/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:N/A:N", "MEDIUM"),
+}
+
 # MITRE ATT&CK for Enterprise technique ids, assigned per script by the
 # criteria documented in docs/handbook.md §14 "ATT&CKタグ": T1190 for an
 # application/TLS-facing service vulnerability, T1210 for an internal
@@ -139,25 +179,30 @@ class VulncheckPlugin(Plugin):
         if xml_path.exists():
             results = self._parse_xml(xml_path)
 
+        # Only a result whose script actually reported "VULNERABLE" (not
+        # "NOT VULNERABLE"/"LIKELY VULNERABLE"-as-unclear) becomes a
+        # candidate Finding -- see _is_vulnerable_state().
+        findings: list[dict[str, Any]] = []
+        for result in results:
+            if not _is_vulnerable_state(result["state"]):
+                continue
+            finding: dict[str, Any] = {
+                "title": _ALLOWED_SCRIPTS.get(result["script"], result["script"]),
+                "severity": _SEVERITY_BY_SCRIPT.get(result["script"], "medium"),
+                "detail": result["detail"],
+                "attack_technique_ids": _ATTACK_TECHNIQUE_BY_SCRIPT.get(result["script"], []),
+            }
+            if cvss := _CVSS_BY_SCRIPT.get(result["script"]):
+                finding["cvss_score"], finding["cvss_vector"], finding["native_severity"] = cvss
+            findings.append(finding)
+
         return {
             "target": target.address,
             "tool": "nmap",
             "results": results,
             "raw_stdout": raw_stdout,
             "raw_stderr": raw_stderr,
-            # Only a result whose script actually reported "VULNERABLE" (not
-            # "NOT VULNERABLE"/"LIKELY VULNERABLE"-as-unclear) becomes a
-            # candidate Finding -- see _is_vulnerable_state().
-            "_findings": [
-                {
-                    "title": _ALLOWED_SCRIPTS.get(result["script"], result["script"]),
-                    "severity": _SEVERITY_BY_SCRIPT.get(result["script"], "medium"),
-                    "detail": result["detail"],
-                    "attack_technique_ids": _ATTACK_TECHNIQUE_BY_SCRIPT.get(result["script"], []),
-                }
-                for result in results
-                if _is_vulnerable_state(result["state"])
-            ],
+            "_findings": findings,
         }
 
     @staticmethod
