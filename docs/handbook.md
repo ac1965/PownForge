@@ -3821,13 +3821,14 @@ Pythonのパーサーコードに対する回帰テストという形では表�
 機能しており、置き換えは不要)、golden fileは**ファイルとして独立させる**
 ことで差分レビュー・再利用をしやすくする、今後増やしていく形式です。
 
-現時点で4件(`network`のnmap XML、`container`のtrivy JSON、`imagevuln`の
-grype JSON、`nuclei`のJSONL)を実機で採取して追加した。**実機検証**:
-いずれも実際の`nmap`/`trivy`/`grype`/`nuclei`(このマシンにインストール
-済み)を実行して採取した本物の出力であることを確認済み(`trivy`は
-`--severity CRITICAL`でツール自身にファイルサイズを絞らせ、`grype`は
-出力フィルタが無いため採取後に`matches`配列を2件に絞ったが、残した各
-エントリの内容は一切編集していない)。
+現時点で5件(`network`のnmap XML、`container`のtrivy JSON、`imagevuln`の
+grype JSON、`nuclei`のJSONL、`iac`のcheckov JSON)を実機で採取して
+追加した。**実機検証**: いずれも実際の`nmap`/`trivy`/`grype`/`nuclei`/
+`checkov`(このマシンにインストール済み)を実行して採取した本物の出力
+であることを確認済み(`trivy`は`--severity CRITICAL`でツール自身に
+ファイルサイズを絞らせ、`grype`は出力フィルタが無いため採取後に
+`matches`配列を2件に絞ったが、残した各エントリの内容は一切編集して
+いない)。
 
 `nuclei`(2026-09-28追加)は、ローカルの`python3 -m http.server`に実際の
 `robots.txt`を置いて`http/miscellaneous/robots-txt-endpoint.yaml`
@@ -3843,10 +3844,20 @@ fileが検証するのは`cvss_score`/`cvss_vector`が`None`のまま
 別途カバー済み(実際に脆弱なJNDI処理サービスを用意しないと実マッチが
 再現できないため、golden fileでの実マッチ採取は見送った)。
 
-他プラグイン(ffuf/sqlmap/checkov/semgrep/syft/testssl.sh等、いずれも
-このマシンにインストール済みで採取自体は可能)への拡張は、価値の高い
-ものから今後のセッションで追加していく想定で、本タスクでは網羅して
-いない(「可能な範囲で」の範囲として、まず4件でパターンを確立した)。
+`iac`(2026-09-28追加)は、意図的に誤設定した簡易Dockerfile(`ADD`の
+使用・`USER root`のまま・22番ポート露出・`HEALTHCHECK`欠如)に対し
+`checkov --framework dockerfile`を実行して採取した(`tests/golden/iac/
+checkov_dockerfile.json`、4件のfailed_checks、8.5KBで小さいため
+トリミング無しでそのまま保存)。checkovはクラウド認証([iac.py:11-18](src/pownforge/plugins/iac.py:11))
+無しではper-check severityを返さないため、golden fileが検証するのは
+`_SEVERITY`固定値("medium")へのフォールバック経路。
+
+他プラグイン(ffuf/sqlmap/semgrep/syft/testssl.sh等、いずれもこの
+マシンにインストール済みで採取自体は可能)への拡張は、価値の高いもの
+から今後のセッションで追加していく想定で、本タスクでは網羅していない
+(「可能な範囲で」の範囲として、まず5件でパターンを確立した)。`sqlmap`
+は標準出力のテキストパース方式かつ実際にSQLi可能なターゲットの用意が
+必要なため、他プラグインより着手コストが高く今回は見送った。
 
 ## 17. 付録: 実装状況サマリー
 

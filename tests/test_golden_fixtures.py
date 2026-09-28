@@ -15,6 +15,7 @@ from pathlib import Path
 
 from pownforge.core.models import Target, TargetKind
 from pownforge.plugins._trivy import findings_from_trivy_results
+from pownforge.plugins.iac import IacPlugin
 from pownforge.plugins.imagevuln import ImagevulnPlugin
 from pownforge.plugins.network import NetworkPlugin
 from pownforge.plugins.nuclei import NucleiPlugin
@@ -128,3 +129,33 @@ def test_nuclei_plugin_parses_golden_robots_txt_jsonl(tmp_path: Path) -> None:
     assert finding["native_severity"] == "info"
     assert finding["cvss_score"] is None
     assert finding["cvss_vector"] is None
+
+
+# --- iac (checkov) ---------------------------------------------------------
+# tests/golden/iac/checkov_dockerfile.json: `checkov --directory . --framework
+# dockerfile --output json --skip-download --skip-results-upload` (checkov
+# 3.3.10), captured 2026-09-28 against a deliberately-misconfigured local
+# Dockerfile (ADD instead of COPY, USER root, EXPOSE 22, no HEALTHCHECK) --
+# real, complete, unmodified checkov output (8.5KB, small enough to keep
+# whole, no trimming needed).
+
+
+def test_iac_plugin_parses_golden_checkov_dockerfile_json(tmp_path: Path) -> None:
+    plugin = IacPlugin()
+    target = Target(name="manifests", kind=TargetKind.PATH, address=str(tmp_path))
+    execution = _execution(tmp_path)
+    output_dir = execution.path("checkov-output")
+    output_dir.mkdir()
+    (output_dir / "results_json.json").write_bytes(
+        (GOLDEN_DIR / "iac" / "checkov_dockerfile.json").read_bytes()
+    )
+
+    output = plugin.normalize(target, "", "", execution)
+
+    assert output["summary"] == {"passed": 5, "failed": 4, "skipped": 0}
+    check_ids = {f["check_id"] for f in output["failures"]}
+    assert check_ids == {"CKV_DOCKER_1", "CKV_DOCKER_2", "CKV_DOCKER_4", "CKV_DOCKER_8"}
+    # checkov never reports a per-check severity without cloud auth (this
+    # plugin never authenticates -- see iac.py's `_SEVERITY` comment), so
+    # every finding falls back to the fixed "medium".
+    assert all(f["severity"] == "medium" for f in output["_findings"])
