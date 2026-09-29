@@ -2017,7 +2017,22 @@ finding、参考データ点)/`e414581d12b8`)を`pownforge evidence verify
    一致することを実機確認済み。`tests/test_result_diff.py`(純粋関数、
    4件)・`tests/test_cli_result_diff.py`(CLI経由、2件)を追加、
    `pytest`全体(882件)がパスすることを確認済み
-2. 提案1(RiskForge連携PoC第2弾)は次節で継続
+2. **提案1(RiskForge連携PoC第2弾)も実施済み**。このPoCで得た
+   before/after run(`bc42f22af939`/`e414581d12b8`)を実際に
+   `riskforge scanner import-pownforge`で取り込み、Finding発見
+   (`CVE-2022-1664`が`correlated`)→Remediation Plan提案→承認→
+   dry run preview→実行(`completed`)→再スキャンによる
+   Verification(`pass`)→**Finding状態`verified`**まで、実インフラ
+   (実PostgreSQL+実際にビルドした`riskforge`バイナリ)で一気通貫に
+   確認した。副次的に2つの制約を発見: (1)CVEを持つRawFindingは
+   RiskForge自身のVulnerabilityカタログに該当CVEが未登録だと
+   `unmatched`のままFindingが作られない(NVD/KEV/OSV Data Source
+   Adapter未実装のため、今回は`vulnerability add`で1件手動登録して
+   回避)、(2)`container`(trivy)プラグインは結果をファイル出力する
+   ため`stdout_sha256`ベースのEvidence ContentHash(ADR 0022)が
+   常に空文字列のハッシュになり実質的に何も検証しない。詳細は
+   RiskForge側`docs/handbook.md`
+   [§14.0.1](https://github.com/ac1965/RiskForge/blob/master/docs/handbook.md#1401-実機poc-pownforgeの検知是正再検証をremediationワークフローで完結2026-09-30)参照
 3. 提案3(`pownforge-vulnerable-lab`への固定フィクスチャ化)は未着手のまま
    (優先度はユーザー判断)
 
