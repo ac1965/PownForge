@@ -2067,7 +2067,24 @@ finding、参考データ点)/`e414581d12b8`)を`pownforge evidence verify
    (このフィールド追加前)は`result_sha256=None`のままで、`evidence verify`は
    後方互換的にこのチェックをスキップする。詳細は[§13「evidence
    verifyの限界」](#evidence-verifyの限界)参照。RiskForge側`ExtractEvidence`
-   (ADR 0022)がこちらを優先するよう更新することが次の対応(#5参照)
+   も[ADR 0023](https://github.com/ac1965/RiskForge/blob/master/docs/adr/0023-pownforge-result-sha256-content-hash.md)で
+   `result_sha256`優先に更新済み(実際のPownForge `container`実行結果を
+   再取り込みし、Content Hashが完全一致することを実機確認済み)
+5. **修正案3-A(RiskForge側にNVD Data Source Adapterを実装し、
+   MatcherがオンデマンドでVulnerabilityを自動登録)を実施済み**。
+   PownForge側のコード変更は無し(RiskForge単体の対応)。RiskForge側
+   [ADR 0024](https://github.com/ac1965/RiskForge/blob/master/docs/adr/0024-nvd-vulnerability-lookup.md)で、
+   `FindByCVE`が見つけられないCVEをその場でNVD CVE API 2.0に問い合わせ、
+   見つかれば自動登録して`correlated`にする経路を追加(既定無効、
+   `RISKFORGE_NVD_LOOKUP_ENABLED`で有効化)。本PoCのbefore-run(83件の
+   未登録CVE)を実際のNVD APIで再取り込みし、未認証レート制限に達する
+   までに11件のVulnerabilityが実際に自動登録・Finding化されることを
+   実機確認済み
+
+これで、修正案として提示した4件(2-A・3-A、および元の2件の課題認識)が
+全て実施され、当初のIssue #15由来の「PownForge連携の残作業」は
+ATT&CK/CVSSフィールドの最終採用可否と`unclassified`ケースの永続化
+レビューUIの2件のみとなった。
 
 ## 8. Playbook: 複数プラグインの連続実行
 
