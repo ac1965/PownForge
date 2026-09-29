@@ -12,7 +12,7 @@ from pownforge.core.process import ProcessExecutor, ProcessLimitError, execution
 from pownforge.core.registry import PluginRegistry
 from pownforge.core.secrets import mask_command
 from pownforge.evidence.audit import AuditStore
-from pownforge.evidence.hashing import sha256_text
+from pownforge.evidence.hashing import sha256_json, sha256_text
 from pownforge.evidence.store import EvidenceStore
 from pownforge.plugins.base import Plugin, PluginExecution
 
@@ -180,6 +180,9 @@ class ScanRunner:
             returncode=execution_result.exit_code,
             stdout_sha256=sha256_text(execution_result.stdout),
             stderr_sha256=sha256_text(execution_result.stderr),
+            # Hashed after _findings was popped above, so this matches
+            # exactly what RunRecord.output below actually persists.
+            result_sha256=sha256_json(output),
             tool_version=tool_version,
         )
         record = RunRecord(

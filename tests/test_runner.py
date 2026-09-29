@@ -10,6 +10,7 @@ from pownforge.core.process import ProcessExecutor, ProcessResourceLimiter
 from pownforge.core.registry import PluginRegistry
 from pownforge.core.runner import RunnerError, ScanRunner
 from pownforge.evidence.audit import AuditStore
+from pownforge.evidence.hashing import sha256_json, sha256_text
 from pownforge.evidence.store import EvidenceStore
 from pownforge.plugins.base import Plugin, PluginExecution
 
@@ -49,6 +50,56 @@ def test_runner_executes_and_persists(tmp_path: Path) -> None:
     store = EvidenceStore(tmp_path / "runs")
     reloaded = store.load(record.run_id)
     assert reloaded.run_id == record.run_id
+
+
+def test_runner_records_result_sha256_of_the_normalized_output(tmp_path: Path) -> None:
+    runner, _ = _runner(tmp_path)
+    record = runner.run("lab", "echo", {})
+
+    assert record.evidence.result_sha256 == sha256_json(record.output)
+
+
+class FileBackedPlugin(Plugin):
+    """Stands in for a plugin like `container` (trivy) that writes its
+    findings to a file via -o and ignores stdout entirely -- normalize()
+    here deliberately returns the same fixed result regardless of
+    raw_stdout, so stdout_sha256 stays the hash of "" no matter what the
+    process printed, while result_sha256 reflects the actual result."""
+
+    name = "file-backed"
+    version = "0.0.1"
+    description = "test double for a plugin whose result lives in a file, not stdout"
+
+    def check(self) -> bool:
+        return True
+
+    def build_command(self, target: Target, options: dict[str, Any], execution: PluginExecution) -> list[str]:
+        return ["true"]
+
+    def normalize(self, target: Target, raw_stdout: str, raw_stderr: str, execution: PluginExecution) -> dict[str, Any]:
+        return {"raw_stdout": "", "raw_stderr": "", "results": [{"id": "CVE-2022-1664"}]}
+
+
+def test_runner_result_sha256_stays_meaningful_when_stdout_is_always_empty(tmp_path: Path) -> None:
+    """The motivating case: for a file-backed plugin, stdout_sha256 is
+    always the same (hash of ""), but result_sha256 must still change if
+    the actual result changes -- proven here by comparing two runs whose
+    plugin instance carries different scratch data between calls is not
+    applicable (Plugin is stateless per AGENTS.md), so instead this checks
+    result_sha256 matches the real output while stdout_sha256 alone would
+    not distinguish this run from an empty-result one."""
+    policy = ScopePolicy(targets={})
+    policy.add_target(Target(name="lab", kind=TargetKind.HOST, address="127.0.0.1"))
+    registry = PluginRegistry()
+    registry.register(FileBackedPlugin())
+    store = EvidenceStore(tmp_path / "runs")
+    runner = ScanRunner(policy=policy, registry=registry, store=store)
+
+    record = runner.run("lab", "file-backed", {})
+
+    assert record.evidence.stdout_sha256 == sha256_text("")
+    assert record.evidence.result_sha256 == sha256_json(record.output)
+    assert record.evidence.result_sha256 != record.evidence.stdout_sha256
 
 
 class SlowPlugin(EchoPlugin):

@@ -463,13 +463,30 @@ pownforge analyze <run-id>
 
 ### `evidence verify`の限界
 
-保存済みoutputからstdout/stderrのSHA-256を再計算し、証跡のハッシュと
+保存済みoutputからstdout/stderr/resultのSHA-256を再計算し、証跡のハッシュと
 一致するか確認しますが、これは実行結果JSONファイルへの**偶発的・部分的な
 変更**(誤編集やディスク破損など)を検出するためのものです。そのファイルを
 編集できる権限を持つ人は証跡のハッシュ自体も書き換えられるため、
 **悪意ある改ざんに対する証明にはなりません**。また、`evidence.command`
 (マスク後のコピー)は`evidence verify`の対象ではありません(検証対象は
 実際のツール出力のハッシュのみ)。
+
+**`Evidence.result_sha256`(2026-09-30追加)**: `stdout_sha256`/
+`stderr_sha256`はプロセスの標準出力・標準エラー出力そのもののハッシュ
+であるため、`container`(trivy)のように結果を`-o <file>`でファイルへ
+書き出し標準出力を使わないプラグインでは、`stdout_sha256`が常に空文字列
+のハッシュ(`e3b0c44...`)になり、**改ざん検知として何も機能しません**
+(RiskForge連携PoC第2弾([§7「実機PoC」](#実機poc-検知是正再検証の一連の流れ2026-09-2930))で発見)。
+`result_sha256`は代わりに`RunRecord.output`(`_findings`を取り除いた後の、
+実際に保存される正規化済み結果)の正規化JSON(`json.dumps(..., sort_keys=True)`)
+をハッシュするため、プラグインが結果をstdout/ファイルのどちらに書くかに
+依存せず、常に「実際の検出結果」の改ざん検知として機能します。
+`stdout_sha256`/`stderr_sha256`より`result_sha256`の方が意味のある検証
+対象である場合が多く、外部連携(RiskForge等)がEvidenceの内容ハッシュを
+使いたい場合は`stdout_sha256`ではなくこちらを優先すべきです。既存run
+(このフィールド追加前に保存されたもの)では`None`のままで、
+`evidence verify`は該当runについてこのチェックをスキップします
+(後方互換、既存データの再検証エラーにはならない)。
 
 ### 証跡チェーンの改ざん検知(`evidence verify-chain`、リファクタリング指示書v3 §6)
 
@@ -2035,6 +2052,22 @@ finding、参考データ点)/`e414581d12b8`)を`pownforge evidence verify
    [§14.0.1](https://github.com/ac1965/RiskForge/blob/master/docs/handbook.md#1401-実機poc-pownforgeの検知是正再検証をremediationワークフローで完結2026-09-30)参照
 3. 提案3(`pownforge-vulnerable-lab`への固定フィクスチャ化)は未着手のまま
    (優先度はユーザー判断)
+
+**PoC第2弾で見つかった2つの制約への修正案(2026-09-30)**:
+
+4. **修正案2-A(Evidenceにファイル出力プラグイン非依存の`result_sha256`を
+   追加)を実施済み**。`Evidence.result_sha256`(`evidence/hashing.py::sha256_json()`が
+   `RunRecord.output`の正規化JSONをハッシュ、`core/runner.py`で`_findings`を
+   取り除いた後の実際に保存される`output`から計算)を追加。`stdout_sha256`/
+   `stderr_sha256`のようにプロセスI/Oの都合(ツールが結果をstdoutに書くか
+   `-o <file>`に書くか)に依存せず、常に「実際の検出結果」を検証する。
+   `evidence verify`にも`result: OK/MISMATCH`行を追加、`container`プラグイン
+   での改ざんを実機で検出できることを確認(`tests/test_store.py`の
+   `test_verify_detects_tampered_result_even_when_stdout_is_empty`)。既存run
+   (このフィールド追加前)は`result_sha256=None`のままで、`evidence verify`は
+   後方互換的にこのチェックをスキップする。詳細は[§13「evidence
+   verifyの限界」](#evidence-verifyの限界)参照。RiskForge側`ExtractEvidence`
+   (ADR 0022)がこちらを優先するよう更新することが次の対応(#5参照)
 
 ## 8. Playbook: 複数プラグインの連続実行
 

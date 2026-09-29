@@ -18,6 +18,20 @@ class Evidence(BaseModel):
     returncode: int
     stdout_sha256: str
     stderr_sha256: str
+    # SHA256 of the canonical JSON form of the plugin's normalized result
+    # (RunRecord.output, after ScanRunner pops "_findings" -- see
+    # core/runner.py and evidence/hashing.py::sha256_json). Optional and
+    # additive: None for runs saved before this field existed, and for the
+    # timed-out-run path where "the result" is only a partial capture.
+    # Unlike stdout_sha256/stderr_sha256 (hashes of the literal process
+    # streams), this stays meaningful for a plugin that writes its findings
+    # to a file instead of stdout (e.g. `container`/trivy's `-o <file>`,
+    # which leaves stdout empty and stdout_sha256 always the hash of ""
+    # for that plugin) -- a consumer wanting to detect "did the actual scan
+    # result change" should prefer this field over stdout_sha256 when it is
+    # present. Discovered via the RiskForge integration PoC round 2
+    # (docs/handbook.md §7).
+    result_sha256: str | None = None
     # Best-effort output of the plugin's version_command() (e.g. "Nmap
     # version 7.991 ( https://nmap.org )"), captured at scan time so a
     # finding's absence/presence can later be checked against which tool
@@ -98,8 +112,9 @@ class HashCheck(BaseModel):
 
 
 class EvidenceVerification(BaseModel):
-    """Result of recomputing a run's stdout/stderr hashes from its stored
-    output and comparing them against evidence.stdout_sha256/stderr_sha256.
+    """Result of recomputing a run's stdout/stderr/result hashes from its
+    stored output and comparing them against evidence.stdout_sha256/
+    stderr_sha256/result_sha256.
 
     This only catches accidental or partial changes to the run's JSON file
     (a bad manual edit, disk corruption, a bug that mutates output without
@@ -111,6 +126,11 @@ class EvidenceVerification(BaseModel):
     run_id: str
     stdout: HashCheck
     stderr: HashCheck
+    # None when evidence.result_sha256 itself is None (a run saved before
+    # this field existed, or the timed-out-run path) -- there is nothing to
+    # recompute against in that case, and `ok` ignores this check entirely
+    # rather than failing an old run that never had this hash.
+    result: HashCheck | None = None
     ok: bool
 
 

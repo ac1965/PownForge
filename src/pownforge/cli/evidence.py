@@ -15,6 +15,10 @@ def evidence_verify(run_id: str, workdir: Path = typer.Option(DEFAULT_WORKDIR)) 
 
     typer.echo(f"stdout: {'OK' if result.stdout.ok else 'MISMATCH'}")
     typer.echo(f"stderr: {'OK' if result.stderr.ok else 'MISMATCH'}")
+    if result.result is not None:
+        typer.echo(f"result: {'OK' if result.result.ok else 'MISMATCH'}")
+    else:
+        typer.echo("result: (not recorded for this run -- saved before result_sha256 existed)")
     if not result.ok:
         typer.echo(
             "warning: recorded evidence no longer matches the stored output for this run. "

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from pownforge.core.models import Evidence, RunRecord
-from pownforge.evidence.hashing import sha256_file, sha256_text
+from pownforge.evidence.hashing import sha256_file, sha256_json, sha256_text
 from pownforge.evidence.store import EvidenceStore
 
 
@@ -55,6 +55,72 @@ def test_verify_matches_when_output_untouched(tmp_path: Path) -> None:
     assert result.ok is True
     assert result.stdout.ok is True
     assert result.stderr.ok is True
+
+
+def test_verify_is_backward_compatible_with_runs_missing_result_sha256(tmp_path: Path) -> None:
+    """A run saved before Evidence.result_sha256 existed has that field as
+    None -- verify() must not treat that as a failure (there's nothing
+    recorded to check it against)."""
+    store = EvidenceStore(tmp_path / "runs")
+    record = _record(
+        output={"raw_stdout": "hello", "raw_stderr": ""},
+        evidence_overrides={"stdout_sha256": sha256_text("hello"), "stderr_sha256": sha256_text("")},
+    )
+    assert record.evidence.result_sha256 is None
+    store.save(record)
+
+    result = store.verify(record.run_id)
+    assert result.ok is True
+    assert result.result is None
+
+
+def test_verify_checks_result_sha256_when_present(tmp_path: Path) -> None:
+    store = EvidenceStore(tmp_path / "runs")
+    output = {"raw_stdout": "", "raw_stderr": "", "results": [{"id": "CVE-2022-1664"}]}
+    record = _record(
+        output=output,
+        evidence_overrides={
+            "stdout_sha256": sha256_text(""),
+            "stderr_sha256": sha256_text(""),
+            "result_sha256": sha256_json(output),
+        },
+    )
+    store.save(record)
+
+    result = store.verify(record.run_id)
+    assert result.ok is True
+    assert result.result is not None
+    assert result.result.ok is True
+
+
+def test_verify_detects_tampered_result_even_when_stdout_is_empty(tmp_path: Path) -> None:
+    """The motivating case (docs/handbook.md §7/§14.0.1 in the RiskForge
+    sister repo): a plugin like `container` (trivy) writes its findings to
+    a file and leaves stdout empty, so stdout_sha256 is always the hash of
+    "" and can never detect tampering. result_sha256 must catch it."""
+    store = EvidenceStore(tmp_path / "runs")
+    output = {"raw_stdout": "", "raw_stderr": "", "results": [{"id": "CVE-2022-1664"}]}
+    record = _record(
+        output=output,
+        evidence_overrides={
+            "stdout_sha256": sha256_text(""),
+            "stderr_sha256": sha256_text(""),
+            "result_sha256": sha256_json(output),
+        },
+    )
+    store.save(record)
+
+    path = tmp_path / "runs" / f"{record.run_id}.json"
+    data = json.loads(path.read_text())
+    data["output"]["results"] = [{"id": "CVE-9999-9999"}]
+    path.write_text(json.dumps(data))
+
+    result = store.verify(record.run_id)
+    assert result.ok is False
+    assert result.stdout.ok is True
+    assert result.stderr.ok is True
+    assert result.result is not None
+    assert result.result.ok is False
 
 
 def test_import_artifact_leaves_no_partial_copy_on_failure(

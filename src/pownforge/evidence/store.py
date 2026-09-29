@@ -8,7 +8,7 @@ from pathlib import Path
 from pownforge.core.atomic_write import atomic_write_text
 from pownforge.core.models import Artifact, ChainVerification, EvidenceVerification, HashCheck, RunRecord
 from pownforge.evidence.chain import EvidenceChain
-from pownforge.evidence.hashing import sha256_file, sha256_text
+from pownforge.evidence.hashing import sha256_file, sha256_json, sha256_text
 
 
 class EvidenceStore:
@@ -78,8 +78,8 @@ class EvidenceStore:
         )
 
     def verify(self, run_id: str) -> EvidenceVerification:
-        """Recompute stdout/stderr hashes from the stored output and compare
-        them against the recorded evidence hashes for a run."""
+        """Recompute stdout/stderr/result hashes from the stored output and
+        compare them against the recorded evidence hashes for a run."""
         record = self.load(run_id)
         actual_stdout = sha256_text(str(record.output.get("raw_stdout", "")))
         actual_stderr = sha256_text(str(record.output.get("raw_stderr", "")))
@@ -93,9 +93,21 @@ class EvidenceStore:
             expected=record.evidence.stderr_sha256,
             actual=actual_stderr,
         )
+        # None for a run saved before result_sha256 existed (or the
+        # timed-out-run path, which never sets it) -- there is nothing
+        # recorded to check against, so this doesn't affect `ok`.
+        result_check: HashCheck | None = None
+        if record.evidence.result_sha256 is not None:
+            actual_result = sha256_json(record.output)
+            result_check = HashCheck(
+                ok=actual_result == record.evidence.result_sha256,
+                expected=record.evidence.result_sha256,
+                actual=actual_result,
+            )
         return EvidenceVerification(
             run_id=run_id,
             stdout=stdout_check,
             stderr=stderr_check,
-            ok=stdout_check.ok and stderr_check.ok,
+            result=result_check,
+            ok=stdout_check.ok and stderr_check.ok and (result_check is None or result_check.ok),
         )
