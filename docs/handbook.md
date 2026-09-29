@@ -1939,6 +1939,88 @@ pownforge lab provider cleanup log4j/CVE-2021-44228 --purge
   `docker ps -a`/`docker volume ls`/`docker network ls`/`lsof`のいずれでも
   残留が無いことを確認し、ローカルのVulhubチェックアウトも削除した
 
+### 実機PoC: 検知→是正→再検証の一連の流れ(2026-09-29〜30)
+
+既存の`pownforge-vulnerable-lab`(chainラボ等)とは別に、**このPoC専用の
+新規ラボ**(`apache-vuln-demo`/`apache-image-scan`/`nginx-image-scan`)を
+用意し、「攻撃シナリオ(検知)→防護アクション(実際の是正)→再検証」の
+一連の流れを、模擬データではなく実際のDocker・trivy・nmapで確認した。
+目的はRiskForge連携([§18](#18-riskforgeとの関係姉妹プロジェクト))が
+消費する`Finding`が、実際の脆弱性検知→是正のサイクルでどう変化するかを
+実機で裏付けること。
+
+**ステップ1(攻撃シナリオ: discovery + vuln-confirm)**: `pownforge lab
+add apache-vuln-demo --image httpd:2.2 --allowed-plugins
+network,vulncheck`で`pownforge-lab`(`--internal`)ネットワーク上に
+コンテナを起動し、`docker compose run --rm pownforge scan network
+--target apache-vuln-demo`(run `8f9a8c910741`)でApache httpd 2.2.34を
+検出、続けて`docker compose run --rm pownforge scan vulncheck --target
+apache-vuln-demo --option script=http-vuln-cve2011-3192 --option
+port=80`(run `e5176f7d2993`)でCVE-2011-3192(Apache Range header DoS)の
+実際の確認を試みた。**結果は`NOT VULNERABLE`**: Docker Hub公式イメージの
+`httpd:2.2`タグは実際には2.2系最終リリース(2.2.34、2017年)を指しており、
+この脆弱性は既にバックポート済みだったため。「タグ名の古さ」だけで
+脆弱性の有無を仮定してはならないという実機検証ならではの教訓であり、
+この否定的結果もPoCの一部として記録する。
+
+**ステップ2(攻撃シナリオ: 実際に検知できたケース、before)**:
+`pownforge target add nginx-image-scan --address nginx:1.16.0 --type
+container --allowed-plugins container`で登録し、`pownforge scan
+container --target nginx-image-scan --option severity=CRITICAL,HIGH`
+(run `bc42f22af939`)を実行。**107件のfinding(high 76・critical
+31、ユニークCVE 83件)**を検出した。代表例: `CVE-2022-1664`(dpkg、
+CVSS 9.8 critical)。
+
+**ステップ3(防護アクション: 実際の是正操作そのもの)**: 是正を「記録」
+ではなく実際に行った。`target remove nginx-image-scan`→`target add
+nginx-image-scan --address nginx:1.27`で、同じ対象名に対しパッチ適用
+済みイメージへ実際に差し替えた(本番でコンテナイメージをリビルド・
+再デプロイしてパッチを当てる操作と同じ)。
+
+**ステップ4(再検証)**: `pownforge scan container --target
+nginx-image-scan --option severity=CRITICAL,HIGH`(run
+`e414581d12b8`)を再実行。**166件のfinding(high 155・critical
+11、ユニークCVE 104件)**という結果だけを見ると一見「増えた」ように
+見えるが、CVE ID集合で前後を比較すると実態は異なる:
+
+| 比較 | 件数 | 内容 |
+| --- | --- | --- |
+| beforeにあってafterで解消 | **83件(100%)** | nginx:1.16.0で検出した83件のユニークCVEは、nginx:1.27では**1件残らず全て解消**していた(`CVE-2016-2779`〜`CVE-2022-29458`等) |
+| beforeとafterの両方に残存 | **0件** | 版上げで取りこぼした既知脆弱性は無かった |
+| afterのみに新規出現 | **104件** | nginx:1.16.0のビルド時点(2019年)には存在しなかった、それ以降に新規開示されたCVE(`util-linux`/`curl`/`gnupg`/`gzip`等の同梱パッケージ由来) |
+
+**得られた教訓**: バージョン更新による是正は、その時点で判明していた
+既知脆弱性を実際に確実に解消する(83/83件)。一方で、finding**件数**の
+単純な増減は「良くなった/悪くなった」の指標として不適切
+(107件→166件は悪化に見えるが実態は全既知脆弱性の解消+新規開示分の
+検出)。before/afterの比較は件数ではなくCVE ID集合の差分(解消/残存/
+新規)で行うべきというのが、本PoCで確認された結論である。
+
+**再現性・監査証跡**: 全5 run(`8f9a8c910741`/`e5176f7d2993`/
+`bc42f22af939`/`e6727716c23a`(httpd:2.2の`container`スキャン、212件
+finding、参考データ点)/`e414581d12b8`)を`pownforge evidence verify
+<run-id>`で検証し、stdout/stderrハッシュが保存内容と一致することを
+確認済み。ラボコンテナは`pownforge lab remove apache-vuln-demo`で
+停止済み(`--purge`は行わず、既存ラボと同じ慣習で対象登録・run記録は
+保持)。
+
+**次の提案(未着手、ユーザー判断待ち)**:
+1. このPoCで得た`Finding`(nginx-image-scanのbefore/after run)を
+   実際に`riskforge scanner import-pownforge`([§18.4](#18-riskforgeとの関係姉妹プロジェクト)、
+   ADR 0015〜0022)で取り込み、RiskForge側のRemediation
+   ワークフロー(propose→approve→execute→Verification)まで一気通貫で
+   確認する「PoC第2弾」。今回のPownForge単体PoCと組み合わせることで、
+   検知→是正→RiskForgeでの記録・承認まで両プロジェクトを跨いだ実機
+   検証になる
+2. 本PoCのbefore/after CVE集合比較は今回Python片手スクリプトで行った
+   (`.pownforge/runs/*.json`を直接パース)。同じ比較を
+   繰り返し使うなら`pownforge result diff <run-a> <run-b>`のような
+   専用コマンド化を検討する価値がある(現時点では未実装、優先度は
+   ユーザー判断)
+3. 今回のnginx/httpdシナリオを`pownforge-vulnerable-lab`側に
+   再現可能な固定フィクスチャとして追加するかどうか(現状はこのセッション
+   限りのアドホックな対象登録)
+
 ## 8. Playbook: 複数プラグインの連続実行
 
 `pownforge scan <plugin>`は常に1プラグイン・1runです。実際のエンゲージ
