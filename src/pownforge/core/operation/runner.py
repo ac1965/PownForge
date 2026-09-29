@@ -65,6 +65,19 @@ class OperationRunner:
     Provider/Protocol abstraction -- that's worth introducing only once a
     third kind (e.g. a validation Primitive, see core/primitives/) is
     actually wired in as an Action kind (refactor §14, not yet done).
+
+    execute() deliberately never evaluates SafetyPolicy
+    (core/policy.py::ScopePolicy.authorize_primitive()) -- that gate is
+    PrimitiveRunner's alone (core/primitives/runner.py, docs/handbook.md
+    §15). Action safety is already covered per kind: SCAN goes through
+    ScanRunner's own ScopePolicy.authorize() (target/allowed_plugins,
+    same as `pownforge scan`), and MANUAL/PIVOT never execute anything to
+    begin with. SafetyPolicy's vocabulary (AllowedAction/ValidationLevel)
+    is built for a PrimitiveDescriptor's declared action_class/max_level,
+    which Action has no equivalent of -- folding it in here would mean
+    inventing that vocabulary for Action, not just reusing an existing
+    check (confirmed 2026-09-29 against an external refactor request;
+    see docs/handbook.md §14's Capability/requires-provides table).
     """
 
     def __init__(

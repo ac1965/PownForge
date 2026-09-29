@@ -3242,6 +3242,24 @@ action追加フォーム、capabilitiesはedgeと同じチェックボックスU
 core/Web API/webui APIクライアント型の変更は不要でした(CLIのオプション
 追加とwebuiフォームへのチェックボックス追加のみ)。
 
+**`Action.capabilities`は分類ラベルであり、`OperationRunner.execute()`の
+可否には一切関与しません**(2026-09-29、外部のリファクタリング指示書
+との照合作業で確認・記録)。上表の「使う場所」列が示すとおり、
+`SafetyPolicy`(`ScopePolicy.authorize_primitive()`)を実際に評価するのは
+`PrimitiveRunner`(検証プリミティブ、[§15](#15-検証プリミティブフレームワークphase-2設計骨格))
+だけであり、`OperationRunner.execute()`はこれを一切通しません。
+Action(SCAN/MANUAL/PIVOT)の安全性は、SCANなら既存の`ScanRunner`経由の
+`ScopePolicy.authorize()`(対象範囲・許可プラグイン)、MANUAL/PIVOTなら
+「PownForge自身は何も実行せず記録のみ」という不変条件で、既に別途
+担保されています。`SafetyPolicy`が要求する`AllowedAction`/
+`ValidationLevel`という語彙は検証プリミティブの`PrimitiveDescriptor`
+専用に設計されたもので、`Action`にはこれに対応する概念
+(`action_class`/`max_level`等)が存在しません。このため`Action`実行に
+`SafetyPolicy`を組み込むのは、既存の対象範囲チェック・承認・
+`requires`/`provides`評価を補強する話ではなく、
+`PrimitiveDescriptor`相当の新しい語彙をAction側に持ち込む設計変更に
+なり、実施しないと判断しました(意図的な見送り、トリガー条件無し)。
+
 ### `AttackNode.state`の遷移(refactor §12)
 
 `AttackNode.state`(`AttackNodeState`: `known`/`candidate`/`planned`/

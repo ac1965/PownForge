@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from pownforge.core.models import Engagement, KillChainPhase, Target, TargetKind
+from pownforge.core.models import Engagement, KillChainPhase, SafetyPolicy, Target, TargetKind
 from pownforge.core.operation import (
     Action,
     ActionKind,
@@ -131,6 +131,44 @@ def test_execute_scan_action_runs_via_scanrunner(tmp_path: Path) -> None:
     operation = store.load("op")
 
     updated = _runner(tmp_path, _policy()).execute(operation, "a1")
+
+    action = next(a for a in updated.actions if a.id == "a1")
+    assert action.status == ActionStatus.COMPLETED
+    assert action.run_id is not None
+
+
+def test_execute_scan_action_ignores_safety_policy_by_design(tmp_path: Path) -> None:
+    """OperationRunner.execute() deliberately never evaluates SafetyPolicy
+    (see OperationRunner's docstring and docs/handbook.md §14's
+    Capability/requires-provides table): that gate belongs to
+    PrimitiveRunner alone (§15). Action safety is already covered per
+    kind -- SCAN via ScanRunner's own ScopePolicy.authorize(), MANUAL/
+    PIVOT by never executing anything. Pin this with a maximally
+    restrictive SafetyPolicy (nothing allowed, execution/persistence/
+    external-network all off) that would reject any validation primitive
+    outright, to prove it has zero effect on SCAN Action execution --
+    confirmed 2026-09-29 against an external refactor request that asked
+    OperationRunner.execute() to also gate on SafetyPolicy; this test is
+    the resulting regression guard for the decision *not* to."""
+    store = AttackOperationStore(tmp_path / "operations")
+    create_operation(store, "op")
+    restrictive_policy = ScopePolicy(
+        targets={"a": Target(name="a", kind=TargetKind.HOST, address="127.0.0.1")},
+        safety=SafetyPolicy(
+            allowed_actions=[],
+            execution_enabled=False,
+            persistence_enabled=False,
+            external_network_enabled=False,
+        ),
+    )
+    add_action(
+        store, restrictive_policy, "op",
+        Action(id="a1", name="x", phase=AttackPhase.RECON, kind=ActionKind.SCAN, target="a", plugin="network"),
+    )
+    approve_action(store, "op", "a1", "operator")
+    operation = store.load("op")
+
+    updated = _runner(tmp_path, restrictive_policy).execute(operation, "a1")
 
     action = next(a for a in updated.actions if a.id == "a1")
     assert action.status == ActionStatus.COMPLETED
