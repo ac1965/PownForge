@@ -392,6 +392,7 @@ pownforge analyze <run-id>
 | `pownforge result review <run-id> <finding-id> <needs-review\|confirmed\|false-positive>` | findingの検証状態を更新 |
 | `pownforge result tag <run-id> --cve <id> [--cve ...] [--remove]` | 既存run(scan/manual)にCVEタグを追加/削除。`report engagement`のCVE露出マトリクスの相関キー |
 | `pownforge result correlate --target <name>` | 対象の既存run群を横断し、個別には低リスクでも組み合わせで高リスクになるパターンを検出(読み取り専用、新規スキャンは実行しない)。詳細は[§7 (v3)](#プラグイン結果の相関分析result-correlateリファクタリング指示書v3-7) |
+| `pownforge result diff <run-a> <run-b>` | 2つの既存run(before/after)が検出したCVE IDの集合を比較し、解消/残存/新規を表示(読み取り専用、新規スキャンは実行しない)。finding件数ではなくCVE ID集合で比較する理由は[§7の実機PoC](#実機poc-検知是正再検証の一連の流れ2026-09-2930)参照 |
 | `pownforge report generate <run-id> [--format markdown\|html\|pdf]` | レポートを`.pownforge/reports/<run-id>.{md,html,pdf}`に生成。`pdf`は`pip install -e '.[pdf]'`(reportlab、Noto Sans JP埋め込みでCJK文字化けなし)が必要 |
 | `pownforge report engagement [--target <name> \| --engagement <name>] [--format markdown\|html\|pdf]` | スキャン/手動run(`RunRecord`)と検証プリミティブrun(`PrimitiveRunRecord`)を横断した1つのエンゲージメント・レポートを生成(詳細は[§13](#13-証跡とレポート))。スコープ省略時は全run。`--engagement`は`--config`が必要 |
 | `pownforge analyze <run-id> [--model ...] [--language ja\|en]` | LLMによる分析草案を出力。`--model`/`--language`省略時は`pownforge config`の保存値を使う |
@@ -2004,22 +2005,21 @@ finding、参考データ点)/`e414581d12b8`)を`pownforge evidence verify
 停止済み(`--purge`は行わず、既存ラボと同じ慣習で対象登録・run記録は
 保持)。
 
-**次の提案(未着手、ユーザー判断待ち)**:
-1. このPoCで得た`Finding`(nginx-image-scanのbefore/after run)を
-   実際に`riskforge scanner import-pownforge`([§18.4](#18-riskforgeとの関係姉妹プロジェクト)、
-   ADR 0015〜0022)で取り込み、RiskForge側のRemediation
-   ワークフロー(propose→approve→execute→Verification)まで一気通貫で
-   確認する「PoC第2弾」。今回のPownForge単体PoCと組み合わせることで、
-   検知→是正→RiskForgeでの記録・承認まで両プロジェクトを跨いだ実機
-   検証になる
-2. 本PoCのbefore/after CVE集合比較は今回Python片手スクリプトで行った
-   (`.pownforge/runs/*.json`を直接パース)。同じ比較を
-   繰り返し使うなら`pownforge result diff <run-a> <run-b>`のような
-   専用コマンド化を検討する価値がある(現時点では未実装、優先度は
-   ユーザー判断)
-3. 今回のnginx/httpdシナリオを`pownforge-vulnerable-lab`側に
-   再現可能な固定フィクスチャとして追加するかどうか(現状はこのセッション
-   限りのアドホックな対象登録)
+**次の提案として挙がった3件のうち2件を実施(2026-09-30)**:
+
+1. **`pownforge result diff <run-a> <run-b>`を実装済み**(提案2)。
+   `core/result_diff.py::diff_cves()`(読み取り専用、`correlator.py`と
+   同じ「`list[RunRecord]`のみを受け取り新規スキャンを実行しない」設計)
+   がFinding titleの`[CVE-xxxx-yyyy]`パターンからCVE IDを抽出し、2つの
+   runの集合差分(resolved/still_present/new_only)を返す。本PoCの
+   run-id(`bc42f22af939`/`e414581d12b8`)で実行し、上記の手作業
+   Python集計(resolved 83・still_present 0・new_only 104)と完全に
+   一致することを実機確認済み。`tests/test_result_diff.py`(純粋関数、
+   4件)・`tests/test_cli_result_diff.py`(CLI経由、2件)を追加、
+   `pytest`全体(882件)がパスすることを確認済み
+2. 提案1(RiskForge連携PoC第2弾)は次節で継続
+3. 提案3(`pownforge-vulnerable-lab`への固定フィクスチャ化)は未着手のまま
+   (優先度はユーザー判断)
 
 ## 8. Playbook: 複数プラグインの連続実行
 

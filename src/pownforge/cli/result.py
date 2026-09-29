@@ -199,3 +199,31 @@ def result_correlate(
         typer.echo(f"[{risk.severity.value}] {risk.title} (rule={risk.rule_id})")
         typer.echo(f"  {risk.detail}")
         typer.echo(f"  runs: {', '.join(risk.source_run_ids)}")
+
+
+@result_app.command("diff")
+def result_diff(
+    run_a: str = typer.Argument(..., help="'Before' run id."),
+    run_b: str = typer.Argument(..., help="'After' run id."),
+    workdir: Path = typer.Option(DEFAULT_WORKDIR),
+) -> None:
+    """Compare the CVE IDs found by two already-saved runs (e.g. a
+    before/after pair around a remediation) -- read-only, never triggers
+    a new scan. Compares CVE ID *sets*, not raw finding counts: a raw
+    count can go up even when every previously-found CVE was fixed, if
+    unrelated new CVEs were disclosed between the two scans (see
+    docs/handbook.md §7's "実機PoC" for a real example of this)."""
+    store = _store(workdir)
+    try:
+        record_a = store.load(run_a)
+        record_b = store.load(run_b)
+    except FileNotFoundError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    diff = diff_cves(record_a, record_b)
+    typer.echo(f"before: {diff.run_a} ({record_a.target}/{record_a.plugin})")
+    typer.echo(f"after:  {diff.run_b} ({record_b.target}/{record_b.plugin})")
+    typer.echo(f"resolved ({len(diff.resolved)}): {', '.join(diff.resolved) or '(none)'}")
+    typer.echo(f"still present ({len(diff.still_present)}): {', '.join(diff.still_present) or '(none)'}")
+    typer.echo(f"new only ({len(diff.new_only)}): {', '.join(diff.new_only) or '(none)'}")
