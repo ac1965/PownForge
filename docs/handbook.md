@@ -4006,6 +4006,11 @@ Docker経由、アクティブスキャンのオプション自体が存在し�
   web/memシェル等)。**設計上の一線として実装しない**。実際の悪用工程は
   人間が別ツールで実施し`result import`で証跡化する分離を維持する
   (AGENTS.md「PownForge自身はexploitを実行しない」不変条件)
+- RiskForge連携の残課題(RiskForge側の作業、PownForge側コードへの
+  影響なし): ATT&CK/CVSSフィールドの最終採用可否、
+  `unknown_vulnerability`/`unclassified`ケースの永続化レビューUI。
+  [PownForge#15](https://github.com/ac1965/PownForge/issues/15)で追跡
+  (詳細は[§18.4](#18-riskforgeとの関係姉妹プロジェクト))
 
 ### 内部アーキテクチャのリファクタリング(Domain/Execution/Store分離)
 
