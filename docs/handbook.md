@@ -4138,7 +4138,10 @@ RiskForge
 「20A. PownForge Integration」章が正本(source of truth)です。本節は
 PownForge側の開発者が知っておくべき要点のみをまとめ、内容を重複・
 分岐させないようにします。連携自体はRiskForge側でPhase 5
-(Integrations)として設計されており、**両プロジェクトとも未実装**です。
+(Integrations)として設計されており、2026-09-28〜29にRiskForge側で
+実装が完了しています(下記18.4参照)。PownForge側にRiskForge向けの
+専用コードは追加していません(§18.1の方針どおり、取り込みは
+RiskForgeのScanner経路が担う)。
 
 ### 18.1 基本原則: PownForgeはRiskForgeの外部Scannerとして扱われる
 
@@ -4172,12 +4175,25 @@ RiskForge = 是正の計画・承認・実行管理・検証結果の記録
 
 ### 18.4 現状と注意
 
-- 連携コードはPownForge・RiskForgeどちらのリポジトリにも存在しません
-- 連携仕様の重要な判断はRiskForge側の`docs/adr/`にADRとして残される
-  想定です(例: `0005-pownforge-integration.md`。本書執筆時点では未作成)
+- 連携コードはRiskForge側リポジトリに実装済みです。PownForge側には
+  RiskForge向けの専用コード(エクスポート形式・専用API等)は無く、既存の
+  `pownforge report`/`evidence`/`pownforge web serve`(`GET /api/runs/
+  {run_id}`)がそのまま使われています
+- 連携仕様の重要な判断はRiskForge側の`docs/adr/`にADR
+  `0005-pownforge-integration.md`(2026-09-28作成)として記録され、続けて
+  `0015`〜`0022`(2026-09-28〜29)で実際の実装(`RawFinding`ドメインモデル・
+  Normalizer・Matcher・PownForge Adapter・CLI `scanner import-pownforge`・
+  ネットワーク経由fetch・target名の自動解決・HTTP API
+  `POST /api/v1/scanner/pownforge-import`・Evidenceの橋渡し)が完了して
+  います。RiskForge側`docs/handbook.md`第14章に経緯の詳細があります
 - どちらかのPhase実装に便乗させてRiskForge連携を先行実装しない、という
-  制約はRiskForge側のAGENTS.mdに明記されています。PownForge側でも同様に、
+  制約はRiskForge側のAGENTS.mdに明記されており、上記実装はいずれも
+  ユーザーからの明示的な依頼を受けて着手されました。PownForge側でも同様に、
   ユーザーから明示的な依頼がない限りRiskForge向けの専用コードは追加しません
+- 残っている論点: ATT&CK/CVSSフィールドをRiskForge側でどこまで採用するか
+  の最終判断(下記18.5/18.6は提案の記録に留まり、RiskForge側は未採用)、
+  および`unknown_vulnerability`/`unclassified`ケースの永続化を運用する
+  レビューUI(RiskForge側、未着手)
 
 ### 18.5 共通severityモデル(`Finding`拡張)とRawFindingとの対応(リファクタリング指示書v3 §3)
 
